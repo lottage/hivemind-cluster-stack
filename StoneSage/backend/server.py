@@ -197,8 +197,31 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(couchdb.get_status())
             return
 
-        elif path == "/api/couchdb/notes":
-            self.send_json({"ok": True, "notes": couchdb.list_notes()})
+        elif path == "/api/status/markdown":
+            vault_p = config.get("obsidian", {}).get("user_vault_path") or config.get("obsidian", {}).get("vault_path")
+            candidates = [
+                os.path.join(vault_p, "Current Status.md") if vault_p else "",
+                r"C:\Users\johna\OneDrive\Documents\obsidian\Current Status.md",
+                "/opt/stonesage/vault_backup/Current Status.md",
+                "vault_backup/Current Status.md"
+            ]
+            content = ""
+            for c in candidates:
+                if c and os.path.exists(c):
+                    try:
+                        with open(c, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        break
+                    except Exception:
+                        pass
+            if content:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(content.encode("utf-8"))
+            else:
+                self.send_json({"error": "Current Status.md not found"}, status=404)
             return
 
         elif path == "/api/obsidian/notes":

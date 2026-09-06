@@ -35,6 +35,7 @@ The local infrastructure is hosted across Proxmox Datacenter `home` on two 24/7 
   - Arr Stack: `prowlarr` (`192.168.1.125:9696`), `sonarr` (`192.168.1.126:8989`), `radarr` (`192.168.1.127:7878`), `lidarr` (`192.168.1.128:8686`)
   - LXC 116 (`obsidian-live-sync` - `192.168.1.230:5984`): CouchDB Obsidian sync
   - LXC 119 (`openwebui` - `192.168.1.108:8080`): Multi-Model Web UI
+  - LXC 120 (`stonesage` - `192.168.1.167:8080`): 24/7 StoneSage Cockpit, Dual-GPU Orchestrator & Obsidian Status Daemon
 
 ### Smart Home & IoT Reserved Endpoints
 - `Nest-Thermostat-9A6E`: `192.168.1.62` (Matter / Google SDM HVAC)

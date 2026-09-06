@@ -32,6 +32,7 @@ Static DHCP reservations, hardware MAC addresses, service endpoints, and device 
 | `flaresolverr` | LXC | `192.168.1.159` | `BC-24-11-80-89-BC` | `:8191` | Cloudflare Challenge Solver Proxy |
 | `docker` | LXC 105 | `192.168.1.204` | `BC-24-11-85-2C-F2` | `:9443` | Docker & Portainer Container Host |
 | `obsidian-live-sync` | LXC 116 | `192.168.1.230` | `BC-24-11-4C-50-5E` | `:5984` | CouchDB Self-Hosted Obsidian LiveSync Server |
+| `stonesage` | LXC 120 | `192.168.1.167` | `BC-24-11-40-F0-69` | `:8080` | StoneSage 24/7 Command Cockpit & Automation Server |
 | `bhyve-bh1g2` | VM | `192.168.1.87` | `44-67-55-2F-0A-22` | — | FreeBSD / TrueNAS Storage Subsystem |
 
 ---
