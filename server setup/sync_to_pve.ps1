@@ -17,9 +17,8 @@ scp -r "$ScriptDir\cluster-bridge" "$VmUser@$VmHost`:/tmp/"
 Write-Host "`n[2/3] Uploading vm-setup to /tmp/vm-setup..." -ForegroundColor Yellow
 scp -r "$ScriptDir\vm-setup" "$VmUser@$VmHost`:/tmp/"
 
-# 2. Execute atomic move and systemctl reload over SSH
-Write-Host "`n[3/3] Deploying to /opt and restarting cluster-mcp.service..." -ForegroundColor Yellow
-$RemoteCommand = "sudo cp -r /tmp/cluster-bridge/* /opt/cluster-bridge/ && sudo cp /tmp/vm-setup/systemd/cluster-mcp.service /etc/systemd/system/cluster-mcp.service && sudo systemctl daemon-reload && sudo systemctl restart cluster-mcp.service && sudo systemctl status cluster-mcp.service --no-pager -n 5"
+Write-Host "`n[3/3] Deploying to /opt and restarting cluster-mcp and llama-coordinator..." -ForegroundColor Yellow
+$RemoteCommand = "sudo cp -r /tmp/cluster-bridge/* /opt/cluster-bridge/ && sudo cp /tmp/vm-setup/systemd/cluster-mcp.service /etc/systemd/system/cluster-mcp.service && sudo cp /tmp/vm-setup/systemd/llama-coordinator.service /etc/systemd/system/llama-coordinator.service && sudo systemctl daemon-reload && sudo systemctl restart cluster-mcp.service llama-coordinator.service && sudo systemctl status cluster-mcp.service llama-coordinator.service --no-pager -n 3"
 
 ssh -t "$VmUser@$VmHost" $RemoteCommand
 

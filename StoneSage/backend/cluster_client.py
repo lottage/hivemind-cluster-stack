@@ -54,8 +54,10 @@ class ClusterClient:
 
     def get_embedding(self, text: str) -> List[float]:
         """Generate 1024-dim dense vector embedding on the RX 6600 XT."""
+        # Bound text to < 800 characters to strictly respect BGE 512-token context limit
+        safe_text = text[:800] if text else ""
         url = f"{self.embedder_url}/embeddings"
-        payload = json.dumps({"input": text, "model": "embedder"}).encode("utf-8")
+        payload = json.dumps({"input": safe_text, "model": "embedder"}).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -253,15 +255,63 @@ class ClusterClient:
             notice_chunk = {"choices": [{"delta": {"content": notice}}]}
             yield f"data: {json.dumps(notice_chunk)}\n\n"
 
+        # RAG Context Augmentation via hybrid search
+        rag_enabled = params.get("rag", True)
+        dispatch_messages = list(messages)
+        if rag_enabled and dispatch_messages:
+            last_user_msg = next((m["content"] for m in reversed(dispatch_messages) if m.get("role") == "user"), "")
+            if last_user_msg and len(last_user_msg.strip()) > 4:
+                try:
+                    # Hybrid search across user notes & thinking dossiers
+                    obsidian_matches = self.search_hybrid(last_user_msg.strip()[:300], collection_name="obsidian_vault", limit=2)
+                    # Semantic search across homelab hardware & codebase knowledge
+                    codebase_matches = self.search_memory(last_user_msg.strip()[:300], collection_name="codebase_knowledge", limit=2)
+                    all_matches = (obsidian_matches or []) + (codebase_matches or [])
+
+                    if all_matches:
+                        rag_snippets = []
+                        for pt in all_matches:
+                            payload = pt.get("payload", {})
+                            title = payload.get("title") or payload.get("path") or "Knowledge Reference"
+                            content = payload.get("content") or payload.get("text") or ""
+                            if content and content.strip():
+                                rag_snippets.append(f"[{title}]:\n{content.strip()[:450]}")
+                        if rag_snippets:
+                            rag_context = "\n\n".join(rag_snippets)
+                            rag_injection = (
+                                f"\n\n[RELEVANT KNOWLEDGE VAULT CONTEXT]:\n{rag_context}\n"
+                                f"[END KNOWLEDGE VAULT CONTEXT]\nReference this homelab/knowledge context when answering."
+                            )
+                            aug_messages = []
+                            found_sys = False
+                            for m in dispatch_messages:
+                                if m.get("role") == "system" and not found_sys:
+                                    aug_messages.append({"role": "system", "content": m["content"] + rag_injection})
+                                    found_sys = True
+                                else:
+                                    aug_messages.append(dict(m))
+                            if not found_sys:
+                                aug_messages.insert(0, {"role": "system", "content": f"You are StoneSage AI, a homelab and coding copilot.{rag_injection}"})
+                            dispatch_messages = aug_messages
+                except Exception:
+                    pass
+
+        # Optimal quantized model sampling invariant
+        temp_default = 0.72 if model_name in ["coordinator", "worker"] else 0.4
         url = f"{base_url.rstrip('/')}/chat/completions"
         body = {
             "model": model_name,
-            "messages": messages,
+            "messages": dispatch_messages,
             "stream": True,
-            "temperature": float(params.get("temperature", 0.4)),
+            "temperature": float(params.get("temperature", temp_default)),
             "max_tokens": int(params.get("max_tokens", 4096))
         }
-        for key in ["top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty"]:
+        if model_name in ["coordinator", "worker"]:
+            body["min_p"] = float(params.get("min_p", 0.06))
+            body["presence_penalty"] = float(params.get("presence_penalty", 0.2))
+            body["top_p"] = float(params.get("top_p", 0.95))
+
+        for key in ["top_k", "repetition_penalty", "frequency_penalty"]:
             if key in params and params[key] is not None:
                 body[key] = params[key]
 

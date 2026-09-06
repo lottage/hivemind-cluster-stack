@@ -582,7 +582,6 @@ TOOLS_MANIFEST = [
         }
     },
     {
-            {
         "name": "configure_model_sampling",
         "description": "Dynamically adjust sampling hyperparameters and tuning profiles for local models (eliminates shallow responses and hallucinations).",
         "inputSchema": {

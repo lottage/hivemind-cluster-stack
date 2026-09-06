@@ -278,17 +278,6 @@
       "icon": "music"
     },
     {
-      "id": "homepage",
-      "name": "Homepage",
-      "category": "infra",
-      "node": "bigserv",
-      "vmid": "113",
-      "url": "http://192.168.1.82:3005",
-      "display_url": "http://192.168.1.82:3005",
-      "description": "Homelab Landing Page & Quick Dashboard",
-      "icon": "layout"
-    },
-    {
       "id": "qbittorrent",
       "name": "qBittorrent",
       "category": "automation",
