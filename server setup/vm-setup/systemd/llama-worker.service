@@ -1,0 +1,29 @@
+[Unit]
+Description=Llama-Server 3B Fast Worker (RX 6600 XT - Vulkan)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+Environment="GGML_VK_VISIBLE_DEVICES=1"
+ExecStart=/usr/local/bin/llama-server \
+    --model /opt/models/qwen2.5-coder-3b-instruct-q5_k_m.gguf \
+    --host 0.0.0.0 \
+    --port 8002 \
+    -ngl 99 \
+    -c 8192 \
+    --flash-attn on \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --alias worker \
+    --metrics
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

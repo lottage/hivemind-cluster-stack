@@ -1,0 +1,795 @@
+#!/usr/bin/env python3
+"""
+Antigravity Universal MCP Bridge Server & 24/7 Autonomous Thinking Machine
+Provides high-performance, robust JSON-RPC HTTP & SSE endpoint for Antigravity IDE.
+Directly routes tasks to the dual-GPU local models, Qdrant vector memory, Home Assistant,
+and the 24/7 Autonomous Thinking Engine with Tier-1 Frontier Verification.
+"""
+
+import os
+import sys
+import json
+import uuid
+import asyncio
+import requests
+from typing import Dict, Any, Optional
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Route
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
+import uvicorn
+
+# Cluster Endpoints on Node 'pve'
+COORDINATOR_URL = os.getenv("COORDINATOR_URL", "http://localhost:8001")
+WORKER_URL = os.getenv("WORKER_URL", "http://localhost:8002")
+EMBED_URL = os.getenv("EMBED_URL", "http://localhost:8003")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://192.168.1.112:6333")
+HASS_URL = os.getenv("HASS_URL", "http://192.168.1.82:8123")
+HASS_TOKEN = os.getenv("HASS_TOKEN", "")
+
+# Autonomous Engine Integration
+try:
+    from autonomous_engine import engine, DOMAINS, ARCHIVE_DIR, SYNTHESIS_FILE, SAMPLING_PROFILES
+except ImportError:
+    engine = None
+    DOMAINS = []
+    ARCHIVE_DIR = ""
+    SYNTHESIS_FILE = ""
+
+# =====================================================================
+# Local Tool Implementations: Cluster & Smarthome
+# =====================================================================
+
+def tool_cluster_health() -> str:
+    def check(url: str, path: str = "/health") -> Dict[str, Any]:
+        try:
+            r = requests.get(f"{url}{path}", timeout=3)
+            is_ok = r.status_code == 200 or (path == "/api/" and r.status_code == 401)
+            return {"status": "online" if is_ok else f"status_{r.status_code}", "latency_ms": round(r.elapsed.total_seconds() * 1000, 1)}
+        except Exception as e:
+            return {"status": "offline", "error": str(e)}
+
+    data = {
+        "coordinator_14b_gpu0": check(COORDINATOR_URL),
+        "worker_3b_gpu1": check(WORKER_URL),
+        "embedder_gpu1": check(EMBED_URL),
+        "qdrant_memory": check(QDRANT_URL, "/readyz"),
+        "home_assistant": check(HASS_URL, "/api/")
+    }
+    return json.dumps(data, indent=2)
+
+def tool_delegate_coordinator(prompt: str, system_prompt: Optional[str] = None, max_tokens: int = 2048, temperature: float = 0.65, min_p: Optional[float] = 0.06, presence_penalty: Optional[float] = 0.20, repetition_penalty: Optional[float] = 1.06, top_p: Optional[float] = 0.90) -> str:
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    else:
+        messages.append({
+            "role": "system",
+            "content": (
+                "You are a principal systems architect, theoretical computer scientist, and master polymath. "
+                "Your responses must possess deep technical texture, rigorous mathematical precision, and exhaustive domain mechanics.\n"
+                "Ground assertions in concrete memory models, hardware primitives, asymptotic bounds, or formal proofs."
+            )
+        })
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": "coordinator",
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": False
+    }
+    if min_p is not None: payload["min_p"] = min_p
+    if presence_penalty is not None: payload["presence_penalty"] = presence_penalty
+    if repetition_penalty is not None: payload["repetition_penalty"] = repetition_penalty
+    if top_p is not None: payload["top_p"] = top_p
+
+    try:
+        r = requests.post(f"{COORDINATOR_URL}/v1/chat/completions", json=payload, timeout=300)
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Error executing coordinator task: {str(e)}"
+
+def tool_delegate_worker(prompt: str, system_prompt: Optional[str] = None, max_tokens: int = 1024, temperature: float = 0.1) -> str:
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    else:
+        messages.append({
+            "role": "system",
+            "content": "You are a fast utility coding worker. Perform the requested task directly and concisely with zero fluff."
+        })
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        r = requests.post(
+            f"{WORKER_URL}/v1/chat/completions",
+            json={"model": "worker", "messages": messages, "max_tokens": max_tokens, "temperature": temperature, "stream": False},
+            timeout=120
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"Error executing worker task: {str(e)}"
+
+def _get_embedding(text: str) -> list:
+    r = requests.post(f"{EMBED_URL}/v1/embeddings", json={"input": text, "model": "embedder"}, timeout=30)
+    r.raise_for_status()
+    return r.json()["data"][0]["embedding"]
+
+def tool_search_memory(query: str, collection_name: str = "codebase_knowledge", limit: int = 5) -> str:
+    try:
+        vector = _get_embedding(query)
+        payload = {"vector": vector, "limit": limit, "with_payload": True}
+        r = requests.post(f"{QDRANT_URL}/collections/{collection_name}/points/search", json=payload, timeout=15)
+        r.raise_for_status()
+        results = r.json().get("result", [])
+        if not results:
+            return f"No relevant memories found in collection '{collection_name}'."
+        formatted = [f"### Match {i+1} (Score: {hit.get('score', 0):.4f}):\n{hit.get('payload', {}).get('content', '')}\nMetadata: {hit.get('payload', {}).get('metadata', {})}" for i, hit in enumerate(results)]
+        return "\n\n---\n\n".join(formatted)
+    except Exception as e:
+        return f"Error querying Qdrant memory: {str(e)}"
+
+def tool_store_memory(content: str, metadata: Optional[Dict[str, Any]] = None, collection_name: str = "codebase_knowledge") -> str:
+    try:
+        vector = _get_embedding(content)
+        point_id = str(uuid.uuid4())
+        point_data = {"points": [{"id": point_id, "vector": vector, "payload": {"content": content, "metadata": metadata or {}}}]}
+        r = requests.put(f"{QDRANT_URL}/collections/{collection_name}/points", json=point_data, timeout=15)
+        r.raise_for_status()
+        return f"Successfully saved memory to '{collection_name}' with ID: {point_id}"
+    except Exception as e:
+        return f"Error persisting to Qdrant: {str(e)}"
+
+def _hass_headers() -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if HASS_TOKEN:
+        headers["Authorization"] = f"Bearer {HASS_TOKEN}"
+    return headers
+
+def tool_home_assistant_entities(domain: Optional[str] = None) -> str:
+    try:
+        r = requests.get(f"{HASS_URL}/api/states", headers=_hass_headers(), timeout=10)
+        if r.status_code == 401:
+            return "Home Assistant returned 401 Unauthorized. Please configure HASS_TOKEN."
+        r.raise_for_status()
+        states = r.json()
+        if domain:
+            states = [s for s in states if s.get("entity_id", "").startswith(f"{domain}.")]
+        summary = [
+            {
+                "entity_id": s.get("entity_id"),
+                "state": s.get("state"),
+                "friendly_name": s.get("attributes", {}).get("friendly_name", ""),
+                "attributes": {k: v for k, v in s.get("attributes", {}).items() if k in ("temperature", "current_temperature", "hvac_modes", "hvac_action", "brightness", "unit_of_measurement")}
+            }
+            for s in states
+        ]
+        return json.dumps(summary, indent=2)
+    except Exception as e:
+        return f"Error querying Home Assistant entities at {HASS_URL}: {str(e)}"
+
+def tool_home_assistant_call(domain: str, service: str, service_data: Optional[Dict[str, Any]] = None) -> str:
+    try:
+        payload = service_data or {}
+        r = requests.post(f"{HASS_URL}/api/services/{domain}/{service}", json=payload, headers=_hass_headers(), timeout=10)
+        if r.status_code == 401:
+            return "Home Assistant returned 401 Unauthorized. Please configure HASS_TOKEN."
+        r.raise_for_status()
+        res = r.json()
+        return f"Successfully called {domain}.{service} with {payload}. Response: {json.dumps(res, indent=2)}"
+    except Exception as e:
+        return f"Error executing Home Assistant service {domain}.{service}: {str(e)}"
+
+def tool_delegate_home_automation(request: str) -> str:
+    system_prompt = (
+        "You are an ambient home automation parser. Your job is to extract the exact Home Assistant action from the user's plain language request.\n"
+        "Return ONLY a JSON object with this exact structure:\n"
+        "{\n"
+        '  "domain": "climate" | "light" | "switch" | "scene" | "automation",\n'
+        '  "service": "set_temperature" | "turn_on" | "turn_off" | "toggle",\n'
+        '  "service_data": {\n'
+        '    "entity_id": "<entity_id>",\n'
+        '    ...extra parameters like "temperature": 72\n'
+        "  }\n"
+        "}\n"
+        "Do not include explanation, markdown fences, or conversational text. Output pure JSON only."
+    )
+    worker_reply = tool_delegate_worker(prompt=f"Parse this home automation request: {request}", system_prompt=system_prompt)
+    try:
+        json_text = worker_reply.strip()
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0].strip()
+        parsed = json.loads(json_text)
+        domain = parsed.get("domain")
+        service = parsed.get("service")
+        service_data = parsed.get("service_data", {})
+        if not domain or not service:
+            return f"Worker generated invalid action payload: {worker_reply}"
+        exec_result = tool_home_assistant_call(domain=domain, service=service, service_data=service_data)
+        return f"Parsed Action:\nDomain: {domain}\nService: {service}\nPayload: {json.dumps(service_data)}\n\nExecution Result:\n{exec_result}"
+    except Exception as e:
+        return f"Could not parse worker automation output ({str(e)}). Raw worker response:\n{worker_reply}"
+
+# =====================================================================
+# Local Tool Implementations: 24/7 Autonomous Thinking & Frontier Tier
+# =====================================================================
+
+def tool_autonomous_thinking_status() -> str:
+    if not engine:
+        return json.dumps({"error": "autonomous_engine module not loaded"})
+    return json.dumps(engine.status(), indent=2)
+
+def tool_start_autonomous_thinking(interval_seconds: int = 60, focus_domain: Optional[str] = None) -> str:
+    if not engine:
+        return "Error: autonomous_engine module not loaded"
+    return engine.start(interval_seconds=interval_seconds, focus_domain=focus_domain)
+
+def tool_stop_autonomous_thinking() -> str:
+    if not engine:
+        return "Error: autonomous_engine module not loaded"
+    return engine.stop()
+
+def tool_run_thinking_cycle(seed_prompt: Optional[str] = None, domain: Optional[str] = None, hypothesis: Optional[str] = None) -> str:
+    if not engine:
+        return "Error: autonomous_engine module not loaded"
+    res = engine.run_single_cycle(seed_prompt=seed_prompt, domain=domain, hypothesis=hypothesis)
+    return json.dumps({
+        "exploration_id": res["exploration_id"],
+        "title": res["title"],
+        "domain": res["domain_name"],
+        "target_invariant": res["target_invariant"],
+        "telemetry": {
+            "worker_tok_s": res["worker_tok_s"],
+            "coord_tok_s": res["coord_tok_s"],
+            "worker_latency_ms": res["worker_latency_ms"],
+            "coord_latency_ms": res["coord_latency_ms"]
+        },
+        "scores": {
+            "worker": res["eval"].get("worker_score"),
+            "coordinator": res["eval"].get("coordinator_score")
+        },
+        "reasoning_divergence": res["eval"].get("reasoning_divergence"),
+        "worker_limitations": res["eval"].get("worker_limitations_observed"),
+        "coordinator_capabilities": res["eval"].get("coordinator_capabilities_or_limits"),
+        "core_architecture_lesson": res["eval"].get("core_architecture_lesson"),
+        "needs_frontier_verification": res["eval"].get("needs_frontier_verification", False),
+        "dossier_path": res.get("dossier_path")
+    }, indent=2)
+
+def tool_get_unverified_explorations(limit: int = 5) -> str:
+    if not engine:
+        return json.dumps({"error": "autonomous_engine not loaded"})
+    unverified = engine.get_unverified_explorations(limit=limit)
+    return json.dumps(unverified, indent=2)
+
+def tool_submit_frontier_critique(exploration_id: str, verdict: str, frontier_notes: str, refined_limits: Optional[str] = None) -> str:
+    if not engine:
+        return "Error: autonomous_engine not loaded"
+    res = engine.submit_frontier_critique(exploration_id, verdict, frontier_notes, refined_limits)
+    return json.dumps(res, indent=2)
+
+def tool_query_thinking_archive(query: str, limit: int = 5) -> str:
+    try:
+        vector = _get_embedding(query)
+        payload = {"vector": vector, "limit": limit, "with_payload": True}
+        r = requests.post(f"{QDRANT_URL}/collections/autonomous_thinking/points/search", json=payload, timeout=15)
+        r.raise_for_status()
+        results = r.json().get("result", [])
+        if not results:
+            return "No matching explorations found in archive."
+        formatted = []
+        for i, hit in enumerate(results):
+            p = hit.get("payload", {})
+            formatted.append(
+                f"### Result {i+1} (Score: {hit.get('score', 0):.4f}):\n"
+                f"**ID**: `{p.get('exploration_id')}` | **Domain**: {p.get('domain_name')}\n"
+                f"**Title**: {p.get('title')}\n"
+                f"**Target Invariant**: {p.get('target_invariant')}\n"
+                f"**Architecture Lesson**: {p.get('core_lesson')}\n"
+                f"**Frontier Verified**: {p.get('frontier_verified', False)}"
+            )
+        return "\n\n---\n\n".join(formatted)
+    except Exception as e:
+        return f"Error searching thinking archive: {str(e)}"
+
+def tool_get_architecture_limits() -> str:
+    candidate_paths = [
+        SYNTHESIS_FILE,
+        os.path.join(ARCHIVE_DIR, "ARCHITECTURE_LIMITS_SYNTHESIS.md"),
+        "/opt/cluster-bridge/thinking_archive/ARCHITECTURE_LIMITS_SYNTHESIS.md",
+        "/home/austin/cluster-bridge/thinking_archive/ARCHITECTURE_LIMITS_SYNTHESIS.md"
+    ]
+    for path in candidate_paths:
+        if path and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                return f"Error reading synthesis file at {path}: {str(e)}"
+    return "Synthesis file not yet populated. Run thinking cycles to extract architecture limits."
+
+def tool_inject_thinking_hypothesis(hypothesis: str, domain: str = "algorithmic_reasoning", priority: str = "normal") -> str:
+    if not engine:
+        return "Error: autonomous_engine not loaded"
+    entry = engine.inject_hypothesis(hypothesis, domain, priority)
+    return f"Successfully queued hypothesis {entry['id']} in domain '{domain}' with priority '{priority}'."
+
+
+def tool_configure_model_sampling(profile_name: Optional[str] = None, auto_rotate: Optional[bool] = None, custom_temperature: Optional[float] = None, custom_min_p: Optional[float] = None, custom_presence_penalty: Optional[float] = None) -> str:
+    if not engine:
+        return "Error: autonomous_engine not loaded"
+    
+    if profile_name:
+        if profile_name in SAMPLING_PROFILES:
+            engine.active_sampling_profile = profile_name
+        else:
+            return f"Unknown profile: {profile_name}. Available: {list(SAMPLING_PROFILES.keys())}"
+            
+    if auto_rotate is not None:
+        engine.cycle_profile_rotation = auto_rotate
+        
+    if custom_temperature is not None or custom_min_p is not None or custom_presence_penalty is not None:
+        p = dict(SAMPLING_PROFILES.get(engine.active_sampling_profile, SAMPLING_PROFILES["deep_architectural"]))
+        if custom_temperature is not None: p["temperature"] = custom_temperature
+        if custom_min_p is not None: p["min_p"] = custom_min_p
+        if custom_presence_penalty is not None: p["presence_penalty"] = custom_presence_penalty
+        SAMPLING_PROFILES["custom"] = p
+        engine.active_sampling_profile = "custom"
+        
+    return json.dumps({
+        "status": "success",
+        "active_profile": engine.active_sampling_profile,
+        "auto_rotate_cycles": engine.cycle_profile_rotation,
+        "current_parameters": SAMPLING_PROFILES.get(engine.active_sampling_profile, {})
+    }, indent=2)
+
+def tool_get_sampling_profiles() -> str:
+    return json.dumps({
+        "active_profile": engine.active_sampling_profile if engine else "deep_architectural",
+        "auto_rotation_enabled": engine.cycle_profile_rotation if engine else True,
+        "available_profiles": SAMPLING_PROFILES
+    }, indent=2)
+
+def tool_sync_obsidian_dossiers() -> str:
+    candidate_dirs = [
+        ARCHIVE_DIR,
+        "/opt/cluster-bridge/thinking_archive",
+        "/home/austin/cluster-bridge/thinking_archive"
+    ]
+    all_files = set()
+    found_dir = ARCHIVE_DIR
+    for d in candidate_dirs:
+        if d and os.path.exists(d):
+            mds = [f for f in os.listdir(d) if f.endswith(".md")]
+            if mds:
+                all_files.update(mds)
+                found_dir = d
+    if all_files:
+        explorations = [f for f in all_files if f.startswith("EXP-")]
+        return (
+            f"Archive at {found_dir} contains {len(all_files)} files ({len(explorations)} exploration dossiers).\n"
+            f"To sync to Obsidian, execute on workstation:\n"
+            f"powershell -ExecutionPolicy Bypass -File 'C:\\Users\\johna\\OneDrive\\Documents\\.ai\\server setup\\sync_archive_to_obsidian.ps1'"
+        )
+    return "Archive directory empty."
+
+# =====================================================================
+# MCP Tool Schemas
+# =====================================================================
+
+TOOLS_MANIFEST = [
+    {
+        "name": "cluster_health",
+        "description": "Check the health status and latency of the dual-GPU models and Qdrant memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "delegate_coordinator",
+        "description": "Send architectural planning, code generation, or unrestricted task to the 14B Qwen2.5-Coder model on the RX 6750 XT (12GB).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "The coding or architecture task description."},
+                "system_prompt": {"type": "string", "description": "Optional system prompt override."},
+                "max_tokens": {"type": "integer", "description": "Max tokens to generate (default: 2048).", "default": 2048},
+                "temperature": {"type": "number", "description": "Sampling temperature (default: 0.2).", "default": 0.2}
+            },
+            "required": ["prompt"]
+        }
+    },
+    {
+        "name": "delegate_worker",
+        "description": "Send fast sub-tasks (writing unit tests, JSON validation, lint checks, docstrings) to the 3B worker on the RX 6600 XT (8GB) running at 80+ tokens/sec.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "The task description."},
+                "system_prompt": {"type": "string", "description": "Optional system prompt."},
+                "max_tokens": {"type": "integer", "description": "Max tokens to generate (default: 1024).", "default": 1024},
+                "temperature": {"type": "number", "description": "Sampling temperature (default: 0.1).", "default": 0.1}
+            },
+            "required": ["prompt"]
+        }
+    },
+    {
+        "name": "search_memory",
+        "description": "Search long-term memory in Qdrant using hardware-accelerated embeddings on the RX 6600 XT.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query or concept to look up."},
+                "collection_name": {"type": "string", "description": "Collection name (default: codebase_knowledge).", "default": "codebase_knowledge"},
+                "limit": {"type": "integer", "description": "Number of results to return (default: 5).", "default": 5}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "store_memory",
+        "description": "Store code architecture decisions, guidelines, or snippets into persistent Qdrant memory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The text content or code snippet to embed and save."},
+                "metadata": {"type": "object", "description": "Optional metadata dictionary."},
+                "collection_name": {"type": "string", "description": "Collection name (default: codebase_knowledge).", "default": "codebase_knowledge"}
+            },
+            "required": ["content"]
+        }
+    },
+    {
+        "name": "home_assistant_entities",
+        "description": "Fetch states and attributes of smart home entities from Home Assistant (192.168.1.82:8123).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Optional domain filter (e.g. 'climate', 'light', 'switch', 'sensor')."}
+            }
+        }
+    },
+    {
+        "name": "home_assistant_call",
+        "description": "Call a Home Assistant service directly (e.g., domain='climate', service='set_temperature', service_data={'entity_id': 'climate.nest_thermostat', 'temperature': 72}).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Service domain (e.g. 'climate', 'light', 'switch')."},
+                "service": {"type": "string", "description": "Service action (e.g. 'set_temperature', 'turn_on', 'turn_off')."},
+                "service_data": {"type": "object", "description": "Payload dictionary (e.g. entity_id, temperature)."}
+            },
+            "required": ["domain", "service"]
+        }
+    },
+    {
+        "name": "delegate_home_automation",
+        "description": "Delegate a natural language smart home command parsed by 3B worker and executed via Home Assistant.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "request": {"type": "string", "description": "Natural language command (e.g. 'Set thermostat to 72 degrees')."}
+            },
+            "required": ["request"]
+        }
+    },
+    {
+        "name": "autonomous_thinking_status",
+        "description": "Check the real-time status of the 24/7 Autonomous Thinking Machine (cycle count, tokens, last finding, daemon state).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "start_autonomous_thinking",
+        "description": "Launch or resume the 24/7 autonomous thinking machine loop on the local GPU cluster.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "interval_seconds": {"type": "integer", "description": "Rest delay in seconds between exploration cycles (default: 60).", "default": 60},
+                "focus_domain": {"type": "string", "description": "Optional domain focus (algorithmic_reasoning, software_architecture, context_stress, adversarial_probing, philosophical_epistemology, code_refactoring_critique)."}
+            }
+        }
+    },
+    {
+        "name": "stop_autonomous_thinking",
+        "description": "Gracefully pause or stop the 24/7 autonomous thinking machine loop.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "run_thinking_cycle",
+        "description": "Immediately trigger an on-demand exploration cycle across the 3 local models and return comparative telemetry, divergence analysis, and discovered architecture limits.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "seed_prompt": {"type": "string", "description": "Optional specific challenge prompt to explore. If omitted, the models autonomously dream up a novel prompt."},
+                "domain": {"type": "string", "description": "Optional cognitive domain override."},
+                "hypothesis": {"type": "string", "description": "Optional underlying hypothesis to test."}
+            }
+        }
+    },
+    {
+        "name": "get_unverified_explorations",
+        "description": "Retrieve recent thinking cycles awaiting Tier-1 Frontier (Antigravity) meta-verification and audit.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Maximum number of unverified explorations to return (default: 5).", "default": 5}
+            }
+        }
+    },
+    {
+        "name": "submit_frontier_critique",
+        "description": "Submit a Tier-1 Frontier model audit and ground truth verdict for a specific exploration dossier, updating Qdrant memory and synthesis.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "exploration_id": {"type": "string", "description": "The exploration ID (e.g. EXP-20260905-XXXX)."},
+                "verdict": {"type": "string", "description": "Verification verdict (e.g. 'CONFIRMED', 'REFINED', 'DEBUNKED', 'INCONCLUSIVE')."},
+                "frontier_notes": {"type": "string", "description": "Detailed frontier analysis and ground truth dissection."},
+                "refined_limits": {"type": "string", "description": "Refined immutable architecture invariant discovered."}
+            },
+            "required": ["exploration_id", "verdict", "frontier_notes"]
+        }
+    },
+    {
+        "name": "query_thinking_archive",
+        "description": "Semantically search past autonomous thinking dossiers and architectural discoveries in Qdrant.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query, concept, or model capability to look up."},
+                "limit": {"type": "integer", "description": "Max results to return (default: 5).", "default": 5}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_architecture_limits",
+        "description": "Retrieve the master living synthesis of discovered model architecture limits, strengths, failure modes, and heuristics.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "inject_thinking_hypothesis",
+        "description": "Queue a custom research hypothesis or puzzle for the 24/7 autonomous thinking machine to explore.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hypothesis": {"type": "string", "description": "The core hypothesis or cognitive question to test."},
+                "domain": {"type": "string", "description": "Cognitive domain (algorithmic_reasoning, software_architecture, context_stress, adversarial_probing, philosophical_epistemology, code_refactoring_critique).", "default": "algorithmic_reasoning"},
+                "priority": {"type": "string", "description": "Priority: 'high' (explore next) or 'normal'.", "default": "normal"}
+            },
+            "required": ["hypothesis"]
+        }
+    },
+    {
+            {
+        "name": "configure_model_sampling",
+        "description": "Dynamically adjust sampling hyperparameters and tuning profiles for local models (eliminates shallow responses and hallucinations).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "profile_name": {
+                    "type": "string",
+                    "description": "Sampling profile: 'deep_architectural' (recommended for 14B), 'rigorous_logic_cot', 'textured_creative', 'mirostat_v2', 'baseline_greedy'."
+                },
+                "auto_rotate": {
+                    "type": "boolean",
+                    "description": "If true, the autonomous engine rotates profiles each cycle to benchmark them comparatively."
+                },
+                "custom_temperature": {"type": "number", "description": "Override temperature."},
+                "custom_min_p": {"type": "number", "description": "Override Min-P probability cutoff (recommended: 0.05 - 0.08)."},
+                "custom_presence_penalty": {"type": "number", "description": "Override presence penalty to discourage repetitive boilerplate (recommended: 0.2 - 0.3)."}
+            }
+        }
+    },
+    {
+        "name": "get_sampling_profiles",
+        "description": "List all configured hyperparameter sampling profiles and their exact settings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "sync_obsidian_dossiers",
+        "description": "Check archive status of exploration dossiers for synchronization to Obsidian vault.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        }
+    }
+]
+
+# =====================================================================
+# Universal JSON-RPC Request Handler
+# =====================================================================
+
+async def handle_jsonrpc(data: dict) -> dict:
+    req_id = data.get("id")
+    method = data.get("method")
+    params = data.get("params", {})
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "PVE-DualGPU-Autonomous-Cluster",
+                    "version": "2.0.0"
+                }
+            }
+        }
+    elif method == "notifications/initialized":
+        return None
+    elif method == "ping":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+    elif method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": {
+                "tools": TOOLS_MANIFEST
+            }
+        }
+    elif method == "tools/call":
+        tool_name = params.get("name")
+        args = params.get("arguments", {})
+        try:
+            # Cluster & Smarthome Tools
+            if tool_name == "cluster_health":
+                output = tool_cluster_health()
+            elif tool_name == "delegate_coordinator":
+                output = tool_delegate_coordinator(**args)
+            elif tool_name == "delegate_worker":
+                output = tool_delegate_worker(**args)
+            elif tool_name == "search_memory":
+                output = tool_search_memory(**args)
+            elif tool_name == "store_memory":
+                output = tool_store_memory(**args)
+            elif tool_name == "home_assistant_entities":
+                output = tool_home_assistant_entities(**args)
+            elif tool_name == "home_assistant_call":
+                output = tool_home_assistant_call(**args)
+            elif tool_name == "delegate_home_automation":
+                output = tool_delegate_home_automation(**args)
+            # Autonomous Thinking Machine Tools
+            elif tool_name == "autonomous_thinking_status":
+                output = tool_autonomous_thinking_status()
+            elif tool_name == "start_autonomous_thinking":
+                output = tool_start_autonomous_thinking(**args)
+            elif tool_name == "stop_autonomous_thinking":
+                output = tool_stop_autonomous_thinking()
+            elif tool_name == "run_thinking_cycle":
+                output = tool_run_thinking_cycle(**args)
+            elif tool_name == "get_unverified_explorations":
+                output = tool_get_unverified_explorations(**args)
+            elif tool_name == "submit_frontier_critique":
+                output = tool_submit_frontier_critique(**args)
+            elif tool_name == "query_thinking_archive":
+                output = tool_query_thinking_archive(**args)
+            elif tool_name == "get_architecture_limits":
+                output = tool_get_architecture_limits()
+            elif tool_name == "inject_thinking_hypothesis":
+                output = tool_inject_thinking_hypothesis(**args)
+            elif tool_name == "configure_model_sampling":
+                output = tool_configure_model_sampling(**args)
+            elif tool_name == "get_sampling_profiles":
+                output = tool_get_sampling_profiles()
+            elif tool_name == "sync_obsidian_dossiers":
+                output = tool_sync_obsidian_dossiers()
+            else:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"}
+                }
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": str(output)}],
+                    "isError": False
+                }
+            }
+        except Exception as e:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "content": [{"type": "text", "text": f"Error: {str(e)}"}],
+                    "isError": True
+                }
+            }
+    else:
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32601, "message": f"Method not supported: {method}"}
+        }
+
+# =====================================================================
+# HTTP & SSE Endpoints
+# =====================================================================
+
+async def post_endpoint(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status_code=400)
+    
+    res = await handle_jsonrpc(body)
+    if res is None:
+        return Response("", status_code=204)
+    return JSONResponse(res)
+
+async def sse_endpoint(request):
+    async def event_generator():
+        yield "event: endpoint\ndata: /sse\n\n"
+        while True:
+            await asyncio.sleep(15)
+            yield ": keepalive\n\n"
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+async def health_endpoint(request):
+    return JSONResponse({
+        "status": "ok",
+        "service": "cluster-mcp-autonomous",
+        "models": ["coordinator", "worker", "embedder"],
+        "engine_active": engine.status()["is_running"] if engine else False
+    })
+
+routes = [
+    Route("/health", endpoint=health_endpoint, methods=["GET"]),
+    Route("/sse", endpoint=sse_endpoint, methods=["GET"]),
+    Route("/sse", endpoint=post_endpoint, methods=["POST"]),
+    Route("/messages", endpoint=post_endpoint, methods=["POST"]),
+    Route("/messages/", endpoint=post_endpoint, methods=["POST"]),
+    Route("/", endpoint=sse_endpoint, methods=["GET"]),
+    Route("/", endpoint=post_endpoint, methods=["POST"]),
+]
+
+app = Starlette(
+    routes=routes,
+    middleware=[
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"]
+        )
+    ]
+)
+
+if __name__ == "__main__":
+    print("Starting Antigravity Universal MCP Bridge & Autonomous Engine on 0.0.0.0:8765...")
+    uvicorn.run(app, host="0.0.0.0", port=8765)

@@ -1,0 +1,29 @@
+[Unit]
+Description=Llama-Server 14B Coordinator (RX 6750 XT - Vulkan)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+Environment="GGML_VK_VISIBLE_DEVICES=0"
+ExecStart=/usr/local/bin/llama-server \
+    --model /opt/models/qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf \
+    --host 0.0.0.0 \
+    --port 8001 \
+    -ngl 99 \
+    -c 12288 \
+    --flash-attn on \
+    -ctk q4_0 \
+    -ctv q4_0 \
+    --alias coordinator \
+    --metrics
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

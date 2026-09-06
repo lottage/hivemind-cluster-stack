@@ -1,0 +1,139 @@
+# Antigravity Workspace Directives: PVE Dual-GPU Cluster & AI Stack
+
+## 1. System Topology & Active Infrastructure
+The local infrastructure is hosted across Proxmox Datacenter `home` on two 24/7 physical nodes (Full registry: `server setup/NETWORK_DEVICE_REGISTRY.md`):
+
+### Proxmox Cluster `home` Management API: `https://192.168.1.245:8006`
+- Unified Proxmox VE 9.2 API daemon managing physical nodes `pve` and `bigserv`.
+- Central entrypoint for cluster-wide node telemetry, resource allocations, and VM/LXC control.
+
+### Node 1: `pve` (`192.168.1.229` - Intel i7-12700K, 32GB RAM)
+- **VM 102 (`ubu` - `192.168.1.105`)**: Dual AMD GPU passthrough compute host
+  - `coordinator` (`:8001`): `Qwen2.5-Coder-14B-Instruct-abliterated` (Q4_K_M) on AMD Radeon RX 6750 XT 12GB (`Vulkan0`).
+  - `worker` (`:8002`): `Qwen2.5-Coder-3B-Instruct` (Q5_K_M) on AMD Radeon RX 6600 XT 8GB (`Vulkan1`).
+  - `embedder` (`:8003`): `bge-large-en-v1.5` (F16) on AMD Radeon RX 6600 XT 8GB (`Vulkan1`).
+  - `cluster-mcp` (`:8765`): Starlette JSON-RPC / SSE MCP bridge in `/opt/cluster-bridge`.
+- **LXC 117 (`qdrant` - `192.168.1.112:6333`)**:
+  - Dedicated vector database with 6 active collections: `companion_profile`, `home_automation_registry`, `codebase_knowledge`, `agent_memories`, `session_transcripts`, `autonomous_thinking`.
+  - Vectors: 1024-dimensional, Cosine distance metric.
+  - `autonomous_thinking`: Stores autonomous exploration dossiers, 14B evaluation metrics, divergence limits, and Tier-1 Frontier audit verdicts. Enforces semantic novelty threshold (< 0.85 cosine similarity).
+
+### Node 2: `bigserv` (`192.168.1.82` - Application, Media & Home Automation Node)
+- **VM 103 (`haos-17.3` - `192.168.1.82:8123`)**: Home Assistant OS
+  - Controls local smart home devices, lights, switches, and Google Nest Thermostat (via local Matter pairing or Google SDM OAuth API).
+  - Guide reference: `server setup/NEST_THERMOSTAT_GUIDE.md`.
+- **VM 115 (`NAS`)**: Network Attached Storage.
+- **Dedicated Container IP Endpoints**:
+  - LXC 100 (`kavita` - `192.168.1.124:5000`): Books / Manga library
+  - LXC 101 (`adguard` - `192.168.1.82:3000`): DNS sinkhole
+  - LXC 104 (`jellyfin` - `192.168.1.180:8096`): Media streaming
+  - LXC 105 (`docker` - `192.168.1.204:9443`): Docker & Portainer
+  - LXC 107 (`immich` - `192.168.1.238:9000`): Photos & videos
+  - LXC 108 (`freshrss` - `192.168.1.212:80`): RSS feeds
+  - LXC 114 (`qbittorrent` - `192.168.1.169:8090`): Torrent client
+  - LXC (`flaresolverr` - `192.168.1.159:8191`): Cloudflare solver
+  - Arr Stack: `prowlarr` (`192.168.1.125:9696`), `sonarr` (`192.168.1.126:8989`), `radarr` (`192.168.1.127:7878`), `lidarr` (`192.168.1.128:8686`)
+  - LXC 116 (`obsidian-live-sync` - `192.168.1.230:5984`): CouchDB Obsidian sync
+  - LXC 119 (`openwebui` - `192.168.1.108:8080`): Multi-Model Web UI
+
+### Smart Home & IoT Reserved Endpoints
+- `Nest-Thermostat-9A6E`: `192.168.1.62` (Matter / Google SDM HVAC)
+- `KP125`: `192.168.1.109:9999` (TP-Link Kasa energy monitoring plug)
+- `GE_Plug_B0BC` (`192.168.1.17`), `GE_Plug_1FB4` (`192.168.1.111`), `GE_Plug_EAF0` (`192.168.1.143`)
+- `LG_Smart_Dryer2_open`: `192.168.1.56` (ThinQ dryer)
+- `Petkit_T4`: `192.168.1.10` (Smart feeder/fountain)
+- Mobile Cockpit: `Austin-s-S25-Ultra` (`192.168.1.178`)
+
+### Command Cockpit: StoneSage (`:8080`)
+- Frontier AI IDE harness, Multi-Node Cluster Orchestrator, Append-Only Obsidian Vault backup, and PWA accessible via local network or Tailscale.
+
+
+---
+
+## 2. Available Native MCP Tools (`pve-cluster`)
+When working in this workspace, the `pve-cluster` MCP server (`http://192.168.1.105:8765/sse`) connects you directly to local hardware and the autonomous cognitive pipeline:
+
+### Cluster Compute & Smart Home Tools:
+- `cluster_health`: Probes latency and online status of all models, Qdrant memory, and Home Assistant.
+- `delegate_coordinator`: Offloads complex coding, architectural planning, and unrestricted code generation to the local 14B Qwen coder without rate limits or token costs.
+- `delegate_worker`: Dispatches unit tests, JSON schema validations, docstrings, or linting to the 3B worker running at 80+ tokens/sec.
+- `search_memory`: Semantically searches Qdrant using hardware-accelerated BGE embeddings. **Rule:** Check memory before re-inventing solutions for the cluster.
+- `store_memory`: Persists architectural decisions, schemas, and code snippets into Qdrant.
+- `home_assistant_entities`: Queries entity states from `http://192.168.1.82:8123` (supports domain filtering, e.g., `climate`, `light`, `switch`).
+- `home_assistant_call`: Invokes Home Assistant services directly with JSON payloads.
+- `delegate_home_automation`: Natural language home automation where the 3B worker extracts domain/service/payload and executes it.
+
+### 24/7 Autonomous Thinking & Frontier Tier Tools:
+- `autonomous_thinking_status`: Probes whether the background thinking machine is active, current cycle count, total tokens, pending audits, and archive paths.
+- `start_autonomous_thinking`: Starts or resumes the 24/7 background exploration loop on the cluster with configurable interval and focus domain.
+- `stop_autonomous_thinking`: Gracefully halts the background autonomous loop.
+- `run_thinking_cycle`: Manually triggers a single exploration cycle across dual GPUs, runs 3B vs 14B comparative benchmarking, extracts architecture limits, archives markdown dossier, and indexes to Qdrant.
+- `get_unverified_explorations`: Retrieves dossiers flagged with high model divergence or uncertainty awaiting Tier-1 Frontier (Antigravity) audit.
+- `submit_frontier_critique`: Injects Antigravity's ground-truth audit verdict, architectural critique, and refined invariant into the dossier, updating both disk and Qdrant vector payload.
+- `query_thinking_archive`: Semantically searches past exploration dossiers and discoveries in Qdrant's `autonomous_thinking` collection.
+- `get_architecture_limits`: Reads the living master synthesis (`ARCHITECTURE_LIMITS_SYNTHESIS.md`) of discovered failure modes, boundaries, and model capabilities.
+- `inject_thinking_hypothesis`: Queues a user or frontier research hypothesis into the priority exploration queue for subsequent cycles.
+- `sync_obsidian_dossiers`: Reports archive dossier count and triggers synchronization to Obsidian vault (`C:\Users\johna\OneDrive\Documents\obsidian\Autonomous Thinking`).
+
+---
+
+## 3. The 4-Tier Cognitive Hierarchy & Autonomous Workflow
+See full charter in `server setup/COMPANION_MANIFESTO.md`.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│             TIER 1: FRONTIER COMPANION & META-VERIFIER                 │
+│                          (Antigravity)                                 │
+│   • Supreme arbiter: Audits 14B conclusions & resolves disagreements   │
+│   • Injects high-level cognitive hypotheses into cluster queue         │
+│   • Distills discovered architecture limits into living synthesis      │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ MCP JSON-RPC / SSE (:8765)
+┌───────────────────────────────────▼────────────────────────────────────┐
+│               CLUSTER MCP BRIDGE & AUTONOMOUS ENGINE                   │
+│   • Starlette Server & 24/7 Cognitive Exploration Engine               │
+│   • Asynchronous State Machine & Automated Novelty Gatekeeper          │
+└───────────────────┬───────────────────┬───────────────────┬────────────┘
+                    │                   │                   │
+         Port :8002 │        Port :8001 │        Port :8003 │ Port :6333
+                    ▼                   ▼                   ▼
+     ┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
+     │ TIER 3: 3B WORKER     │ │ TIER 2: 14B COORDINAT.│ │ TIER 4: VECTOR BRAIN  │
+     │  (RX 6600 XT - 8GB)   │ │  (RX 6750 XT - 12GB)  │ │ (BGE-Large + Qdrant)  │
+     │ • Divergent Prompting │ │ • Deep Logic Solver   │ │ • Novelty Gatekeeper  │
+     │ • Rapid Ideation      │ │ • First-Pass Judge    │ │ • Semantic Deduplicat.│
+     │ • Speed Baseline      │ │ • Unrestricted Code   │ │ • 1024-d Embeddings   │
+     │ • 80+ tokens/sec      │ │ • Limit Identification│ │ • Persistent Dossiers │
+     └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
+```
+
+### Operational Workflow:
+1. **Tier 3 (3B Worker)** dreams up novel prompts across 6 rotating cognitive domains (Algorithmic Reasoning, Distributed Software Architecture, Context Needle Stress, Adversarial Logic, Epistemology, Code Invariants) or consumes injected hypotheses.
+2. **Tier 4 (Vector Brain)** verifies semantic novelty (< 0.85 cosine similarity against past explorations). If too similar, forces mutation.
+3. **Dual Benchmarking**: 3B and 14B models execute the challenge simultaneously on isolated GPUs, measuring token throughput, latency, and reasoning depth.
+4. **Tier 2 (14B Coordinator)** analyzes the divergence, diagnoses limitations, and records the initial architectural invariant into markdown dossiers and Qdrant.
+5. **Tier 1 (Antigravity)** performs meta-verification on unverified explorations, correcting subtle logic errors, refining invariants, and updating `ARCHITECTURE_LIMITS_SYNTHESIS.md`.
+6. **Obsidian Vault Sync**: PowerShell script `sync_archive_to_obsidian.ps1` synchronizes dossiers to `C:\Users\johna\OneDrive\Documents\obsidian\Autonomous Thinking\`.
+
+---
+
+## 4. Critical Technical Lessons & Invariants
+- **Vulkan Device Naming**: `llama-server` requires `--device Vulkan0` and `--device Vulkan1`. Passing integer device numbers (`--device 0`) crashes the argument parser.
+- **Flash Attention Flag**: `--flash-attn` requires an explicit value (`on`, `off`, `auto`). Never omit the value.
+- **KV Cache Quantization**: The 14B coordinator uses `-ctk q4_0 -ctv q4_0` to support a 12k context window in 12GB VRAM.
+- **Uvicorn Graceful Shutdown**: `sudo systemctl restart cluster-mcp.service` may take ~60-90s if an active SSE stream is open with Antigravity.
+- **Home Assistant Auth**: When calling HA REST APIs, pass `Authorization: Bearer <HASS_TOKEN>` or configure via `hub_config.json`. Probe `/api/` allows checking online status.
+- **Novelty Filtering**: Candidate prompts are embedded via BGE-Large at `:8003` and checked against `autonomous_thinking` in Qdrant (`:6333`). Cosine similarity < 0.85 ensures genuine exploration without looping.
+- **Frontier Verification Leniency Bias**: 14B evaluators frequently suffer from syntactic leniency bias (scoring flawed code highly due to clean style). Tier-1 Frontier audit or unit-test execution is strictly required for mathematical invariants.
+- **Scope Division**: Cluster infrastructure scripts and systemd units live in `server setup/`. EasyDash lives in `EasyDash/`. Keep both synchronized with Qdrant vector memory.
+- **Proxmox VE API Token Format & Privilege Separation**: Header format is strictly `Authorization: PVEAPIToken=USER@REALM!TOKENID=SECRET`. In Proxmox, the token secret **is** a Version-4 UUID (e.g. `root@pam!StoneSage=751a3455-xxxx...`). **Privilege Separation Invariant**: Proxmox tokens created with "Privilege Separation" enabled start with 0 permissions (causing HTTP 403 `Permission check failed (..., Sys.Audit)`). The token must either have an explicit ACL permission added under *Datacenter -> Permissions* (Path `/`, Role `Administrator` or `PVEAuditor`, Propagate enabled) OR be re-created with "Privilege Separation" unchecked.
+- **Proxmox Cluster API Host Binding**: Direct management calls to `192.168.1.229:8006` or `192.168.1.82:8006` time out. All cluster API operations, node telemetry, and guest inventories must target the cluster VIP `https://192.168.1.245:8006`.
+- **BGE Embedder Context Limit (< 512 Tokens)**: Port 8003 (`bge-large-en-v1.5` on RX 6600 XT) has a strict 512-token context window. Prompts or chunks exceeding ~1000 characters crash `llama-server` with HTTP 500. All document ingestion and vectorization pipelines (Obsidian, codebase, files) must strictly bound text chunks to < 1000 characters.
+- **Host LAN IP Binding Reality**: The Windows development and harness host machine is assigned local IP `192.168.1.132` (not `.226` or `.110`). StoneSage listens on `0.0.0.0:8080`, accessible at `http://localhost:8080` and `http://192.168.1.132:8080`.
+- **UI & Dashboard Design Invariant: Cyber-Brutalist 90's Terminal Aesthetic**: Explicit ban on "liquid glass", modern material UI blur, pastel pills, or floating gradient fluff. Mandate: raw usability, high-contrast monospace typography (`Consolas`, `JetBrains Mono`), subtle CRT scanline raster overlays, bracketed controls (`[ EXEC ]`, `[ REBOOT ]`, `[ COMMIT ]`), and switchable retro CRT palettes (`crt-green`, `crt-amber`, `win95`).
+- **Model Stack Parameter Refiner & Calibration Loop Skill (`model-stack-refiner`)**: An automated closed-loop empirical test harness located in `.agents/skills/model-stack-refiner/` and globally in `~/.gemini/config/skills/model-stack-refiner/`. It evaluates any model loaded into `:8001` or `:8002` across a 5-domain benchmark suite (Algorithmic Logic, Concurrency & ABA Hazards, Spatial & Dynamic Symmetry, Low-Level Kernel Coherence, Diffusion ML Limits). Models must achieve a **Composite Intelligence Index (CII) >= 8.5/10** with 0 spatial/mathematical hallucinations before being granted unattended 24/7 hands-free execution clearance.
+- **Quantized Model Sampling & Texture Invariant**: When querying or tuning local quantized/abliterated models (e.g., Qwen2.5-Coder on `:8001` or `:8002`), never rely on greedy low-temperature sampling (`\tau <= 0.20`) for open-ended or architectural tasks. Always apply dynamic Min-P (`min_p: 0.05 - 0.08`) paired with `temperature: 0.65 - 0.78` and `presence_penalty: 0.20 - 0.30` to prevent generic boilerplate collapse while suppressing low-probability nonsense.
+- **Evaluator Blind-Spot & Frontier Arbitration Invariant**: Sub-14B models evaluating other models consistently suffer from lexical leniency bias, awarding passing scores to mathematically flawed or hallucinated outputs that sound authoritative. Any benchmark, limit synthesis, or invariant extraction must be arbitrated by Tier-1 Frontier models (Antigravity / Gemini) or verified via deterministic runtime test execution.
+- **Windows OpenSSH Argument Escaping Invariant**: When invoking `scp.exe` from Windows PowerShell or command lines, never end a quoted Windows directory path with a trailing backslash (e.g., `"C:\dest\"`). The trailing `\"` escapes the quote in OpenSSH, causing `Invalid argument` errors. Always strip trailing slashes (e.g., `$dir.TrimEnd('\').TrimEnd('/')`).
+- **PowerShell UTF-8 BOM vs. Python JSON Invariant**: Windows PowerShell `Out-File -Encoding utf8` injects a UTF-8 BOM that breaks Python `json.load()` under standard `utf-8` decoders. Always write JSON files via Python directly or ensure Python loaders specify `encoding="utf-8-sig"`.
+
