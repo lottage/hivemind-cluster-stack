@@ -7,7 +7,7 @@ Uses HA conversation platform triggers for instant local matching (<0.2s).
 import json
 import urllib.request
 
-TOKEN = 'YOUR_LONG_LIVED_TOKEN_HERE'
+TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkODExY2E4ZDIyMzA0YWY4OGExODRlNDQ3MjQxMmUxZCIsImlhdCI6MTc4ODYzOTk1MywiZXhwIjoyMTAzOTk5OTUzfQ.qb9WoW_8wjMgIYAnBHVlmMnV5Q1fsSRZ7AHS4b6oRrs'
 HA_URL = 'http://127.0.0.1:8123'
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
 

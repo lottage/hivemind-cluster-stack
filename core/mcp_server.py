@@ -795,8 +795,15 @@ def tool_hive_mind_query(prompt: str, user_intent: Optional[str] = None, max_tok
 # LOCAL SKILLS, TOOLS & ZIOTRON COUNCIL MULTI-AGENT TOOLS
 # ==============================================================================
 
-SKILLS_DIR = "/opt/cluster-bridge/skills"
-TOOLS_DIR = "/opt/cluster-bridge/tools"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SKILLS_DIR = os.getenv("SKILLS_DIR", os.path.join(BASE_DIR, "skills"))
+if not os.path.exists(SKILLS_DIR) and os.path.exists("/opt/cluster-bridge/skills"):
+    SKILLS_DIR = "/opt/cluster-bridge/skills"
+
+TOOLS_DIR = os.getenv("TOOLS_DIR", os.path.join(BASE_DIR, "tools"))
+if not os.path.exists(TOOLS_DIR) and os.path.exists("/opt/cluster-bridge/tools"):
+    TOOLS_DIR = "/opt/cluster-bridge/tools"
 
 def tool_list_local_skills(query: Optional[str] = None) -> str:
     index_file = os.path.join(SKILLS_DIR, "skills_index.json")
@@ -870,8 +877,13 @@ def tool_run_council_session(topic: Optional[str] = None, rounds: int = 3) -> st
 # AGENT PERSONA MEMORY & GITHUB AGENT INSTALLATION TOOLS
 # ==============================================================================
 
-PROFILES_DIR = "/opt/cluster-bridge/agent_profiles"
-AGENTS_DIR = "/opt/cluster-bridge/agents"
+PROFILES_DIR = os.getenv("PROFILES_DIR", os.path.join(BASE_DIR, "agent_profiles"))
+if not os.path.exists(PROFILES_DIR) and os.path.exists("/opt/cluster-bridge/agent_profiles"):
+    PROFILES_DIR = "/opt/cluster-bridge/agent_profiles"
+
+AGENTS_DIR = os.getenv("AGENTS_DIR", os.path.join(BASE_DIR, "agents"))
+if not os.path.exists(AGENTS_DIR) and os.path.exists("/opt/cluster-bridge/agents"):
+    AGENTS_DIR = "/opt/cluster-bridge/agents"
 
 def tool_list_agent_personas(query: Optional[str] = None) -> str:
     reg_file = os.path.join(PROFILES_DIR, "registry.json")

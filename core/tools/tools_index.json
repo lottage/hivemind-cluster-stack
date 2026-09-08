@@ -1,0 +1,464 @@
+{
+  "autonomous_thinking_status": {
+    "name": "autonomous_thinking_status",
+    "description": "Check the real-time status of the 24/7 Autonomous Thinking Machine (cycle count, tokens, last finding, daemon state).",
+    "parameters": [],
+    "required": [],
+    "file": "autonomous_thinking_status.json"
+  },
+  "cluster_health": {
+    "name": "cluster_health",
+    "description": "Check the health status and latency of the dual-GPU models and Qdrant memory.",
+    "parameters": [],
+    "required": [],
+    "file": "cluster_health.json"
+  },
+  "configure_model_sampling": {
+    "name": "configure_model_sampling",
+    "description": "Dynamically adjust sampling hyperparameters and tuning profiles for local models (eliminates shallow responses and hallucinations).",
+    "parameters": [
+      "auto_rotate",
+      "custom_min_p",
+      "custom_presence_penalty",
+      "custom_temperature",
+      "profile_name"
+    ],
+    "required": [],
+    "file": "configure_model_sampling.json"
+  },
+  "delegate_coordinator": {
+    "name": "delegate_coordinator",
+    "description": "Send architectural planning, systems design, polymath reasoning, or unrestricted tasks to the Ornith-1.5-9B Q8_0 coordinator on the RX 6750 XT (12GB).",
+    "parameters": [
+      "max_tokens",
+      "prompt",
+      "system_prompt",
+      "temperature"
+    ],
+    "required": [
+      "prompt"
+    ],
+    "file": "delegate_coordinator.json"
+  },
+  "delegate_home_automation": {
+    "name": "delegate_home_automation",
+    "description": "Delegate a natural language smart home command parsed by 3B worker and executed via Home Assistant.",
+    "parameters": [
+      "request"
+    ],
+    "required": [
+      "request"
+    ],
+    "file": "delegate_home_automation.json"
+  },
+  "delegate_worker": {
+    "name": "delegate_worker",
+    "description": "Send fast ideation, JSON schema validations, unit tests, or utility tasks to the agile Ornith-1.5-9B Q4_K_M worker on the RX 6600 XT (8GB) running at 80+ tokens/sec.",
+    "parameters": [
+      "max_tokens",
+      "prompt",
+      "system_prompt",
+      "temperature"
+    ],
+    "required": [
+      "prompt"
+    ],
+    "file": "delegate_worker.json"
+  },
+  "elevate_cluster_to_moe": {
+    "name": "elevate_cluster_to_moe",
+    "description": "Dynamically unload the dual 9B models and start Ornith-1.5-35B-A3B Unified Dual-GPU MoE across both GPUs (Vulkan0,Vulkan1 -ts 12,8) sharing 20.4GB VRAM for heavy reasoning tasks.",
+    "parameters": [],
+    "required": [],
+    "file": "elevate_cluster_to_moe.json"
+  },
+  "get_agent_persona": {
+    "name": "get_agent_persona",
+    "description": "Retrieve full profile, personality traits, system prompt, and sampling parameters for a specific agent persona.",
+    "parameters": [
+      "persona_id"
+    ],
+    "required": [
+      "persona_id"
+    ],
+    "file": "get_agent_persona.json"
+  },
+  "get_architecture_limits": {
+    "name": "get_architecture_limits",
+    "description": "Retrieve the master living synthesis of discovered model architecture limits, strengths, failure modes, and heuristics.",
+    "parameters": [],
+    "required": [],
+    "file": "get_architecture_limits.json"
+  },
+  "get_cluster_mode": {
+    "name": "get_cluster_mode",
+    "description": "Check whether the cluster is in Dual 9B Stack mode (Q8 Coordinator + Q4 Worker) or Unified 35B MoE mode (Ornith-1.5-35B-A3B spanning dual-GPU VRAM).",
+    "parameters": [],
+    "required": [],
+    "file": "get_cluster_mode.json"
+  },
+  "get_council_messages": {
+    "name": "get_council_messages",
+    "description": "Retrieve recent inter-agent messages, debate history, and collaboration logs from the MemoryVault Council blackboard.",
+    "parameters": [
+      "limit",
+      "thread_id"
+    ],
+    "required": [],
+    "file": "get_council_messages.json"
+  },
+  "get_frontier_bridge_status": {
+    "name": "get_frontier_bridge_status",
+    "description": "Probe health, authentication state, and failover availability of the 24/7 Frontier Bridge running on bigserv (LXC 120).",
+    "parameters": [],
+    "required": [],
+    "file": "get_frontier_bridge_status.json"
+  },
+  "get_home_vision_log": {
+    "name": "get_home_vision_log",
+    "description": "Retrieve the recent entries from the 24/7 Home & LLM Vision Vigilance Activity Log.",
+    "parameters": [
+      "limit_lines"
+    ],
+    "required": [],
+    "file": "get_home_vision_log.json"
+  },
+  "get_preemption_status": {
+    "name": "get_preemption_status",
+    "description": "Query whether the cluster GPUs are currently preempted by user activity, active cooldown remaining, and requests in flight.",
+    "parameters": [],
+    "required": [],
+    "file": "get_preemption_status.json"
+  },
+  "get_sampling_profiles": {
+    "name": "get_sampling_profiles",
+    "description": "List all configured hyperparameter sampling profiles and their exact settings.",
+    "parameters": [],
+    "required": [],
+    "file": "get_sampling_profiles.json"
+  },
+  "get_unverified_explorations": {
+    "name": "get_unverified_explorations",
+    "description": "Retrieve recent thinking cycles awaiting Tier-1 Frontier (Antigravity) meta-verification and audit.",
+    "parameters": [
+      "limit"
+    ],
+    "required": [],
+    "file": "get_unverified_explorations.json"
+  },
+  "hive_mind_query": {
+    "name": "hive_mind_query",
+    "description": "Communicate with the dual-GPU cluster as a single cohesive Hive-Mind intellect. Both the Q4 Worker and Q8 Coordinator read your prompt, deliberate via consensus to choose the optimal strategy (direct execution, parallel division of labor, autonomous agent spawning, or dynamic MoE elevation), and respond with one unified authoritative voice.",
+    "parameters": [
+      "allow_moe_elevation",
+      "max_tokens",
+      "prompt",
+      "user_intent"
+    ],
+    "required": [
+      "prompt"
+    ],
+    "file": "hive_mind_query.json"
+  },
+  "home_assistant_call": {
+    "name": "home_assistant_call",
+    "description": "Call a Home Assistant service directly (e.g., domain='climate', service='set_temperature', service_data={'entity_id': 'climate.nest_thermostat', 'temperature': 72}).",
+    "parameters": [
+      "domain",
+      "service",
+      "service_data"
+    ],
+    "required": [
+      "domain",
+      "service"
+    ],
+    "file": "home_assistant_call.json"
+  },
+  "home_assistant_entities": {
+    "name": "home_assistant_entities",
+    "description": "Fetch states and attributes of smart home entities from Home Assistant (127.0.0.1:8123).",
+    "parameters": [
+      "domain"
+    ],
+    "required": [],
+    "file": "home_assistant_entities.json"
+  },
+  "inject_thinking_hypothesis": {
+    "name": "inject_thinking_hypothesis",
+    "description": "Queue a custom research hypothesis or puzzle for the 24/7 autonomous thinking machine to explore.",
+    "parameters": [
+      "domain",
+      "hypothesis",
+      "priority"
+    ],
+    "required": [
+      "hypothesis"
+    ],
+    "file": "inject_thinking_hypothesis.json"
+  },
+  "install_github_agent": {
+    "name": "install_github_agent",
+    "description": "Clone an external AI agent or research project from GitHub into the cluster's persistent agent directory (/opt/cluster-bridge/agents/).",
+    "parameters": [
+      "repo_url",
+      "name"
+    ],
+    "required": [
+      "repo_url"
+    ],
+    "file": "install_github_agent.json"
+  },
+  "list_active_agents": {
+    "name": "list_active_agents",
+    "description": "List all active, running, or completed autonomous background subagents in MemoryVault.",
+    "parameters": [],
+    "required": [],
+    "file": "list_active_agents.json"
+  },
+  "list_agent_personas": {
+    "name": "list_agent_personas",
+    "description": "List all stored agent personas, archetypes, and parameters in MemoryVault's persistent persona memory.",
+    "parameters": [
+      "query"
+    ],
+    "required": [],
+    "file": "list_agent_personas.json"
+  },
+  "list_local_skills": {
+    "name": "list_local_skills",
+    "description": "List all 59+ specialized skills installed locally on VM 102 for 0ms low-latency model retrieval.",
+    "parameters": [
+      "query"
+    ],
+    "required": [],
+    "file": "list_local_skills.json"
+  },
+  "post_council_message": {
+    "name": "post_council_message",
+    "description": "Post an inter-agent message, architectural proposal, critique, or code build to the MemoryVault Council shared blackboard.",
+    "parameters": [
+      "sender",
+      "role",
+      "recipient",
+      "message_type",
+      "content",
+      "thread_id"
+    ],
+    "required": [
+      "sender",
+      "role",
+      "recipient",
+      "message_type",
+      "content"
+    ],
+    "file": "post_council_message.json"
+  },
+  "query_thinking_archive": {
+    "name": "query_thinking_archive",
+    "description": "Semantically search past autonomous thinking dossiers and architectural discoveries in Qdrant.",
+    "parameters": [
+      "limit",
+      "query"
+    ],
+    "required": [
+      "query"
+    ],
+    "file": "query_thinking_archive.json"
+  },
+  "read_local_skill": {
+    "name": "read_local_skill",
+    "description": "Read the full markdown instruction set of any local skill from /opt/cluster-bridge/skills/ in < 1ms.",
+    "parameters": [
+      "skill_name"
+    ],
+    "required": [
+      "skill_name"
+    ],
+    "file": "read_local_skill.json"
+  },
+  "read_local_tool": {
+    "name": "read_local_tool",
+    "description": "Read the exact schema, parameters, and descriptions for any cluster tool from /opt/cluster-bridge/tools/ in < 1ms.",
+    "parameters": [
+      "tool_name"
+    ],
+    "required": [
+      "tool_name"
+    ],
+    "file": "read_local_tool.json"
+  },
+  "restore_cluster_to_dual_9b": {
+    "name": "restore_cluster_to_dual_9b",
+    "description": "Restore the cluster from 35B MoE back to the standard 24/7 Dual 9B Stack (Q8 Coordinator on GPU 0, Q4 Worker on GPU 1).",
+    "parameters": [],
+    "required": [],
+    "file": "restore_cluster_to_dual_9b.json"
+  },
+  "run_council_session": {
+    "name": "run_council_session",
+    "description": "Trigger an interactive LlamaIndex + CrewAI style multi-agent collaboration session where ChiefArchitect (Q8), LeadImplementer (Q4), and VerificationCritic (Q4) deliberate, build, and stress-test on a shared topic.",
+    "parameters": [
+      "topic",
+      "rounds"
+    ],
+    "required": [],
+    "file": "run_council_session.json"
+  },
+  "run_thinking_cycle": {
+    "name": "run_thinking_cycle",
+    "description": "Immediately trigger an on-demand exploration cycle across the 3 local models and return comparative telemetry, divergence analysis, and discovered architecture limits.",
+    "parameters": [
+      "domain",
+      "hypothesis",
+      "seed_prompt"
+    ],
+    "required": [],
+    "file": "run_thinking_cycle.json"
+  },
+  "save_agent_persona": {
+    "name": "save_agent_persona",
+    "description": "Save an agent persona with its distinct voice, parameters, and system prompt into MemoryVault's permanent memory and Qdrant.",
+    "parameters": [
+      "id",
+      "name",
+      "role",
+      "personality",
+      "system_prompt",
+      "preferred_model",
+      "sampling_parameters"
+    ],
+    "required": [
+      "id",
+      "name",
+      "role",
+      "personality",
+      "system_prompt"
+    ],
+    "file": "save_agent_persona.json"
+  },
+  "search_memory": {
+    "name": "search_memory",
+    "description": "Search long-term memory in Qdrant using hardware-accelerated embeddings on the RX 6600 XT.",
+    "parameters": [
+      "collection_name",
+      "limit",
+      "query"
+    ],
+    "required": [
+      "query"
+    ],
+    "file": "search_memory.json"
+  },
+  "signal_user_activity": {
+    "name": "signal_user_activity",
+    "description": "Signal real-time interactive user activity (HA Assist, voice, chat) to the cluster. Causes the 24/7 autonomous loop to yield GPU compute immediately and initiate a cooldown.",
+    "parameters": [
+      "reason"
+    ],
+    "required": [],
+    "file": "signal_user_activity.json"
+  },
+  "spawn_background_agent": {
+    "name": "spawn_background_agent",
+    "description": "Commission a persistent autonomous subagent in MemoryVault to execute an ongoing, slow-burn background task across iterative cycles.",
+    "parameters": [
+      "max_iterations",
+      "mission",
+      "model_preference",
+      "name",
+      "role",
+      "system_prompt"
+    ],
+    "required": [
+      "name",
+      "role",
+      "mission"
+    ],
+    "file": "spawn_background_agent.json"
+  },
+  "spawn_from_persona": {
+    "name": "spawn_from_persona",
+    "description": "Commission an autonomous background agent in MemoryVault initialized directly from a stored persona profile.",
+    "parameters": [
+      "persona_id",
+      "mission",
+      "max_iterations"
+    ],
+    "required": [
+      "persona_id",
+      "mission"
+    ],
+    "file": "spawn_from_persona.json"
+  },
+  "start_autonomous_thinking": {
+    "name": "start_autonomous_thinking",
+    "description": "Launch or resume the 24/7 autonomous thinking machine loop on the local GPU cluster.",
+    "parameters": [
+      "focus_domain",
+      "interval_seconds"
+    ],
+    "required": [],
+    "file": "start_autonomous_thinking.json"
+  },
+  "stop_autonomous_thinking": {
+    "name": "stop_autonomous_thinking",
+    "description": "Gracefully pause or stop the 24/7 autonomous thinking machine loop.",
+    "parameters": [],
+    "required": [],
+    "file": "stop_autonomous_thinking.json"
+  },
+  "stop_background_agent": {
+    "name": "stop_background_agent",
+    "description": "Gracefully halt an active background agent by its ID.",
+    "parameters": [
+      "agent_id"
+    ],
+    "required": [
+      "agent_id"
+    ],
+    "file": "stop_background_agent.json"
+  },
+  "store_memory": {
+    "name": "store_memory",
+    "description": "Store code architecture decisions, guidelines, or snippets into persistent Qdrant memory.",
+    "parameters": [
+      "collection_name",
+      "content",
+      "metadata"
+    ],
+    "required": [
+      "content"
+    ],
+    "file": "store_memory.json"
+  },
+  "submit_frontier_critique": {
+    "name": "submit_frontier_critique",
+    "description": "Submit a Tier-1 Frontier model audit and ground truth verdict for a specific exploration dossier, updating Qdrant memory and synthesis.",
+    "parameters": [
+      "exploration_id",
+      "frontier_notes",
+      "refined_limits",
+      "verdict"
+    ],
+    "required": [
+      "exploration_id",
+      "verdict",
+      "frontier_notes"
+    ],
+    "file": "submit_frontier_critique.json"
+  },
+  "sync_obsidian_dossiers": {
+    "name": "sync_obsidian_dossiers",
+    "description": "Check archive status of exploration dossiers for synchronization to Obsidian vault.",
+    "parameters": [],
+    "required": [],
+    "file": "sync_obsidian_dossiers.json"
+  },
+  "trigger_home_vigilance_sweep": {
+    "name": "trigger_home_vigilance_sweep",
+    "description": "Trigger an immediate autonomous Home & LLM Vision vigilance audit across all smart home sensors, climate, and cameras.",
+    "parameters": [],
+    "required": [],
+    "file": "trigger_home_vigilance_sweep.json"
+  }
+}

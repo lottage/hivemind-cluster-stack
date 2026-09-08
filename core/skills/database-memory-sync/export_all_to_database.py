@@ -323,8 +323,8 @@ def index_recent_conversations():
 
 
 def index_obsidian_vault():
-    """Indexes all notes from ClusterAdmin's primary Obsidian vault into Qdrant."""
-    print("\n--- [5/5] Indexing ClusterAdmin's Primary Obsidian Vault Notes ---")
+    """Indexes all notes from Austin's primary Obsidian vault into Qdrant."""
+    print("\n--- [5/5] Indexing Austin's Primary Obsidian Vault Notes ---")
     vault_path = OBSIDIAN_VAULT_DIR
     if not os.path.exists(vault_path):
         print(f"  [WARN] Vault directory '{vault_path}' not found.")
@@ -356,7 +356,7 @@ def index_obsidian_vault():
             # Determine routing category
             lower_rel = rel_path.lower()
             lower_cnt = clean_content.lower()
-            if any(k in lower_rel or k in lower_cnt for k in ["bmw", "home info", "wedding", "accounting", "wgu", "degree", "clusteradmin", "f30"]):
+            if any(k in lower_rel or k in lower_cnt for k in ["bmw", "home info", "wedding", "accounting", "wgu", "degree", "austin", "f30"]):
                 category = "companion_profile"
             elif any(k in lower_rel for k in ["todo", "task", "idea", "jot", "invariants"]):
                 category = "agent_memories"

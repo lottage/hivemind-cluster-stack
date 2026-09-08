@@ -1,11 +1,11 @@
 # Helper script for homelab-ssh-setup skill
 param(
     [string]$TargetHost = "127.0.0.1",
-    [string]$TargetUser = "clusteradmin"
+    [string]$TargetUser = "austin"
 )
 
 $KeyPath = "$HOME\.ssh\id_ed25519"
-$PubPath = "$KYOUR_LONG_LIVED_TOKEN_HERE"
+$PubPath = "$KeyPath.pub"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  Homelab Passwordless SSH Setup Engine" -ForegroundColor Cyan
