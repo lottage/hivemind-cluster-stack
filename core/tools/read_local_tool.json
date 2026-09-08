@@ -1,0 +1,1 @@
+{"name":"read_local_tool","description":"Read the exact schema, parameters, and descriptions for any cluster tool from /opt/cluster-bridge/tools/ in < 1ms.","parameters":{"type":"object","properties":{"tool_name":{"type":"string","description":"The tool identifier (e.g. 'hive_mind_query', 'spawn_background_agent')."}},"required":["tool_name"]}}

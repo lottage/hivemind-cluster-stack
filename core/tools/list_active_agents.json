@@ -1,0 +1,1 @@
+{"name":"list_active_agents","description":"List all active, running, or completed autonomous background subagents in MemoryVault.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

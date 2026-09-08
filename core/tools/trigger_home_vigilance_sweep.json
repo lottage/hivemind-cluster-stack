@@ -1,0 +1,1 @@
+{"name":"trigger_home_vigilance_sweep","description":"Trigger an immediate autonomous Home \u0026 LLM Vision vigilance audit across all smart home sensors, climate, and cameras.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

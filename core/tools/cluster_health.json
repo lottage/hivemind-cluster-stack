@@ -1,0 +1,1 @@
+{"name":"cluster_health","description":"Check the health status and latency of the dual-GPU models and Qdrant memory.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

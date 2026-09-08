@@ -1,0 +1,23 @@
+[Unit]
+Description=Llama Server Unified Dual-GPU MoE (Extreme Reasoning Model)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+ExecStart=/usr/local/bin/llama-server \
+    -m /opt/models/moe-model.gguf \
+    --port 8001 \
+    --host 0.0.0.0 \
+    --device Vulkan0,Vulkan1 \
+    -ts 12,8 \
+    -ngl 99 \
+    -c 4096 \
+    --flash-attn on \
+    -ctk q4_0 -ctv q4_0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

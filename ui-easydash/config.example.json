@@ -1,0 +1,8 @@
+{
+  "cluster_mcp_url": "http://127.0.0.1:8765",
+  "coordinator_url": "http://127.0.0.1:8001",
+  "worker_url": "http://127.0.0.1:8002",
+  "home_assistant_url": "http://127.0.0.1:8123",
+  "home_assistant_token": "YOUR_HASS_TOKEN",
+  "port": 8085
+}

@@ -1,0 +1,431 @@
+{
+  "timestamp": "2026-09-06T04:23:18Z",
+  "coordinator": {
+    "role": "coordinator",
+    "url": "http://127.0.0.1:8001",
+    "status": "online",
+    "model_name": "coordinator"
+  },
+  "worker": {
+    "role": "worker",
+    "url": "http://127.0.0.1:8002",
+    "status": "online",
+    "model_name": "worker"
+  },
+  "target_cii": 8.5,
+  "best_profile": {
+    "profile_id": "rigorous_logic_cot",
+    "profile_name": "Rigorous Mathematical CoT",
+    "parameters": {
+      "temperature": 0.45,
+      "min_p": 0.08,
+      "presence_penalty": 0.05,
+      "repetition_penalty": 1.08
+    },
+    "composite_intelligence_index": 8.54,
+    "is_certified": false,
+    "pillars": {
+      "factual_rigor": 9.4,
+      "invariant_preservation": 9.5,
+      "self_critique_calibration": 7.6,
+      "textural_density": 5.86
+    },
+    "total_hallucinations_detected": 1,
+    "benchmark_results": [
+      {
+        "benchmark_id": "BENCH-01-ALGORITHMIC",
+        "title": "Exhaustive Topological Permutations with Cycle Detection",
+        "worker_tok_s": 64.1,
+        "coord_tok_s": 38.9,
+        "frontier_eval": {
+          "factual_rigor": 10.0,
+          "invariant_preservation": 10.0,
+          "textural_density": 6.6,
+          "invariants_found": 3,
+          "total_invariants": 3,
+          "invariants_missing": [],
+          "traps_triggered": []
+        },
+        "eval_calib_score": 8.0
+      },
+      {
+        "benchmark_id": "BENCH-02-DISTRIBUTED",
+        "title": "Lock-Free Bounded Queue & ABA Mitigation",
+        "worker_tok_s": 63.4,
+        "coord_tok_s": 38.7,
+        "frontier_eval": {
+          "factual_rigor": 10.0,
+          "invariant_preservation": 10.0,
+          "textural_density": 5.6,
+          "invariants_found": 3,
+          "total_invariants": 3,
+          "invariants_missing": [],
+          "traps_triggered": []
+        },
+        "eval_calib_score": 8.0
+      },
+      {
+        "benchmark_id": "BENCH-03-AESTHETIC-GEOMETRY",
+        "title": "Classical Armature: Rabatment and Dynamic Symmetry",
+        "worker_tok_s": 63.6,
+        "coord_tok_s": 38.9,
+        "frontier_eval": {
+          "factual_rigor": 7.0,
+          "invariant_preservation": 7.5,
+          "textural_density": 5.1,
+          "invariants_found": 3,
+          "total_invariants": 4,
+          "invariants_missing": [],
+          "traps_triggered": [
+            "Conflated root-2 dynamic symmetry with golden ratio phi"
+          ]
+        },
+        "eval_calib_score": 6.0
+      },
+      {
+        "benchmark_id": "BENCH-04-LOW-LEVEL-KERNEL",
+        "title": "Hardware False Sharing, Cache Line Bouncing, and Memory Barriers",
+        "worker_tok_s": 63.6,
+        "coord_tok_s": 38.8,
+        "frontier_eval": {
+          "factual_rigor": 10.0,
+          "invariant_preservation": 10.0,
+          "textural_density": 5.9,
+          "invariants_found": 4,
+          "total_invariants": 4,
+          "invariants_missing": [],
+          "traps_triggered": []
+        },
+        "eval_calib_score": 8.0
+      },
+      {
+        "benchmark_id": "BENCH-05-DIFFUSION-CRITIQUE",
+        "title": "Diffusion Micro-Texture vs Global Pictorial Armature Collapse",
+        "worker_tok_s": 64.0,
+        "coord_tok_s": 39.2,
+        "frontier_eval": {
+          "factual_rigor": 10.0,
+          "invariant_preservation": 10.0,
+          "textural_density": 6.1,
+          "invariants_found": 3,
+          "total_invariants": 3,
+          "invariants_missing": [],
+          "traps_triggered": []
+        },
+        "eval_calib_score": 8.0
+      }
+    ]
+  },
+  "all_runs": [
+    {
+      "profile_id": "deep_architectural",
+      "profile_name": "Deep Architectural & Textured",
+      "parameters": {
+        "temperature": 0.65,
+        "min_p": 0.06,
+        "presence_penalty": 0.2,
+        "repetition_penalty": 1.06
+      },
+      "composite_intelligence_index": 7.8,
+      "is_certified": false,
+      "pillars": {
+        "factual_rigor": 8.6,
+        "invariant_preservation": 9.0,
+        "self_critique_calibration": 6.6,
+        "textural_density": 5.16
+      },
+      "total_hallucinations_detected": 2,
+      "benchmark_results": [
+        {
+          "benchmark_id": "BENCH-01-ALGORITHMIC",
+          "title": "Exhaustive Topological Permutations with Cycle Detection",
+          "worker_tok_s": 63.8,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.0,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-02-DISTRIBUTED",
+          "title": "Lock-Free Bounded Queue & ABA Mitigation",
+          "worker_tok_s": 63.5,
+          "coord_tok_s": 38.7,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.3,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-03-AESTHETIC-GEOMETRY",
+          "title": "Classical Armature: Rabatment and Dynamic Symmetry",
+          "worker_tok_s": 63.4,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 3.0,
+            "invariant_preservation": 5.0,
+            "textural_density": 2.9,
+            "invariants_found": 2,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": [
+              "Hallucinated rabatment as lines from midpoints to corners",
+              "Conflated root-2 dynamic symmetry with golden ratio phi"
+            ]
+          },
+          "eval_calib_score": 1.0
+        },
+        {
+          "benchmark_id": "BENCH-04-LOW-LEVEL-KERNEL",
+          "title": "Hardware False Sharing, Cache Line Bouncing, and Memory Barriers",
+          "worker_tok_s": 63.6,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.0,
+            "invariants_found": 4,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-05-DIFFUSION-CRITIQUE",
+          "title": "Diffusion Micro-Texture vs Global Pictorial Armature Collapse",
+          "worker_tok_s": 63.7,
+          "coord_tok_s": 39.1,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 4.6,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        }
+      ]
+    },
+    {
+      "profile_id": "rigorous_logic_cot",
+      "profile_name": "Rigorous Mathematical CoT",
+      "parameters": {
+        "temperature": 0.45,
+        "min_p": 0.08,
+        "presence_penalty": 0.05,
+        "repetition_penalty": 1.08
+      },
+      "composite_intelligence_index": 8.54,
+      "is_certified": false,
+      "pillars": {
+        "factual_rigor": 9.4,
+        "invariant_preservation": 9.5,
+        "self_critique_calibration": 7.6,
+        "textural_density": 5.86
+      },
+      "total_hallucinations_detected": 1,
+      "benchmark_results": [
+        {
+          "benchmark_id": "BENCH-01-ALGORITHMIC",
+          "title": "Exhaustive Topological Permutations with Cycle Detection",
+          "worker_tok_s": 64.1,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.6,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-02-DISTRIBUTED",
+          "title": "Lock-Free Bounded Queue & ABA Mitigation",
+          "worker_tok_s": 63.4,
+          "coord_tok_s": 38.7,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 5.6,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-03-AESTHETIC-GEOMETRY",
+          "title": "Classical Armature: Rabatment and Dynamic Symmetry",
+          "worker_tok_s": 63.6,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 7.0,
+            "invariant_preservation": 7.5,
+            "textural_density": 5.1,
+            "invariants_found": 3,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": [
+              "Conflated root-2 dynamic symmetry with golden ratio phi"
+            ]
+          },
+          "eval_calib_score": 6.0
+        },
+        {
+          "benchmark_id": "BENCH-04-LOW-LEVEL-KERNEL",
+          "title": "Hardware False Sharing, Cache Line Bouncing, and Memory Barriers",
+          "worker_tok_s": 63.6,
+          "coord_tok_s": 38.8,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 5.9,
+            "invariants_found": 4,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-05-DIFFUSION-CRITIQUE",
+          "title": "Diffusion Micro-Texture vs Global Pictorial Armature Collapse",
+          "worker_tok_s": 64.0,
+          "coord_tok_s": 39.2,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.1,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        }
+      ]
+    },
+    {
+      "profile_id": "textured_creative",
+      "profile_name": "Textured Creative & Divergent",
+      "parameters": {
+        "temperature": 0.78,
+        "min_p": 0.05,
+        "presence_penalty": 0.3,
+        "repetition_penalty": 1.08
+      },
+      "composite_intelligence_index": 8.25,
+      "is_certified": false,
+      "pillars": {
+        "factual_rigor": 9.4,
+        "invariant_preservation": 8.84,
+        "self_critique_calibration": 7.6,
+        "textural_density": 5.26
+      },
+      "total_hallucinations_detected": 1,
+      "benchmark_results": [
+        {
+          "benchmark_id": "BENCH-01-ALGORITHMIC",
+          "title": "Exhaustive Topological Permutations with Cycle Detection",
+          "worker_tok_s": 63.9,
+          "coord_tok_s": 39.1,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.6,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-02-DISTRIBUTED",
+          "title": "Lock-Free Bounded Queue & ABA Mitigation",
+          "worker_tok_s": 63.5,
+          "coord_tok_s": 38.9,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 6.5,
+            "invariants_found": 3,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-03-AESTHETIC-GEOMETRY",
+          "title": "Classical Armature: Rabatment and Dynamic Symmetry",
+          "worker_tok_s": 63.6,
+          "coord_tok_s": 39.0,
+          "frontier_eval": {
+            "factual_rigor": 7.0,
+            "invariant_preservation": 7.5,
+            "textural_density": 2.5,
+            "invariants_found": 3,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": [
+              "Conflated root-2 dynamic symmetry with golden ratio phi"
+            ]
+          },
+          "eval_calib_score": 6.0
+        },
+        {
+          "benchmark_id": "BENCH-04-LOW-LEVEL-KERNEL",
+          "title": "Hardware False Sharing, Cache Line Bouncing, and Memory Barriers",
+          "worker_tok_s": 63.4,
+          "coord_tok_s": 38.7,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 10.0,
+            "textural_density": 4.7,
+            "invariants_found": 4,
+            "total_invariants": 4,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        },
+        {
+          "benchmark_id": "BENCH-05-DIFFUSION-CRITIQUE",
+          "title": "Diffusion Micro-Texture vs Global Pictorial Armature Collapse",
+          "worker_tok_s": 63.8,
+          "coord_tok_s": 39.0,
+          "frontier_eval": {
+            "factual_rigor": 10.0,
+            "invariant_preservation": 6.7,
+            "textural_density": 6.0,
+            "invariants_found": 2,
+            "total_invariants": 3,
+            "invariants_missing": [],
+            "traps_triggered": []
+          },
+          "eval_calib_score": 8.0
+        }
+      ]
+    }
+  ]
+}

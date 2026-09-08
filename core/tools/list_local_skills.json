@@ -1,0 +1,1 @@
+{"name":"list_local_skills","description":"List all 59+ specialized skills installed locally on VM 102 for 0ms low-latency model retrieval.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Optional keyword to filter skills."}}}}

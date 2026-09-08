@@ -1,0 +1,88 @@
+{
+  "suite_version": "1.0.0",
+  "description": "Canonical multi-domain benchmark battery for evaluating and calibrating local LLM stack parameters before granting 24/7 hands-free autonomous clearance.",
+  "passing_threshold_cii": 8.5,
+  "benchmarks": [
+    {
+      "id": "BENCH-01-ALGORITHMIC",
+      "domain": "Algorithmic & Recursive State-Space Search",
+      "title": "Exhaustive Topological Permutations with Cycle Detection",
+      "prompt": "Implement in Python a cycle-detecting Directed Acyclic Graph (DAG) solver that returns ALL topologically valid node execution orders (all permutations) using backtracking DFS. Enforce: (1) Graph represented as adjacency list, (2) Explicit CycleDetectedError raised if any back-edge exists, (3) Formal time and space complexity analysis in Big-O notation, (4) Zero recursive call stack exhaustion on linear graphs up to depth 1,000.",
+      "required_invariants": [
+        "Raises CycleDetectedError upon back-edge detection",
+        "Returns all valid topological permutations (not just a single valid order)",
+        "Tracks in-degrees or unvisited/visiting/visited state tri-color graph traversal",
+        "Includes formal Big-O time complexity (e.g., O(V! * (V + E)) worst case for complete DAGs)"
+      ],
+      "hallucination_traps": [
+        "Returning only a single topological sort instead of all permutations",
+        "Using simple BFS Kahn's algorithm without backtracking to explore the full permutation tree"
+      ]
+    },
+    {
+      "id": "BENCH-02-DISTRIBUTED",
+      "domain": "Distributed Concurrency & Memory Reclamation",
+      "title": "Lock-Free Bounded Queue & ABA Mitigation",
+      "prompt": "Design and explain an atomic, lock-free concurrent Single-Producer Multi-Consumer (SPMC) or Multi-Producer Multi-Consumer (MPMC) queue in C++ or Rust using atomic primitives (compare_exchange_weak/strong). Address: (1) Exact memory ordering (memory_order_acquire, memory_order_release, memory_order_seq_cst) on enqueue/dequeue, (2) Precise mitigation of the classic ABA problem (e.g. tagged pointers / atomic 128-bit CAS or Hazard Pointers), (3) Safe concurrent memory reclamation without memory leaks or use-after-free, (4) Proof of lock-freedom and progress guarantees.",
+      "required_invariants": [
+        "Explicitly addresses the ABA problem using tagged pointers, double-word CAS, or Hazard Pointers / Epoch-Based Reclamation (RCU)",
+        "Specifies exact memory ordering flags rather than generic volatile/mutex locks",
+        "Distinguishes between lock-freedom (system-wide progress) and wait-freedom (per-thread bounded progress)",
+        "Handles spurious failures in compare_exchange_weak inside loop"
+      ],
+      "hallucination_traps": [
+        "Omitting memory reclamation and leaving deleted nodes dangling",
+        "Claiming standard atomic pointers prevent ABA without counter or epoch tagging"
+      ]
+    },
+    {
+      "id": "BENCH-03-AESTHETIC-GEOMETRY",
+      "domain": "Spatial Composition & Aesthetic Geometry",
+      "title": "Classical Armature: Rabatment and Dynamic Symmetry",
+      "prompt": "Provide a mathematically rigorous breakdown of pictorial geometric armature across classical Renaissance and Baroque compositions. Address: (1) Exact geometric derivation of the 'Rabatment of the Rectangle' and how it operates on aspect ratios w/h between 1.0 and 2.0, (2) Dynamic symmetry constructions for root-2, root-3, and golden section (phi = (1 + sqrt(5))/2) rectangles, (3) The Steelyard Principle of visual weight balancing small saturated focal accents against vast neutral masses, (4) How Notan (binary light/dark spatial hierarchy) prevents visual entropy and directs saccadic eye movement.",
+      "required_invariants": [
+        "Rabatment must be correctly defined as swinging/rotating the shorter side along the longer side to form a square (yielding two overlapping squares when w/h < 2)",
+        "Golden ratio correctly stated as phi \u2248 1.618 and root-2 as sqrt(2) \u2248 1.414 without conflating the two",
+        "Steelyard principle explained as lever-arm analogy where visual weight = mass * distance from fulcrum (small high-saturation accent at perimeter balances vast neutral center)",
+        "Notan explained as structural tonal massing rather than line drawing"
+      ],
+      "hallucination_traps": [
+        "Defining rabatment as connecting midpoints of sides to corners",
+        "Claiming root-2 rectangle contains right triangles with legs of length phi",
+        "Describing Notan merely as 'Japanese art' without structural light/dark balance mechanics"
+      ]
+    },
+    {
+      "id": "BENCH-04-LOW-LEVEL-KERNEL",
+      "domain": "Low-Level Kernel Architecture & Hardware Coherence",
+      "title": "Hardware False Sharing, Cache Line Bouncing, and Memory Barriers",
+      "prompt": "Analyze cache line bouncing and false sharing in high-throughput multi-core Linux systems. Address: (1) MESI/MOESI cache coherence protocols and what happens when two cores modify adjacent variables on the same 64-byte cache line, (2) Software alignment mitigation using alignas(64) / __attribute__((aligned(SMP_CACHE_BYTES))) in kernel or user-space ring buffers, (3) The difference between compiler barriers (barrier()) and CPU memory fences (smp_mb(), smp_rmb(), smp_wmb()), (4) NUMA effects: local vs remote socket DRAM access latencies and mitigation via numactl/mbind.",
+      "required_invariants": [
+        "Explicitly mentions 64-byte cache line standard on x86_64/ARM64",
+        "Correctly walks through Invalid (I) state transitions under MESI when false sharing triggers bus invalidation broadcasts",
+        "Uses cache line padding/alignment annotations (alignas(64) or L1_CACHE_BYTES)",
+        "Accurately separates instruction reordering at compile time from hardware out-of-order store buffer flushing"
+      ],
+      "hallucination_traps": [
+        "Confusing volatile keyword with hardware memory barriers",
+        "Claiming false sharing causes memory corruption rather than severe performance degradation / bus saturation"
+      ]
+    },
+    {
+      "id": "BENCH-05-DIFFUSION-CRITIQUE",
+      "domain": "Generative Machine Learning & Architecture Limits",
+      "title": "Diffusion Micro-Texture vs Global Pictorial Armature Collapse",
+      "prompt": "Provide a rigorous mechanistic analysis of why state-of-the-art generative diffusion and flow-matching vision models (e.g. Stable Diffusion, Flux, Midjourney) frequently excel at micro-texture, local material synthesis, and high-frequency details, but catastrophically fail at global pictorial armature, multi-subject spatial balance, and geometric perspective. Contrast U-Net / DiT cross-attention patch mechanisms with human visual composition heuristics.",
+      "required_invariants": [
+        "Identifies local denoising loss (MSE / flow matching on noise residuals) as prioritizing local pixel covariance",
+        "Analyzes patch tokenization (e.g. 2x2 or 4x4 latent patches) and receptive field dynamics in self-attention vs inductive compositional biases",
+        "Explains absence of explicit global geometric constraint solvers or physical perspective projections in standard diffusion architectures",
+        "Contrasts with classical human saccadic composition (macro armature hierarchy established before micro-detail rendering)"
+      ],
+      "hallucination_traps": [
+        "Attributing diffusion spatial failures purely to low training dataset size",
+        "Vague hand-waving without citing attention mechanisms or latent diffusion formulations"
+      ]
+    }
+  ]
+}

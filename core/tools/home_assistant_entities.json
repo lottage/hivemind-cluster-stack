@@ -1,0 +1,1 @@
+{"name":"home_assistant_entities","description":"Fetch states and attributes of smart home entities from Home Assistant (127.0.0.1:8123).","parameters":{"properties":{"domain":{"description":"Optional domain filter (e.g. 'climate', 'light', 'switch', 'sensor').","type":"string"}},"type":"object"}}

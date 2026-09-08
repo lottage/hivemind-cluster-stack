@@ -1,0 +1,1 @@
+{"name":"list_agent_personas","description":"List all stored agent personas, archetypes, and parameters in MemoryVault's persistent persona memory.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"Optional search term to filter personas by name or role."}}}}

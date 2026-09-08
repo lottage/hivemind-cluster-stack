@@ -1,0 +1,21 @@
+[Unit]
+Description=Llama Server Worker (Agile Ideator / Fast Utility Model)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+ExecStart=/usr/local/bin/llama-server \
+    -m /opt/models/worker-model.gguf \
+    --port 8002 \
+    --host 0.0.0.0 \
+    --device Vulkan1 \
+    -ngl 99 \
+    -c 4096 \
+    --flash-attn on
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1 @@
+{"name":"get_council_messages","description":"Retrieve recent inter-agent messages, debate history, and collaboration logs from the MemoryVault Council blackboard.","parameters":{"type":"object","properties":{"limit":{"type":"integer","default":20,"description":"Max messages to retrieve."},"thread_id":{"type":"string","description":"Optional thread ID to filter by."}}}}

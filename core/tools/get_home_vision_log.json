@@ -1,0 +1,1 @@
+{"name":"get_home_vision_log","description":"Retrieve the recent entries from the 24/7 Home \u0026 LLM Vision Vigilance Activity Log.","parameters":{"properties":{"limit_lines":{"default":100,"description":"Number of lines to read (default 100).","type":"integer"}},"type":"object"}}

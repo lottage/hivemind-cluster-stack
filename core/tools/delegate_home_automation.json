@@ -1,0 +1,1 @@
+{"name":"delegate_home_automation","description":"Delegate a natural language smart home command parsed by 3B worker and executed via Home Assistant.","parameters":{"properties":{"request":{"description":"Natural language command (e.g. 'Set thermostat to 72 degrees').","type":"string"}},"required":["request"],"type":"object"}}

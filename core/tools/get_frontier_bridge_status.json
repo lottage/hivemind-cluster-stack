@@ -1,0 +1,1 @@
+{"name":"get_frontier_bridge_status","description":"Probe health, authentication state, and failover availability of the 24/7 Frontier Bridge running on bigserv (LXC 120).","parameters":{"properties":{},"type":"object"}}

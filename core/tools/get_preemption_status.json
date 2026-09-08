@@ -1,0 +1,1 @@
+{"name":"get_preemption_status","description":"Query whether the cluster GPUs are currently preempted by user activity, active cooldown remaining, and requests in flight.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

@@ -1,0 +1,1 @@
+{"name":"get_agent_persona","description":"Retrieve full profile, personality traits, system prompt, and sampling parameters for a specific agent persona.","parameters":{"type":"object","properties":{"persona_id":{"type":"string","description":"The unique handle (e.g. 'richard-feynman', 'feynman-researcher', 'chief-architect')."}},"required":["persona_id"]}}

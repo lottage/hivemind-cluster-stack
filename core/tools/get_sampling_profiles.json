@@ -1,0 +1,1 @@
+{"name":"get_sampling_profiles","description":"List all configured hyperparameter sampling profiles and their exact settings.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

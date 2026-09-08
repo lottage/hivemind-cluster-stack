@@ -1,0 +1,14 @@
+{
+  "coordinator_url": "http://127.0.0.1:8001",
+  "worker_url": "http://127.0.0.1:8002",
+  "embed_url": "http://127.0.0.1:8003",
+  "qdrant_url": "http://127.0.0.1:6333",
+  "ha_url": "http://127.0.0.1:8123",
+  "ha_token": "YOUR_HOME_ASSISTANT_TOKEN",
+  "proxmox_host": "https://127.0.0.1:8006",
+  "proxmox_token_id": "USER@REALM!TOKENID",
+  "proxmox_token_secret": "YOUR_UUID_SECRET",
+  "couchdb_url": "http://127.0.0.1:5984",
+  "immich_url": "http://127.0.0.1:9000",
+  "port": 8080
+}

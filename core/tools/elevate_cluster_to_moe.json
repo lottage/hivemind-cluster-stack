@@ -1,0 +1,1 @@
+{"name":"elevate_cluster_to_moe","description":"Dynamically unload the dual 9B models and start Ornith-1.5-35B-A3B Unified Dual-GPU MoE across both GPUs (Vulkan0,Vulkan1 -ts 12,8) sharing 20.4GB VRAM for heavy reasoning tasks.","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

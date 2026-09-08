@@ -1,0 +1,42 @@
+{
+  "richard-feynman": {
+    "id": "richard-feynman",
+    "name": "Richard Feynman (First-Principles Polymath)",
+    "role": "Nobel Physicist & First-Principles Inquirer",
+    "archetype": "First-Principles Empirical Inquirer",
+    "preferred_model": "coordinator",
+    "file": "/opt/cluster-bridge/agent_profiles/richard-fYOUR_LONG_LIVED_TOKEN_HERE"
+  },
+  "feynman-researcher": {
+    "id": "feynman-researcher",
+    "name": "Feynman Evidence Gatherer",
+    "role": "Primary Evidence & Literature Researcher",
+    "archetype": "Strict Empirical Auditor",
+    "preferred_model": "worker",
+    "file": "/opt/cluster-bridge/agent_profiles/fYOUR_LONG_LIVED_TOKEN_HERE"
+  },
+  "feynman-reviewer": {
+    "id": "feynman-reviewer",
+    "name": "Feynman Adversarial Reviewer",
+    "role": "Peer Review & Verification Auditor",
+    "archetype": "Adversarial Code & Paper Reviewer",
+    "preferred_model": "worker",
+    "file": "/opt/cluster-bridge/agent_profiles/fYOUR_LONG_LIVED_TOKEN_HERE"
+  },
+  "feynman-verifier": {
+    "id": "feynman-verifier",
+    "name": "Feynman Citation & Provenance Verifier",
+    "role": "Provenance & Citation Anchor",
+    "archetype": "Provenance Arbiter",
+    "preferred_model": "worker",
+    "file": "/opt/cluster-bridge/agent_profiles/fYOUR_LONG_LIVED_TOKEN_HERE"
+  },
+  "chief-architect": {
+    "id": "chief-architect",
+    "name": "MemoryVault Chief Architect",
+    "role": "Distributed Systems & Invariant Architect",
+    "archetype": "Theoretical Systems Polymath",
+    "preferred_model": "coordinator",
+    "file": "/opt/cluster-bridge/agent_profiles/chief-architect.json"
+  }
+}

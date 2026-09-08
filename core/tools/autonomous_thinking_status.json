@@ -1,0 +1,1 @@
+{"name":"autonomous_thinking_status","description":"Check the real-time status of the 24/7 Autonomous Thinking Machine (cycle count, tokens, last finding, daemon state).","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

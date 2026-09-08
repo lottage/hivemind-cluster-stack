@@ -1,0 +1,1 @@
+{"name":"stop_background_agent","description":"Gracefully halt an active background agent by its ID.","parameters":{"properties":{"agent_id":{"description":"The ID of the agent to halt (e.g. AGENT-A1B2C3).","type":"string"}},"required":["agent_id"],"type":"object"}}

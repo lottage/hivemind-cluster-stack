@@ -1,0 +1,18 @@
+[Unit]
+Description=Cluster MCP SSE Bridge & Autonomous Cognitive Engine
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/cluster-bridge
+Environment="COORDINATOR_URL=http://127.0.0.1:8001"
+Environment="WORKER_URL=http://127.0.0.1:8002"
+Environment="EMBED_URL=http://127.0.0.1:8003"
+Environment="QDRANT_URL=http://127.0.0.1:6333"
+ExecStart=/usr/bin/python3 /opt/cluster-bridge/mcp_server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: hivemind-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  cluster-bridge:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: hivemind-bridge
+    ports:
+      - "8765:8765"
+    environment:
+      - COORDINATOR_URL=http://host.docker.internal:8001
+      - WORKER_URL=http://host.docker.internal:8002
+      - EMBED_URL=http://host.docker.internal:8003
+      - QDRANT_URL=http://qdrant:6333
+    volumes:
+      - ./data/thinking_archive:/opt/cluster-bridge/thinking_archive
+      - ./core/skills:/opt/cluster-bridge/skills
+      - ./core/tools:/opt/cluster-bridge/tools
+      - ./core/agent_profiles:/opt/cluster-bridge/agent_profiles
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+  stonesage-ui:
+    build:
+      context: ./ui-stonesage/backend
+      dockerfile: Dockerfile
+    container_name: hivemind-stonesage
+    ports:
+      - "8080:8080"
+    environment:
+      - CLUSTER_MCP_URL=http://cluster-bridge:8765
+      - QDRANT_URL=http://qdrant:6333
+    volumes:
+      - ./data/vault_backup:/app/vault_backup
+    depends_on:
+      - cluster-bridge
+    restart: unless-stopped
+
+  easydash-ui:
+    build:
+      context: ./ui-easydash
+      dockerfile: Dockerfile
+    container_name: hivemind-easydash
+    ports:
+      - "8085:8085"
+    environment:
+      - CLUSTER_MCP_URL=http://cluster-bridge:8765
+    depends_on:
+      - cluster-bridge
+    restart: unless-stopped

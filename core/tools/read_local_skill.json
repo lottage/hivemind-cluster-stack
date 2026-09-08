@@ -1,0 +1,1 @@
+{"name":"read_local_skill","description":"Read the full markdown instruction set of any local skill from /opt/cluster-bridge/skills/ in < 1ms.","parameters":{"type":"object","properties":{"skill_name":{"type":"string","description":"The exact name of the skill directory (e.g. 'qdrant-skills', 'model-stack-refiner')."}},"required":["skill_name"]}}

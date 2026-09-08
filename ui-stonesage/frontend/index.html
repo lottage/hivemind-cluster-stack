@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="win95">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StoneSage 98 - Early Internet Command Workstation</title>
+  <meta name="description" content="90s Retro Pre-Bloat HTML Homelab Command Center & AI Cognitive Workstation inspired by the early internet.">
+  <meta name="theme-color" content="#008080">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- Top Windows 95 Desktop & Navigator Chrome -->
+  <div class="win95-window-chrome">
+    <div class="win95-titlebar">
+      <div class="win95-titlebar-title">
+        <span class="win95-title-icon">🌐</span>
+        <span class="win95-title-text">StoneSage 98 - Early Internet Command Workstation</span>
+        <span class="win95-title-sub">[Proxmox Datacenter: bigserv &amp; pve]</span>
+      </div>
+      <div class="win95-title-controls">
+        <button class="win95-btn win95-btn-min" title="Minimize" onclick="alert('StoneSage 98 is running 24/7 in background')">_</button>
+        <button class="win95-btn win95-btn-max" title="Maximize" onclick="document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()">□</button>
+        <button class="win95-btn win95-btn-close" title="Close" onclick="alert('Session locked to Proxmox Cluster 24/7')">✕</button>
+      </div>
+    </div>
+
+    <div class="win95-menubar">
+      <span class="win95-menu-item"><u>F</u>ile</span>
+      <span class="win95-menu-item"><u>E</u>dit</span>
+      <span class="win95-menu-item"><u>V</u>iew</span>
+      <span class="win95-menu-item"><u>G</u>o</span>
+      <span class="win95-menu-item"><u>B</u>ookmarks</span>
+      <span class="win95-menu-item"><u>O</u>ptions</span>
+      <span class="win95-menu-item"><u>D</u>irectory</span>
+      <span class="win95-menu-item"><u>H</u>elp</span>
+    </div>
+
+    <div class="win95-toolbar">
+      <div class="win95-address-group">
+        <span class="win95-address-label">Location:</span>
+        <div class="win95-address-box">
+          <span class="win95-address-proto">http://</span>
+          <input type="text" class="win95-address-input" id="win95-address-input" value="127.0.0.1:8080" readonly>
+        </div>
+        <button class="win95-btn win95-tool-btn" id="win95-go-btn" onclick="location.reload()"><u>G</u>o ➔</button>
+        <button class="win95-btn win95-tool-btn" onclick="location.reload()">🔄 <u>R</u>eload</button>
+        <button class="win95-btn win95-tool-btn" onclick="document.querySelector('.tab-btn[data-view=\'view-launchpad\']').click()">🏠 <u>H</u>ome</button>
+      </div>
+      <div class="win95-netscape-n" title="StoneSage 98 Connected">
+        <span class="netscape-badge">N</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Workstation Navigation Header -->
+  <header class="app-header">
+    <div class="brand-container">
+      <span>[SYS]</span>
+      <span>STONESAGE NAVIGATOR</span>
+      <span class="brand-badge">v3.0</span>
+      <span class="lan-ip-badge" id="lan-ip-badge" title="Click to copy host LAN address">LAN: http://127.0.0.1:8080 📋</span>
+    </div>
+
+    <nav class="nav-tabs" id="nav-tabs">
+      <button class="tab-btn active" data-view="view-launchpad">[F1:LAUNCHPAD]</button>
+      <button class="tab-btn" data-view="view-workstation">[F2:WORKSTATION]</button>
+      <button class="tab-btn" data-view="view-ai">[F3:AI COCKPIT]</button>
+      <button class="tab-btn" data-view="view-hivemind">[F4:24/7 HIVE-MIND]</button>
+      <button class="tab-btn" data-view="view-ha">[F5:SMART HOME]</button>
+      <button class="tab-btn" data-view="view-obsidian">[F6:OBSIDIAN BRAIN]</button>
+      <button class="tab-btn" data-view="view-proxmox">[F7:PROXMOX]</button>
+      <button class="tab-btn" data-view="view-canvas">[F8:CANVAS &amp; VOICE]</button>
+      <button class="tab-btn" data-view="view-immich">[F9:IMMICH]</button>
+      <button class="tab-btn" data-view="view-memory">[F10:MEMORY]</button>
+    </nav>
+
+    <div class="header-actions">
+      <!-- Theme Switcher (CRT Green, Amber, Win95) -->
+      <div class="theme-switcher">
+        <button class="theme-opt-btn" data-theme="crt-green">CRT-GRN</button>
+        <button class="theme-opt-btn" data-theme="crt-amber">AMBER</button>
+        <button class="theme-opt-btn active" data-theme="win95">WIN95</button>
+      </div>
+      <div class="cluster-pill" id="cluster-status-pill" title="Cluster & Vector Brain Status">
+        <span id="cluster-status-text">[CLUSTER: PROBING...]</span>
+      </div>
+      <button class="launch-btn" id="open-settings-btn" title="Cockpit Settings & API Keys">[⚙ CONFIG]</button>
+    </div>
+  </header>
+
+  <!-- Hardware Tier Telemetry Sub-Header -->
+  <div class="cluster-tier-bar">
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+      <span class="tier-badge"><strong>14B COORD:</strong> RX 6750 XT 12GB (:8001/Vulkan0)</span>
+      <span class="tier-badge"><strong>3B WORKER:</strong> RX 6600 XT 8GB (:8002/Vulkan1 - 80+ t/s)</span>
+      <span class="tier-badge"><strong>BGE EMBEDDER:</strong> RX 6600 XT 8GB (:8003/1024-dim)</span>
+      <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 127.0.0.1:6333</span>
+    </div>
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <span id="header-time-indicator" style="font-family: var(--font-terminal); color: var(--term-text-bright);"></span>
+    </div>
+  </div>
+
+  <!-- Main Content View Area -->
+  <main class="main-content">
+
+    <!-- VIEW 1: Service Launcher & Homelab Status Matrix -->
+    <section class="view-pane active" id="view-launchpad">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ SERVICES & CONTAINER LAUNCHER ]</h2>
+          <p>Real-time status probes across Proxmox nodes <code>pve</code> (127.0.0.1) and <code>bigserv</code> (127.0.0.1)</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-category="all">[ALL]</button>
+          <button class="filter-btn" data-category="ai">[AI STACK]</button>
+          <button class="filter-btn" data-category="smarthome">[SMART HOME]</button>
+          <button class="filter-btn" data-category="media">[MEDIA & STREAM]</button>
+          <button class="filter-btn" data-category="automation">[DOWNLOADS]</button>
+          <button class="filter-btn" data-category="infra">[CORE INFRA]</button>
+          <button class="launch-btn" id="refresh-services-btn">[🔄 PING ALL]</button>
+          <button class="launch-btn" id="add-service-btn">[➕ ADD SERVICE]</button>
+          <button class="launch-btn" id="toggle-edit-services-btn">[✏ EDIT MODE]</button>
+        </div>
+      </div>
+      <div class="service-grid" id="service-grid">
+        <!-- Rendered dynamically via app.js -->
+        <div class="service-card">
+          <div class="service-name">Probing Homelab Services...</div>
+          <div class="service-desc">Querying cluster & container ping statuses...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: CPTR WORKSTATION (open-webui/computer style) -->
+    <section class="view-pane" id="view-workstation">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ OPEN-WEBUI COMPUTER WORKSTATION ]</h2>
+          <p>Filesystem explorer, live monospace code editor, host terminal shell console, and git repository state</p>
+        </div>
+        <div class="filter-bar">
+          <button class="launch-btn" id="workstation-new-file-btn">[+ NEW FILE]</button>
+          <button class="launch-btn" id="workstation-save-btn">[💾 SAVE (Ctrl+S)]</button>
+          <button class="launch-btn" id="workstation-diff-btn">[⇄ TOGGLE DIFF]</button>
+          <button class="launch-btn" id="workstation-git-refresh-btn">[🔄 GIT STATUS]</button>
+        </div>
+      </div>
+
+      <div class="workstation-container">
+        <!-- Col 1: Workspace Tree Explorer -->
+        <div class="terminal-panel">
+          <div class="terminal-panel-header">
+            <span>🗂 FILESYSTEM EXPLORER</span>
+            <button class="launch-btn" id="refresh-tree-btn" style="padding: 1px 4px; font-size: 0.7rem;">🔄</button>
+          </div>
+          <div class="tree-container" id="workspace-tree-container">
+            <!-- Dynamically populated file tree -->
+          </div>
+        </div>
+
+        <!-- Col 2: Editor & Terminal Center Split -->
+        <div class="editor-terminal-split">
+          <!-- Top: Code Editor -->
+          <div class="code-editor-pane">
+            <div class="editor-toolbar">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span style="color: var(--term-text-bright); font-weight: bold;">EDITING:</span>
+                <span id="editor-active-filepath" style="color: var(--term-text);">No file selected</span>
+                <span id="editor-dirty-badge" style="display: none; color: var(--term-warn); font-weight: bold;">[MODIFIED]</span>
+              </div>
+              <div style="display: flex; gap: 0.35rem;">
+                <button class="launch-btn" id="editor-revert-btn" style="padding: 1px 6px;">[REVERT]</button>
+                <button class="launch-btn" id="editor-save-disk-btn" style="padding: 1px 6px;">[SAVE DISK]</button>
+              </div>
+            </div>
+            <div class="editor-workspace-body" id="editor-raw-container">
+              <div class="editor-gutter" id="editor-line-gutter">001</div>
+              <textarea class="editor-textarea" id="editor-textarea" spellcheck="false" placeholder="Select a file from the explorer or type code here..."></textarea>
+            </div>
+            <div class="diff-view-container" id="editor-diff-container">
+              <!-- Rendered diff -->
+            </div>
+          </div>
+
+          <!-- Bottom: Interactive Host Terminal Shell Console -->
+          <div class="host-terminal-pane">
+            <div class="terminal-panel-header">
+              <span>💻 HOST TERMINAL SHELL (PowerShell)</span>
+              <div style="display: flex; gap: 0.3rem;">
+                <button class="launch-btn" id="terminal-clear-btn" style="padding: 1px 4px; font-size: 0.7rem;">[CLS]</button>
+                <button class="launch-btn" id="terminal-pve-ping-btn" style="padding: 1px 4px; font-size: 0.7rem;">[CLUSTER PING]</button>
+              </div>
+            </div>
+            <div class="terminal-output-area" id="terminal-output">
+              <div>[ STONESAGE HOST TERMINAL READY ]</div>
+              <div>Type PowerShell / shell commands below. Press Enter to execute.</div>
+              <div>Available quick macros: <code>git status</code>, <code>cls</code>, <code>sync-brain</code>, <code>ipconfig</code></div>
+              <br>
+            </div>
+            <div class="terminal-prompt-line">
+              <span class="terminal-prompt-prefix" id="terminal-prompt-prefix">PS C:\.ai&gt;</span>
+              <input type="text" class="terminal-input" id="terminal-cmd-input" placeholder="type shell command... (e.g. git status, ipconfig, ls, help)" autocomplete="off" spellcheck="false">
+              <span class="terminal-cursor"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Col 3: Git Status & Subagent Dispatch -->
+        <div class="workstation-git-pane">
+          <div class="terminal-panel-header">
+            <span>🌿 GIT WORKSTATION</span>
+            <span id="git-branch-indicator" style="color: var(--term-warn);">[main]</span>
+          </div>
+          <div style="font-size: 0.74rem; color: var(--term-text-dim);">Changed Files:</div>
+          <div class="git-file-list" id="git-changed-list">
+            <div style="color: var(--term-text-muted);">Querying git status...</div>
+          </div>
+          
+          <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem;">
+            <label style="font-size: 0.72rem; color: var(--term-text-dim);">Commit Message:</label>
+            <input type="text" class="form-control" id="git-commit-msg" placeholder="commit summary...">
+            <div style="display: flex; gap: 0.35rem;">
+              <button class="launch-btn" id="git-gen-msg-btn" style="flex: 1;" title="Let 3B worker generate commit message">[3B AI MSG]</button>
+              <button class="send-btn" id="git-commit-btn" style="flex: 1;">[COMMIT]</button>
+            </div>
+          </div>
+
+          <div class="terminal-panel-header" style="margin-top: 0.5rem;">
+            <span>🤖 AUTONOMOUS SUBAGENT</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <select class="form-control" id="subagent-model-quick">
+              <option value="worker" selected>[3B WORKER :8002 (80+ tok/s)]</option>
+              <option value="coordinator">[14B COORDINATOR :8001 (RX 6750 XT)]</option>
+            </select>
+            <textarea class="form-control" id="subagent-task-quick" rows="2" placeholder="Task for subagent (e.g. write unit tests, review diff)..."></textarea>
+            <button class="send-btn" id="subagent-dispatch-quick-btn">[DISPATCH SUBAGENT]</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: AI COCKPIT (OpenWebUI Computer & Harness Parity) -->
+    <section class="view-pane" id="view-ai">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ AI COGNITIVE COCKPIT &amp; HARNESS ]</h2>
+          <p>Planner vs Coder Agent Separation • Short-Term RAM Memory • Finite Execution &amp; Autonomous Loop</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-btn active" id="ai-tab-chat" onclick="switchAiCockpitTab('chat')">[💬 CHAT]</button>
+          <button class="filter-btn" id="ai-tab-planner" onclick="switchAiCockpitTab('planner')">[📋 PLANNER AGENT]</button>
+          <button class="filter-btn" id="ai-tab-stm" onclick="switchAiCockpitTab('stm')">[🧠 STM RAM HUD]</button>
+          <button class="filter-btn" id="ai-tab-kb" onclick="switchAiCockpitTab('kb')">[📚 KNOWLEDGE SYNC]</button>
+          <button class="filter-btn" id="ai-tab-models" onclick="switchAiCockpitTab('models')">[🔄 MODEL FINDER &amp; SWITCH]</button>
+          <select class="form-control" id="ai-active-model" style="width: 220px; margin-left: 0.5rem;">
+            <option value="coordinator" selected>[14B COORD :8001 (RX 6750 XT)]</option>
+            <option value="worker">[3B WORKER :8002 (RX 6600 XT - 80+ t/s)]</option>
+            <option value="openai">[FRONTIER: GPT-4o]</option>
+            <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
+            <option value="gemini">[FRONTIER: Gemini 2.5 Pro]</option>
+          </select>
+          <button class="filter-btn active" id="toggle-rag-btn" title="Toggle Semantic Memory Retrieval">[RAG: ON]</button>
+          <button class="launch-btn" id="ai-clear-session-btn">[CLEAR THREAD]</button>
+        </div>
+      </div>
+
+      <div class="ai-workspace">
+        <!-- Sidebar -->
+        <div class="terminal-panel" style="width: 260px; min-width: 240px;">
+          <div class="terminal-panel-header">
+            <span>💬 THREAD SESSIONS</span>
+            <button class="launch-btn" id="new-thread-btn" style="padding: 1px 4px;">[+]</button>
+          </div>
+          <div class="tree-container" id="thread-list" style="max-height: 240px; overflow-y: auto;">
+            <!-- Sessions list -->
+          </div>
+
+          <!-- STM RAM Mini Badge & Injection Toggle -->
+          <div class="terminal-panel-header" style="border-top: 1px solid var(--term-border); margin-top: 0.5rem;">
+            <span>🧠 SHORT-TERM MEMORY (RAM)</span>
+          </div>
+          <div style="padding: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.74rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Active RAM Buffer:</span>
+              <strong id="stm-mini-token-count" style="color: var(--term-text-bright);">0 tok</strong>
+            </div>
+            <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer; color: var(--term-text-dim);">
+              <input type="checkbox" id="stm-auto-inject-chk" checked>
+              <span>Auto-inject STM into prompts</span>
+            </label>
+            <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem;">
+              <button class="launch-btn" onclick="openStmQuickView()" style="flex: 1; padding: 2px 4px;">[VIEW RAM]</button>
+              <button class="launch-btn" onclick="compressStmWorkingMemory()" style="padding: 2px 4px;" title="3B Worker fast compression">[⚡ COMPRESS]</button>
+            </div>
+          </div>
+
+          <div class="terminal-panel-header" style="border-top: 1px solid var(--term-border); margin-top: 0.5rem;">
+            <span>📚 KNOWLEDGE SYNC</span>
+          </div>
+          <div style="padding: 0.5rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="font-size: 0.72rem; color: var(--term-text-dim);">Obsidian RAG Folder (LocalLlmHub/rag)</div>
+            <button class="send-btn" id="ai-kb-sync-btn" onclick="syncKnowledgeBase()" style="padding: 3px 6px;">[⚡ SYNC TO QDRANT]</button>
+          </div>
+        </div>
+
+        <!-- Main Panel -->
+        <div class="chat-container">
+          <!-- 1. CHAT STREAM VIEW -->
+          <div id="ai-view-chat-pane" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+            <div class="chat-stream" id="chat-stream">
+              <div class="chat-msg assistant">
+                <div class="chat-msg-header">
+                  <span class="chat-msg-role">[ANTIGRAVITY FRONTIER ARCHITECT]</span>
+                  <span>SYSTEM ONLINE</span>
+                </div>
+                <div class="chat-msg-body">
+StoneSage Cognitive Terminal &amp; Harness online.
+Dual AMD GPU Passthrough active:
+- Coordinator: Qwen2.5-Coder-14B-Instruct (:8001 on RX 6750 XT 12GB Vulkan0)
+- Worker: Qwen2.5-Coder-3B-Instruct (:8002 on RX 6600 XT 8GB Vulkan1 - 80+ t/s)
+- Embedder: BGE-Large-en-v1.5 (:8003 on RX 6600 XT 8GB Vulkan1)
+- Vector DB: Qdrant @ 127.0.0.1:6333 (CouchDB + User Vault Ingested)
+- Short-Term Memory: Active In-RAM cache with 3B Worker context compression
+
+Ready for directives, planner decomposition, finite instruction set execution, or homelab automation.
+                </div>
+              </div>
+            </div>
+
+            <div class="chat-input-bar">
+              <textarea class="chat-textarea" id="chat-input" placeholder="Type instruction, code request, or /plan /goal command... (Shift+Enter for newline, Enter to send)"></textarea>
+              <button class="send-btn" id="chat-send-btn" style="min-width: 90px;">[EXEC &gt;]</button>
+              <button class="launch-btn" id="chat-stop-btn" style="display: none; border-color: var(--term-alert); color: var(--term-alert);">[STOP]</button>
+            </div>
+          </div>
+
+          <!-- 2. PLANNER AGENT & FINITE INSTRUCTION SET VIEW -->
+          <div id="ai-view-planner-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto;">
+            <div class="terminal-panel" style="margin-bottom: 0.75rem;">
+              <div class="terminal-panel-header">
+                <span>🎯 OBJECTIVE DECOMPOSITION (14B Planner -&gt; 3B Autonomous Executor)</span>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.4rem;">
+                  <input type="text" id="planner-goal-input" class="form-control" placeholder="Enter high-level goal (e.g. 'Refactor smart home tabs and verify CouchDB sync')..." style="flex: 1;">
+                  <button class="send-btn" id="planner-decompose-btn" onclick="generatePlanFromGoal()">[📋 DECOMPOSE PLAN]</button>
+                </div>
+                <div style="font-size: 0.74rem; color: var(--term-text-dim);">
+                  14B Coordinator parses the goal into an explicit, sequential Finite Instruction Set. You can execute step-by-step or run the autonomous loop.
+                </div>
+              </div>
+            </div>
+
+            <div class="terminal-panel" style="flex: 1;">
+              <div class="terminal-panel-header">
+                <span id="planner-plan-title">ACTIVE EXECUTION PLAN</span>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="launch-btn" id="planner-step-btn" onclick="executeCurrentPlanStep()">[▶ EXECUTE NEXT STEP]</button>
+                  <button class="send-btn" id="planner-loop-btn" onclick="runAutonomousLoop()">[⚡ RUN AUTONOMOUS LOOP]</button>
+                  <button class="launch-btn" id="planner-abort-btn" onclick="abortAutonomousLoop()" style="color: var(--term-alert); border-color: var(--term-alert);">[⏹ ABORT]</button>
+                </div>
+              </div>
+              <div style="padding: 0.75rem; overflow-y: auto; max-height: 480px;" id="planner-steps-list">
+                <div style="color: var(--term-text-muted); font-size: 0.8rem;">No active plan. Type a goal above and click [DECOMPOSE PLAN] to initialize milestones.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. SHORT-TERM MEMORY (RAM) HUD VIEW -->
+          <div id="ai-view-stm-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto;">
+            <div class="terminal-panel" style="margin-bottom: 0.75rem;">
+              <div class="terminal-panel-header">
+                <span>🧠 SHORT-TERM WORKING MEMORY (FAST RAM CACHE)</span>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="launch-btn" onclick="compressStmWorkingMemory()">[⚡ COMPRESS WITH 3B WORKER]</button>
+                  <button class="launch-btn" onclick="clearStmMemory()">[CLEAR RAM]</button>
+                </div>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; font-size: 0.78rem;">
+                  <div class="immich-stat-card">
+                    <div>ITEMS IN RAM:</div>
+                    <strong id="stm-full-item-count" style="color: var(--term-text-bright);">0</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>ESTIMATED TOKENS:</div>
+                    <strong id="stm-full-token-count" style="color: var(--term-text-bright);">0</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>LAST COMPRESSION:</div>
+                    <strong id="stm-full-last-updated" style="color: var(--term-text-bright);">Never</strong>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 0.4rem; margin-top: 0.35rem;">
+                  <input type="text" id="stm-new-key" class="form-control" placeholder="Key (e.g. ActiveFile, FocusBug)" style="width: 160px;">
+                  <input type="text" id="stm-new-val" class="form-control" placeholder="Working Value / Snippet / Instruction" style="flex: 1;">
+                  <button class="send-btn" onclick="addStmItemFromInput()">[+ ADD TO RAM]</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="terminal-panel" style="flex: 1;">
+              <div class="terminal-panel-header">
+                <span>ACTIVE WORKING VARIABLES &amp; CONTEXT SNIPPETS</span>
+              </div>
+              <div style="padding: 0.75rem; overflow-y: auto; max-height: 400px; display: flex; flex-direction: column; gap: 0.35rem;" id="stm-items-container">
+                <!-- Populated via app.js -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. KNOWLEDGE BASE SYNC VIEW -->
+          <div id="ai-view-kb-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto;">
+            <div class="terminal-panel">
+              <div class="terminal-panel-header">
+                <span>📚 OPEN-WEBUI KNOWLEDGE BASE SYNC PARITY</span>
+                <button class="send-btn" onclick="syncKnowledgeBase()">[⚡ SYNC NOW]</button>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.8rem;">
+                <p>Synchronizes local documentation, project knowledge, and the Obsidian knowledge base into Qdrant vector database (LXC 117) via BGE-Large embeddings (&lt; 512 tokens / &lt; 1000 chars).</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                  <div class="immich-stat-card">
+                    <div>KNOWLEDGE BASE PATH:</div>
+                    <code style="color: var(--term-text-bright); font-size: 0.72rem;">obsidian/LocalLlmHub/rag</code>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>LOCAL MD FILES:</div>
+                    <strong id="kb-files-count" style="color: var(--term-text-bright);">Scanning...</strong>
+                  </div>
+                </div>
+                <div id="kb-sync-log" style="background: var(--term-bg); border: 1px solid var(--term-border); padding: 0.5rem; font-family: var(--font-terminal); font-size: 0.75rem; max-height: 250px; overflow-y: auto;">
+                  Knowledge Base sync engine ready. Click [⚡ SYNC NOW] to re-index.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. MODEL FINDER & SWITCHER VIEW -->
+          <div id="ai-view-models-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto; gap: 0.75rem;">
+            <!-- Top Status Panel -->
+            <div class="terminal-panel">
+              <div class="terminal-panel-header">
+                <span>⚡ ACTIVE COORDINATOR ENGINE (:8001 / RX 6750 XT 12GB)</span>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="launch-btn" onclick="fetchClusterModels()">[🔄 REFRESH]</button>
+                  <button class="launch-btn" onclick="rollbackClusterModel()" style="color: var(--term-warn); border-color: var(--term-warn);">[↩️ ROLLBACK]</button>
+                </div>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.8rem;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.5rem;">
+                  <div class="immich-stat-card">
+                    <div>ACTIVE MODEL GGUF:</div>
+                    <strong id="active-model-name" style="color: var(--term-text-bright); font-size: 0.76rem;">Probing :8001...</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>CONTEXT WINDOW:</div>
+                    <strong id="active-model-context" style="color: var(--term-text-bright);">--</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>HARDWARE:</div>
+                    <strong style="color: var(--term-text-bright);">Vulkan0 (RX 6750 XT)</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>STATUS:</div>
+                    <strong id="active-model-status" style="color: var(--term-text-bright);">ONLINE</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fast Preset Switch Buttons -->
+            <div class="terminal-panel">
+              <div class="terminal-panel-header">
+                <span>🚀 ONE-CLICK MODEL SWITCH &amp; AUTOTUNE PRESETS</span>
+              </div>
+              <div style="padding: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q5')" style="flex: 1; min-width: 220px;">
+                  [ 🦅 LOAD ORNITH 9B Q5_K_M (16k) ]
+                </button>
+                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q4')" style="flex: 1; min-width: 220px;">
+                  [ 🦅 LOAD ORNITH 9B Q4_K_M (16k) ]
+                </button>
+                <button class="launch-btn" onclick="quickSwitchModel('qwen-14b')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ RESTORE QWEN 14B CODER ]
+                </button>
+              </div>
+            </div>
+
+            <!-- Local Model Finder & Custom Switcher -->
+            <div class="terminal-panel">
+              <div class="terminal-panel-header">
+                <span>📦 DISCOVERED MODELS (/opt/models on VM 102)</span>
+                <span id="model-disk-space" style="font-size: 0.72rem; color: var(--term-text-dim);">Storage: checking...</span>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                  <label style="font-size: 0.75rem; color: var(--term-text-dim); min-width: 90px;">Select GGUF:</label>
+                  <select id="local-model-select" class="form-control" style="flex: 2; min-width: 260px;">
+                    <option value="">Scanning /opt/models...</option>
+                  </select>
+                  <label style="font-size: 0.75rem; color: var(--term-text-dim);">Context:</label>
+                  <select id="switch-context-select" class="form-control" style="width: 110px;">
+                    <option value="8192">8,192 (8k)</option>
+                    <option value="12288">12,288 (12k)</option>
+                    <option value="16384" selected>16,384 (16k)</option>
+                    <option value="24576">24,576 (24k)</option>
+                  </select>
+                  <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: var(--term-text-dim); cursor: pointer;">
+                    <input type="checkbox" id="switch-autotune-chk" checked>
+                    <span>Auto-Calibrate Parameters</span>
+                  </label>
+                  <button class="send-btn" onclick="executeModelSwitch()" id="btn-execute-switch">[🚀 SWITCH &amp; TWEAK]</button>
+                </div>
+
+                <!-- HuggingFace Downloader Form -->
+                <div style="border-top: 1px dashed var(--term-border); padding-top: 0.6rem; margin-top: 0.3rem;">
+                  <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">Or Download Directly from Hugging Face:</div>
+                  <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                    <input type="text" id="hf-repo-input" class="form-control" placeholder="HuggingFace Repo (e.g. bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF)" style="flex: 2; min-width: 240px;">
+                    <input type="text" id="hf-file-input" class="form-control" placeholder="GGUF Filename (e.g. deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf)" style="flex: 2; min-width: 240px;">
+                    <button class="launch-btn" onclick="executeHfDownloadSwitch()" id="btn-hf-download">[📥 DOWNLOAD &amp; SWITCH]</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Model Calibration & Intelligence Status -->
+            <div class="terminal-panel">
+              <div class="terminal-panel-header">
+                <span>🧪 LATEST PARAMETER DISCOVERY &amp; CALIBRATION REPORT</span>
+                <button class="send-btn" onclick="runParameterDiscoveryNow()" id="btn-run-calibration">[🧪 RUN DISCOVERY BATTERY NOW]</button>
+              </div>
+              <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; font-size: 0.78rem;">
+                  <div class="immich-stat-card">
+                    <div>COMPOSITE SCORE (CII):</div>
+                    <strong id="calib-stat-cii" style="color: var(--term-text-bright);">--</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>THROUGHPUT:</div>
+                    <strong id="calib-stat-throughput" style="color: var(--term-text-bright);">--</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>OPTIMAL PROFILE:</div>
+                    <strong id="calib-stat-profile" style="color: var(--term-text-bright); font-size: 0.72rem;">--</strong>
+                  </div>
+                  <div class="immich-stat-card">
+                    <div>HALLUCINATION STATUS:</div>
+                    <strong id="calib-stat-hallucination" style="color: var(--term-text-bright);">--</strong>
+                  </div>
+                </div>
+                <div id="calib-params-badge" style="font-family: var(--font-terminal); font-size: 0.74rem; color: var(--term-text-dim); background: var(--term-bg); border: 1px solid var(--term-border); padding: 0.4rem;">
+                  Sampling Parameters: (probed from optimal_profile.json)
+                </div>
+              </div>
+            </div>
+
+            <!-- Real-Time Switch & Calibration Log Output -->
+            <div class="terminal-panel" style="flex: 1;">
+              <div class="terminal-panel-header">
+                <span>💻 MODEL ORCHESTRATION CONSOLE OUTPUT</span>
+                <button class="launch-btn" onclick="document.getElementById('model-switch-console').innerText = '[Console ready.]'" style="padding: 1px 4px; font-size: 0.7rem;">[CLS]</button>
+              </div>
+              <pre id="model-switch-console" style="margin: 0; padding: 0.75rem; background: var(--term-bg); color: var(--term-text); font-family: var(--font-terminal); font-size: 0.74rem; max-height: 220px; overflow-y: auto; white-space: pre-wrap;">
+[ Model Switcher &amp; Parameter Discovery Console Ready. ]
+Select a model above or click a one-click preset to switch and tune.
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 4: 24/7 HIVE-MIND & LLM VISION -->
+    <section class="view-pane" id="view-hivemind">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ 🧠 24/7 COGNITIVE HIVE-MIND &amp; LLM VISION ]</h2>
+          <p>Autonomous dual-GPU presence, model-directed exploration, parameter self-inspection, and Home Assistant camera vigilance</p>
+        </div>
+        <div class="filter-bar">
+          <button class="win95-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
+          <button class="win95-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
+          <button class="win95-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
+          <button class="win95-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; height: calc(100% - 70px); overflow-y: auto; padding-right: 4px;">
+        <!-- Hive-Mind Status Matrix -->
+        <div class="terminal-panel">
+          <div class="terminal-panel-header">
+            <span>📡 24/7 COGNITIVE ENGINE STATUS &amp; HARDWARE TOPOLOGY</span>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <span id="hivemind-preemption-badge" style="color: #ffaa00; font-weight: bold; display: none;">[⏸️ USER PREEMPTION]</span>
+              <span id="hivemind-running-badge" style="color: #008800; font-weight: bold;">[ACTIVE]</span>
+            </div>
+          </div>
+          <div style="padding: 0.75rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem;">
+            <div class="immich-stat-card">
+              <div>ENGINE STATE:</div>
+              <strong id="hm-stat-state" style="color: var(--term-text-bright);">PROBING...</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>CURRENT MISSION:</div>
+              <strong id="hm-stat-mission" style="color: var(--term-text-bright); font-size: 0.75rem;">Autonomous Curiosity</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>TOTAL CYCLES:</div>
+              <strong id="hm-stat-cycles" style="color: var(--term-text-bright);">--</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>TOTAL TOKENS:</div>
+              <strong id="hm-stat-tokens" style="color: var(--term-text-bright);">--</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>LAST RUN:</div>
+              <strong id="hm-stat-last-time" style="color: var(--term-text-bright); font-size: 0.72rem;">--</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>CADENCE INTERVAL:</div>
+              <strong id="hm-stat-interval" style="color: var(--term-text-bright);">120s</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Two Column Layout: Camera Vigilance & Live Activity Log -->
+        <div style="display: grid; grid-template-columns: 1fr 1.25fr; gap: 0.75rem; flex: 1; min-height: 440px;">
+          <!-- Left: Smart Home & Camera Vigilance Summary -->
+          <div class="terminal-panel" style="display: flex; flex-direction: column;">
+            <div class="terminal-panel-header">
+              <span>📹 SMART HOME &amp; LLM VISION VIGILANCE</span>
+              <span id="hm-vigilance-time" style="font-size: 0.72rem; color: var(--term-text-dim);">Last Check: --</span>
+            </div>
+            <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; flex: 1; overflow-y: auto;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div class="immich-stat-card">
+                  <div>CLIMATE:</div>
+                  <strong id="hm-stat-climate" style="color: var(--term-text-bright);">Checking...</strong>
+                </div>
+                <div class="immich-stat-card">
+                  <div>PERIMETER:</div>
+                  <strong id="hm-stat-perimeter" style="color: var(--term-text-bright);">Secure</strong>
+                </div>
+              </div>
+              <div class="immich-stat-card">
+                <div>GUARDIAN VERDICT:</div>
+                <strong id="hm-stat-verdict" style="color: #008800; font-size: 0.82rem;">Awaiting sweep...</strong>
+              </div>
+
+              <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
+                ACTIVE CAMERA STREAMS (TAPO CCTV &amp; VISION):
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.74rem;">
+                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                  <span>Kitchen / Living Room (C260 Pan/Tilt)</span>
+                  <span style="color: #008800; font-weight: bold;">● STREAMING</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                  <span>Driveway / Front Door (Solar TCW90)</span>
+                  <span style="color: #008800; font-weight: bold;">● STREAMING (100% Bat)</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                  <span>Side Yard HD Stream</span>
+                  <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                  <span>Back Yard HD Stream</span>
+                  <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
+                </div>
+              </div>
+
+              <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
+                AUTONOMOUS SAFETY INVARIANTS:
+              </div>
+              <div style="font-size: 0.72rem; color: var(--term-text-dim); line-height: 1.4;">
+                • Destructive commands (<code>rm -rf</code>, disk formatting, hypervisor reboots) blocked at kernel level.<br>
+                • BGE context strictly bounded to &lt; 750 characters.<br>
+                • Append-only Obsidian sync directly to <code>Autonomous Thinking/</code>.
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Live Home & Vision Activity Log Output -->
+          <div class="terminal-panel" style="display: flex; flex-direction: column;">
+            <div class="terminal-panel-header">
+              <span>📜 24/7 HOME &amp; VISION ACTIVITY LOG (APPEND-ONLY LEDGER)</span>
+              <button class="win95-btn" onclick="copyVisionLogToClipboard()" style="padding: 1px 6px; font-size: 0.72rem;">[📋 COPY LOG]</button>
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0.5rem;">
+              <pre id="hivemind-vision-log-box" style="flex: 1; background: #000; color: #00ff66; font-family: var(--font-terminal); font-size: 0.75rem; padding: 0.6rem; border: 1px inset #808080; overflow-y: auto; margin: 0; white-space: pre-wrap; line-height: 1.4;">
+Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 5: SMART HOME (Nest Thermostat & Devices) -->
+    <section class="view-pane" id="view-ha">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ HOME ASSISTANT & NEST THERMOSTAT ]</h2>
+          <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (127.0.0.1:8123)</p>
+        </div>
+        <div class="filter-bar">
+          <button class="launch-btn" id="refresh-ha-btn">[🔄 REFRESH STATES]</button>
+        </div>
+      </div>
+
+      <div class="ha-container">
+        <!-- Nest Thermostat ASCII Dial -->
+        <div class="thermostat-dial-box">
+          <div style="font-weight: 700; color: var(--term-text-bright);">GOOGLE NEST THERMOSTAT</div>
+          <div style="font-size: 0.74rem; color: var(--term-text-dim);" id="thermostat-entity-id">climate.living_room_thermostat</div>
+
+          <div class="ascii-thermostat-dial">
+.---------------------------------------.
+|             HVAC CLIMATE              |
+|                                       |
+|        CURRENT            TARGET      |
+|         <span class="thermostat-temp-big" id="thermostat-current-temp">71</span>°F             <span class="thermostat-temp-big" id="thermostat-target-temp">72</span>°F       |
+|                                       |
+|   STATE: <span id="thermostat-hvac-state" style="font-weight:bold; color:var(--term-text-bright);">[HEAT ACTIVE]</span>   HUMID: <span id="thermostat-humidity">45%</span>   |
+'---------------------------------------'
+          </div>
+
+          <!-- Adjust Target Controls -->
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <button class="launch-btn" id="temp-down-btn" style="font-size: 1.2rem; padding: 2px 14px;">[ - ]</button>
+            <input type="range" id="temp-slider" min="60" max="85" value="72" style="width: 140px;">
+            <button class="launch-btn" id="temp-up-btn" style="font-size: 1.2rem; padding: 2px 14px;">[ + ]</button>
+          </div>
+
+          <div class="thermostat-modes-row">
+            <button class="filter-btn active" data-hvac-mode="heat">[HEAT]</button>
+            <button class="filter-btn" data-hvac-mode="cool">[COOL]</button>
+            <button class="filter-btn" data-hvac-mode="eco">[ECO]</button>
+            <button class="filter-btn" data-hvac-mode="off">[OFF]</button>
+          </div>
+
+          <!-- 3B Worker Natural Language Automation Command Line -->
+          <div style="width: 100%; border-top: 1px dashed var(--term-border-dim); padding-top: 0.65rem; margin-top: 0.5rem;">
+            <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">3B Worker NLP Automation Dispatch:</div>
+            <div style="display: flex; gap: 0.35rem;">
+              <input type="text" class="form-control" id="ha-nlp-input" placeholder="e.g. set thermostat to 72, turn off lights...">
+              <button class="send-btn" id="ha-nlp-send-btn">[DISPATCH]</button>
+            </div>
+          </div>
+
+          <!-- Quick Virtual Switch Scene Triggers -->
+          <div style="width: 100%; border-top: 1px dashed var(--term-border-dim); padding-top: 0.65rem; margin-top: 0.5rem;">
+            <div style="font-weight: 700; font-size: 0.74rem; color: var(--term-text-bright); margin-bottom: 0.35rem;">⚡ QUICK SCENE TRIGGERS:</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem;">
+              <button class="launch-btn" onclick="triggerVirtualSwitch('input_boolean.bedtime_lockdown')" title="Cools to 68F, shuts down interior lights, arms motion detection" style="padding: 3px 4px; font-size: 0.7rem;">[🌙 BEDTIME LOCKDOWN]</button>
+              <button class="launch-btn" onclick="triggerVirtualSwitch('input_boolean.movie_night_mode')" title="Dims TV lights to 25%, sets to 70F, privacy ON" style="padding: 3px 4px; font-size: 0.7rem;">[🎬 MOVIE NIGHT]</button>
+              <button class="launch-btn" onclick="triggerVirtualSwitch('input_boolean.eco_away_mode')" title="Sets Nest to ECO, turns off lights" style="padding: 3px 4px; font-size: 0.7rem;">[🌿 ECO / AWAY]</button>
+              <button class="launch-btn" onclick="triggerVirtualSwitch('input_boolean.cctv_camera_patrol')" title="Sweeps Tapo C260 across Door, Both Doors, Living Room" style="padding: 3px 4px; font-size: 0.7rem;">[🛡️ CCTV PATROL]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Devices & Entities Table -->
+        <div class="terminal-panel">
+          <div class="terminal-panel-header">
+            <span>🔌 SMART HOME ENTITIES &amp; SWITCHES</span>
+            <span id="ha-devices-count" style="font-size: 0.72rem; color: var(--term-text-dim);">0 entities loaded</span>
+          </div>
+
+          <!-- Curated / Category Filter Tabs & Search -->
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; padding: 0.4rem 0.65rem; border-bottom: 1px solid var(--term-border); background: var(--term-surface); align-items: center;">
+            <button class="filter-btn active" id="ha-filter-curated" onclick="filterHaDevices('curated')">[⭐ CURATED]</button>
+            <button class="filter-btn" id="ha-filter-lights" onclick="filterHaDevices('lights')">[💡 LIGHTS]</button>
+            <button class="filter-btn" id="ha-filter-switches" onclick="filterHaDevices('switches')">[🔌 PLUGS &amp; SWITCHES]</button>
+            <button class="filter-btn" id="ha-filter-cameras" onclick="filterHaDevices('cameras')">[📹 CAMERAS &amp; SECURITY]</button>
+            <button class="filter-btn" id="ha-filter-all" onclick="filterHaDevices('all')">[ALL ENTITIES]</button>
+            <input type="text" id="ha-search-input" class="form-control" placeholder="Search devices (e.g. living room, floodlight)..." style="flex: 1; min-width: 140px; height: 26px; font-size: 0.74rem;" oninput="onHaSearchInput()">
+          </div>
+
+          <div style="padding: 0.65rem; overflow-y: auto; flex: 1; max-height: 520px;" id="ha-entities-table">
+            <!-- Populated dynamically via app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- CCTV CAMERA SURVEILLANCE SUITE -->
+      <div class="terminal-panel" style="margin-top: 0.75rem;">
+        <div class="terminal-panel-header">
+          <span>📹 CCTV SURVEILLANCE &amp; LIVE STREAMS</span>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--term-text-dim);">Mode:</span>
+            <button class="filter-btn active" id="cctv-mode-stream" onclick="switchCctvMode('stream')">[LIVE STREAM (MJPEG)]</button>
+            <button class="filter-btn" id="cctv-mode-snapshot" onclick="switchCctvMode('snapshot')">[SNAPSHOT REFRESH]</button>
+            <button class="launch-btn" onclick="refreshCctvFeeds()" style="padding: 1px 6px;">[🔄 REFRESH FEEDS]</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; padding: 0.75rem;">
+          <!-- Camera 1: Tapo C260 Kitchen / Living Room -->
+          <div style="border: 1px solid var(--term-border); background: var(--term-bg); padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong style="color: var(--term-text-bright); font-size: 0.78rem;">KITCHEN / LIVING ROOM (Tapo C260)</strong>
+              <span class="service-status-badge online" id="cam1-badge">[LIVE 1080P]</span>
+            </div>
+            <div style="position: relative; width: 100%; aspect-ratio: 16/9; background: #000; overflow: hidden; border: 1px solid var(--term-border-dim); display: flex; align-items: center; justify-content: center;">
+              <img id="cam1-feed" src="/api/hass/camera_stream?entity_id=camera.kitchen_living_room_hd_stream" alt="Kitchen/Living Room" style="width: 100%; height: 100%; object-fit: cover;" onerror="onCctvError('cam1')">
+              <div id="cam1-overlay" style="position: absolute; bottom: 4px; left: 6px; font-family: var(--font-terminal); font-size: 0.68rem; color: #00ff66; background: rgba(0,0,0,0.65); padding: 2px 5px;">CAM 01 // PAN-TILT INDOOR</div>
+            </div>
+            <!-- PTZ Presets -->
+            <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; margin-top: 0.2rem;">
+              <span style="font-size: 0.7rem; color: var(--term-text-dim);">PTZ Presets:</span>
+              <button class="launch-btn" onclick="moveCameraPreset('Kitchen/Front Door')" style="font-size: 0.7rem; padding: 2px 6px;">[Front Door]</button>
+              <button class="launch-btn" onclick="moveCameraPreset('Both Doors')" style="font-size: 0.7rem; padding: 2px 6px;">[Both Doors]</button>
+              <button class="launch-btn" onclick="moveCameraPreset('Living Room')" style="font-size: 0.7rem; padding: 2px 6px;">[Living Room]</button>
+              <button class="launch-btn" onclick="toggleCameraPrivacy()" style="font-size: 0.7rem; padding: 2px 6px; margin-left: auto;">[🔒 Privacy]</button>
+            </div>
+          </div>
+
+          <!-- Camera 2: Tapo Solar TCW90 Driveway / Front Door -->
+          <div style="border: 1px solid var(--term-border); background: var(--term-bg); padding: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong style="color: var(--term-text-bright); font-size: 0.78rem;">DRIVEWAY / FRONT DOOR (Tapo Solar TCW90)</strong>
+              <span class="service-status-badge online" id="cam2-badge">[SOLAR 100%]</span>
+            </div>
+            <div style="position: relative; width: 100%; aspect-ratio: 16/9; background: #000; overflow: hidden; border: 1px solid var(--term-border-dim); display: flex; align-items: center; justify-content: center;">
+              <img id="cam2-feed" src="/api/hass/camera_stream?entity_id=camera.driveway_front_door_hd_stream_direct" alt="Driveway/Front Door" style="width: 100%; height: 100%; object-fit: cover;" onerror="onCctvError('cam2')">
+              <div id="cam2-overlay" style="position: absolute; bottom: 4px; left: 6px; font-family: var(--font-terminal); font-size: 0.68rem; color: #00ff66; background: rgba(0,0,0,0.65); padding: 2px 5px;">CAM 02 // 2K OUTDOOR SOLAR</div>
+            </div>
+            <!-- Presets -->
+            <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; margin-top: 0.2rem;">
+              <span style="font-size: 0.7rem; color: var(--term-text-dim);">Presets:</span>
+              <button class="launch-btn" onclick="moveDrivewayPreset('Doors')" style="font-size: 0.7rem; padding: 2px 6px;">[Doors]</button>
+              <button class="launch-btn" onclick="moveDrivewayPreset('Cars')" style="font-size: 0.7rem; padding: 2px 6px;">[Cars]</button>
+              <button class="launch-btn" onclick="moveDrivewayPreset('Driveway ')" style="font-size: 0.7rem; padding: 2px 6px;">[Driveway]</button>
+              <button class="launch-btn" onclick="moveDrivewayPreset('Garden')" style="font-size: 0.7rem; padding: 2px 6px;">[Garden]</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 5: OBSIDIAN USER BRAIN & VECTOR RECALL -->
+    <!-- VIEW 5: OBSIDIAN USER BRAIN & COUCHDB SYNC -->
+    <section class="view-pane" id="view-obsidian">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ OBSIDIAN USER VAULT &amp; COUCHDB SYNC ]</h2>
+          <p>24/7 CouchDB on LXC 116 (127.0.0.1:5984) • Qdrant Vector Memory Ingestion</p>
+        </div>
+        <div class="filter-bar">
+          <span class="service-status-badge online" id="couchdb-status-badge">[COUCHDB: PROBING...]</span>
+          <button class="send-btn" id="sync-obsidian-qdrant-btn" onclick="syncObsidianToQdrant()">[⚡ SYNC VAULT -&gt; QDRANT BRAIN]</button>
+          <button class="launch-btn" id="refresh-obsidian-btn" onclick="fetchObsidianNotes()">[🔄 REFRESH NOTES]</button>
+        </div>
+      </div>
+
+      <div class="obsidian-brain-container">
+        <!-- Left: Vault Status & Sync Telemetry -->
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <div class="brain-sync-card">
+            <div style="font-weight: 700; color: var(--term-text-bright);">VAULT &amp; COUCHDB STATUS</div>
+            <div style="font-size: 0.76rem;">CouchDB Database: <strong id="couchdb-dbname" style="color: var(--term-text-bright);">obsidiannotes</strong></div>
+            <div style="font-size: 0.76rem;">Synced Notes: <strong id="brain-note-count" style="color: var(--term-text-bright);">0</strong></div>
+            <div style="font-size: 0.76rem;">Vectors in Brain: <strong id="brain-vector-count" style="color: var(--term-text-bright);">0</strong></div>
+            
+            <div class="ascii-progress-bar" id="brain-sync-progress-bar" style="display: none;">
+              <div>SYNCING OBSIDIAN TO QDRANT...</div>
+              <div id="brain-progress-text">[░░░░░░░░░░░░░░░░░░░░] 0%</div>
+            </div>
+          </div>
+
+          <div class="terminal-panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="terminal-panel-header">
+              <span>📄 NOTES REGISTRY</span>
+              <span id="obsidian-notes-total" style="font-size: 0.72rem; color: var(--term-text-dim);">0 files</span>
+            </div>
+            <div style="padding: 0.4rem 0.5rem; border-bottom: 1px dashed var(--term-border-dim); background: var(--term-surface);">
+              <input type="text" id="obsidian-note-search" class="form-control" placeholder="Search notes (e.g. BMW, WGU, Wedding)..." oninput="filterObsidianNotes()" style="height: 24px; font-size: 0.72rem;">
+            </div>
+            <div class="tree-container" id="obsidian-notes-list" style="flex: 1; max-height: 480px; overflow-y: auto;">
+              <!-- Dynamically populated note list -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Note Viewer & Semantic Inspection -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column;">
+          <div class="terminal-panel-header">
+            <span id="obsidian-view-title">NOTE VIEWER</span>
+            <div style="display: flex; gap: 0.35rem;">
+              <button class="launch-btn" id="open-obsidian-app-btn" style="padding: 1px 6px;">[OPEN IN OBSIDIAN ↗]</button>
+            </div>
+          </div>
+          <div style="padding: 0.85rem; flex: 1; display: flex; flex-direction: column;">
+            <textarea class="editor-textarea" id="obsidian-note-content" readonly style="flex: 1; min-height: 520px; background: var(--term-bg);" placeholder="Select an Obsidian note on the left to read its contents and see how Qdrant indexes it..."></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 6: PROXMOX FLEET HYPERVISOR -->
+    <section class="view-pane" id="view-proxmox">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ PROXMOX VE HYPERVISOR FLEET ]</h2>
+          <p>Cluster VIP <code>https://127.0.0.1:8006</code> • Dual Nodes <code>pve</code> and <code>bigserv</code></p>
+        </div>
+        <div class="filter-bar">
+          <button class="launch-btn" id="refresh-proxmox-btn" onclick="fetchProxmoxData()">[🔄 PROBE NODES]</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <!-- Node 1: pve -->
+        <div class="terminal-panel" id="pve-node-panel">
+          <div class="terminal-panel-header">
+            <span>🖥 NODE 1: pve (127.0.0.1)</span>
+            <span class="service-status-badge online" id="pve-node-badge">[ONLINE]</span>
+          </div>
+          <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="pve-node-body">
+            <div>Hardware: Intel i7-12700K (12C/20T) • 32 GB DDR4</div>
+            <div>Workload: VM 102 `ubu` (Dual AMD GPU), LXC 117 `qdrant`</div>
+            <div class="ascii-progress-bar" id="pve-cpu-bar">CPU: [░░░░░░░░░░░░░░░░] --%</div>
+            <div class="ascii-progress-bar" id="pve-ram-bar">RAM: [░░░░░░░░░░░░░░░░] --%</div>
+            <div class="ascii-progress-bar" id="pve-disk-bar">DISK: [░░░░░░░░░░░░░░░░] --%</div>
+            <div id="pve-node-details" style="font-size: 0.72rem; color: var(--term-text-dim);"></div>
+            <div id="pve-node-msg" style="font-size: 0.75rem; color: var(--term-warn);"></div>
+          </div>
+        </div>
+
+        <!-- Node 2: bigserv -->
+        <div class="terminal-panel" id="bigserv-node-panel">
+          <div class="terminal-panel-header">
+            <span>🖥 NODE 2: bigserv (127.0.0.1)</span>
+            <span class="service-status-badge online" id="bigserv-node-badge">[ONLINE]</span>
+          </div>
+          <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="bigserv-node-body">
+            <div>Workload: Home Assistant (VM 103), CouchDB (LXC 116), Immich (LXC 107), Arr Stack</div>
+            <div class="ascii-progress-bar" id="bigserv-cpu-bar">CPU: [░░░░░░░░░░░░░░░░] --%</div>
+            <div class="ascii-progress-bar" id="bigserv-ram-bar">RAM: [░░░░░░░░░░░░░░░░] --%</div>
+            <div class="ascii-progress-bar" id="bigserv-disk-bar">DISK: [░░░░░░░░░░░░░░░░] --%</div>
+            <div id="bigserv-node-details" style="font-size: 0.72rem; color: var(--term-text-dim);"></div>
+            <div id="bigserv-node-msg" style="font-size: 0.75rem; color: var(--term-warn);"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="terminal-panel" style="margin-top: 0.75rem;">
+        <div class="terminal-panel-header">
+          <span>📦 VIRTUAL MACHINES &amp; CONTAINERS INVENTORY</span>
+          <span id="proxmox-guest-count" style="font-size: 0.72rem; color: var(--term-text-dim);">Scanning...</span>
+        </div>
+        <div style="padding: 0.65rem; overflow-x: auto;" id="proxmox-guests-table">
+          <!-- Guests table rendered via app.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 7: LIVE CANVAS & AMBIENT VOICE COPILOT -->
+    <section class="view-pane" id="view-canvas">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ LIVE SPLIT-SCREEN CANVAS &amp; AMBIENT VOICE COPILOT ]</h2>
+          <p>Collaborative live code/markdown scratchpad paired with real-time Ambient Voice Copilot</p>
+        </div>
+        <div class="filter-bar">
+          <button class="launch-btn" id="canvas-copy-btn" onclick="copyCanvasBuffer()">[📋 COPY BUFFER]</button>
+          <button class="launch-btn" id="canvas-apply-btn" onclick="applyCanvasToWorkspace()">[💾 APPLY TO WORKSPACE]</button>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 0.75rem; min-height: 580px;">
+        <!-- Left: Scratchpad -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column;">
+          <div class="terminal-panel-header">
+            <span>📝 LIVE CANVAS SCRATCHPAD</span>
+            <div style="display: flex; gap: 0.35rem;">
+              <button class="launch-btn" id="canvas-refactor-btn" onclick="canvasAction('refactor')" style="padding: 1px 6px;">[REFACTOR]</button>
+              <button class="launch-btn" id="canvas-explain-btn" onclick="canvasAction('explain')" style="padding: 1px 6px;">[EXPLAIN]</button>
+              <button class="launch-btn" id="canvas-tests-btn" onclick="canvasAction('tests')" style="padding: 1px 6px;">[GEN TESTS]</button>
+              <button class="launch-btn" id="canvas-clear-btn" onclick="clearCanvasBuffer()" style="padding: 1px 6px;">[CLEAR]</button>
+            </div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; padding: 0.5rem;">
+            <textarea class="editor-textarea" id="canvas-textarea" placeholder="Paste code, configuration files, or notes here for continuous collaboration with the AI..." style="flex: 1; min-height: 480px;"></textarea>
+          </div>
+        </div>
+
+        <!-- Right: Ambient Voice Copilot -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column;">
+          <div class="terminal-panel-header">
+            <span>🎙️ AMBIENT VOICE COPILOT</span>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <button class="send-btn" id="voice-listen-toggle" onclick="toggleVoiceMode()" style="padding: 2px 8px;">[🎤 START VOICE MODE]</button>
+            </div>
+          </div>
+
+          <!-- Web Audio Visualizer Bar -->
+          <div class="voice-visualizer-bar" id="voice-visualizer">
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <div class="voice-bar"></div>
+            <span id="voice-status-label" style="font-size: 0.72rem; margin-left: 0.5rem; color: var(--term-text-dim);">Mic Inactive</span>
+          </div>
+
+          <!-- Interim Speech Transcript -->
+          <div id="voice-interim-transcript" style="display: none; padding: 0.35rem 0.65rem; background: var(--term-bg); border-bottom: 1px dashed var(--term-border); font-size: 0.74rem; color: var(--term-text-bright); font-style: italic;">
+            Listening: ...
+          </div>
+
+          <!-- Chat messages stream -->
+          <div class="chat-stream" id="canvas-copilot-messages" style="flex: 1; overflow-y: auto; max-height: 400px; padding: 0.65rem;">
+            <div class="chat-msg assistant">
+              <div class="chat-msg-header">
+                <span class="chat-msg-role">[AMBIENT COPILOT]</span>
+                <span>READY</span>
+              </div>
+              <div class="chat-msg-body">
+Ambient Voice Copilot online. Speak aloud over your microphone or type instructions below to generate, refactor, or analyze code directly on the Live Canvas.
+              </div>
+            </div>
+          </div>
+
+          <!-- Input bar -->
+          <div style="padding: 0.5rem; border-top: 1px solid var(--term-border); background: var(--term-surface); display: flex; gap: 0.35rem;">
+            <input type="text" class="form-control" id="canvas-copilot-input" placeholder="Type instructions or dictate... (e.g. 'write a python fastAPI server')" style="flex: 1;" onkeydown="if(event.key==='Enter') sendCanvasCopilotMessage()">
+            <button class="send-btn" id="canvas-copilot-send" onclick="sendCanvasCopilotMessage()">[SEND]</button>
+            <button class="launch-btn" id="canvas-copilot-stop" onclick="stopCanvasCopilot()" style="display: none; border-color: var(--term-alert); color: var(--term-alert); padding: 2px 8px;">[⏹ STOP]</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 7: IMMICH MEDIA VAULT -->
+    <section class="view-pane" id="view-immich">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ IMMICH MEDIA VAULT & TELEMETRY ]</h2>
+          <p>High-resolution photo/video backup, AI facial recognition & telemetry on <code>bigserv</code> LXC 107</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-btn active" id="immich-mode-cockpit">[GALLERY]</button>
+          <button class="filter-btn" id="immich-mode-web">[FULL WEB APP]</button>
+          <button class="launch-btn" id="immich-upload-btn">[📤 UPLOAD MEDIA]</button>
+          <input type="file" id="immich-file-input" multiple accept="image/*,video/*" style="display: none;">
+          <button class="launch-btn" id="immich-refresh-btn">[🔄 REFRESH]</button>
+          <button class="launch-btn" id="immich-open-external">[↗ OPEN TAB]</button>
+        </div>
+      </div>
+
+      <div id="immich-cockpit-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <!-- Metrics 4-Card Grid -->
+        <div class="immich-stats-grid">
+          <div class="immich-stat-card">
+            <div>🖼 PHOTOS:</div>
+            <strong id="stat-photos" style="color: var(--term-text-bright);">--</strong>
+          </div>
+          <div class="immich-stat-card">
+            <div>🎬 VIDEOS:</div>
+            <strong id="stat-videos" style="color: var(--term-text-bright);">--</strong>
+          </div>
+          <div class="immich-stat-card">
+            <div>💾 STORAGE:</div>
+            <strong id="stat-storage" style="color: var(--term-text-bright);">-- GB</strong>
+          </div>
+          <div class="immich-stat-card">
+            <div>👥 PEOPLE / FACES:</div>
+            <strong id="stat-people" style="color: var(--term-text-bright);">--</strong>
+          </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div class="filter-bar" id="immich-gallery-filters">
+            <button class="filter-btn active" data-filter="all">[ALL MEDIA]</button>
+            <button class="filter-btn" data-filter="favorites">[⭐ FAVORITES]</button>
+            <button class="filter-btn" data-filter="videos">[🎬 VIDEOS]</button>
+            <button class="filter-btn" data-filter="photos">[🖼 PHOTOS]</button>
+          </div>
+          <input type="text" class="form-control" id="immich-search-input" placeholder="Search tags, cameras, locations..." style="width: 280px;">
+        </div>
+
+        <!-- Gallery Grid -->
+        <div class="immich-gallery-grid" id="immich-gallery-grid">
+          <!-- Populated dynamically via app.js -->
+        </div>
+      </div>
+
+      <!-- Iframe Mode -->
+      <div id="immich-iframe-container" style="display: none; flex: 1; min-height: 720px; flex-direction: column;">
+        <iframe id="immich-webview-frame" src="" style="width: 100%; flex: 1; min-height: 680px; border: 1px solid var(--term-border); background: #000;" allow="fullscreen"></iframe>
+      </div>
+    </section>
+
+    <!-- VIEW 8: SEMANTIC MEMORY EXPLORER -->
+    <section class="view-pane" id="view-memory">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ QDRANT VECTOR MEMORY EXPLORER ]</h2>
+          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>127.0.0.1:6333</code></p>
+        </div>
+        <div class="filter-bar">
+          <select class="form-control" id="memory-search-collection">
+            <option value="companion_profile" selected>companion_profile (Personal & Bio)</option>
+            <option value="codebase_knowledge">codebase_knowledge (Technical Notes)</option>
+            <option value="agent_memories">agent_memories (Workflows & Jots)</option>
+            <option value="home_automation_registry">home_automation_registry (Devices)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="display: flex; gap: 0.5rem;">
+          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does ClusterAdmin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
+          <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
+        </div>
+        <div class="terminal-panel-header">
+          <span>SEMANTIC HITS (Ranked by Cosine Similarity)</span>
+        </div>
+        <div id="memory-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+          <div style="color: var(--term-text-muted); padding: 0.5rem;">Enter a query above to inspect hardware-accelerated vector recall from local Qdrant memory.</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal Dialog: Settings & Secrets -->
+  <dialog id="settings-dialog">
+    <div class="dialog-header">
+      <h3>[⚙ SYSTEM CONFIGURATION & CREDENTIALS]</h3>
+      <button class="card-icon-btn" id="close-settings-dialog">[✕]</button>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+      <div class="form-group">
+        <label for="set-ha-token">Home Assistant Long-Lived Token</label>
+        <input type="password" class="form-control" id="set-ha-token" placeholder="Bearer eyJhbGciOi...">
+      </div>
+      <div class="form-group">
+        <label for="set-pve-token">Proxmox VE API Token (USER@REALM!TOKENID=SECRET)</label>
+        <input type="password" class="form-control" id="set-pve-token" placeholder="USER@REALM!TOKENID=YOUR_SECRET_UUIDxxxx...">
+      </div>
+      <div class="form-group">
+        <label for="set-immich-url">Immich Server URL</label>
+        <input type="text" class="form-control" id="set-immich-url" placeholder="http://127.0.0.1:9000">
+      </div>
+      <div class="form-group">
+        <label for="set-immich-key">Immich API Key</label>
+        <input type="password" class="form-control" id="set-immich-key" placeholder="Optional API Key">
+      </div>
+      <div class="form-group">
+        <label for="set-openai-key">OpenAI API Key</label>
+        <input type="password" class="form-control" id="set-openai-key" placeholder="sk-...">
+      </div>
+      <div class="form-group">
+        <label for="set-anthropic-key">Anthropic API Key</label>
+        <input type="password" class="form-control" id="set-anthropic-key" placeholder="sk-ant-...">
+      </div>
+      <div class="form-group">
+        <label for="set-gemini-key">Google Gemini API Key</label>
+        <input type="password" class="form-control" id="set-gemini-key" placeholder="AIzaSy...">
+      </div>
+      <button class="launch-btn" id="request-notifications-btn" style="margin-top: 0.35rem;">[🔔 ENABLE WEB PUSH NOTIFICATIONS]</button>
+    </div>
+    <div class="dialog-footer">
+      <button class="launch-btn" id="cancel-settings-btn">[CANCEL]</button>
+      <button class="send-btn" id="save-settings-btn">[SAVE CONFIG]</button>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Service Editor -->
+  <dialog id="service-editor-dialog">
+    <div class="dialog-header">
+      <h3 id="service-editor-title">[✏ EDIT SERVICE ENTRY]</h3>
+      <button class="card-icon-btn" id="close-service-editor-btn">[✕]</button>
+    </div>
+    <form id="service-editor-form" method="dialog" onsubmit="return false;" style="display: flex; flex-direction: column; gap: 0.65rem;">
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.5rem;">
+        <div class="form-group">
+          <label for="service-edit-name">Name</label>
+          <input type="text" class="form-control" id="service-edit-name" required>
+        </div>
+        <div class="form-group">
+          <label for="service-edit-id">Identifier</label>
+          <input type="text" class="form-control" id="service-edit-id" required>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+        <div class="form-group">
+          <label for="service-edit-category">Category</label>
+          <select class="form-control" id="service-edit-category">
+            <option value="ai">AI Stack</option>
+            <option value="smarthome">Smart Home</option>
+            <option value="media">Media & Stream</option>
+            <option value="automation">Downloads</option>
+            <option value="infra">Core Infra</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="service-edit-node">Node</label>
+          <select class="form-control" id="service-edit-node">
+            <option value="bigserv">bigserv</option>
+            <option value="pve">pve</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="service-edit-vmid">VMID</label>
+          <input type="text" class="form-control" id="service-edit-vmid">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="service-edit-url">Probe URL</label>
+        <input type="text" class="form-control" id="service-edit-url" required>
+      </div>
+      <div class="form-group">
+        <label for="service-edit-display-url">Launch URL</label>
+        <input type="text" class="form-control" id="service-edit-display-url" required>
+      </div>
+      <div class="form-group">
+        <label for="service-edit-description">Description</label>
+        <input type="text" class="form-control" id="service-edit-description">
+      </div>
+      <div class="dialog-footer">
+        <button type="button" class="launch-btn" id="delete-service-btn" style="color: var(--term-alert); display: none;">[DELETE]</button>
+        <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+          <button type="button" class="launch-btn" id="cancel-service-editor-btn">[CANCEL]</button>
+          <button type="button" class="send-btn" id="save-service-editor-btn">[SAVE]</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Dialog: Immich Lightbox & EXIF -->
+  <dialog id="immich-lightbox-dialog" style="max-width: 980px; width: 95vw;">
+    <div class="dialog-header">
+      <span id="lightbox-title" style="font-weight: bold; color: var(--term-text-bright);">PHOTO</span>
+      <div style="display: flex; gap: 0.35rem;">
+        <span id="lightbox-counter" style="color: var(--term-text-dim); margin-right: 0.5rem;"></span>
+        <button class="card-icon-btn" id="lightbox-prev-btn">[❮ PREV]</button>
+        <button class="card-icon-btn" id="lightbox-next-btn">[NEXT ❯]</button>
+        <button class="card-icon-btn" id="close-lightbox-btn">[✕ CLOSE]</button>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 300px; gap: 0.75rem;">
+      <div id="lightbox-stage" style="background: #000; display: flex; align-items: center; justify-content: center; min-height: 480px; border: 1px solid var(--term-border);"></div>
+      <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.78rem;">
+        <div style="font-weight: 700; color: var(--term-text-bright); border-bottom: 1px solid var(--term-border-dim);">EXIF METADATA</div>
+        <div>Camera: <strong id="exif-camera" style="color: var(--term-text-bright);">--</strong></div>
+        <div>Lens: <strong id="exif-lens">--</strong></div>
+        <div>Aperture: <strong id="exif-aperture">--</strong></div>
+        <div>Shutter: <strong id="exif-shutter">--</strong></div>
+        <div>ISO: <strong id="exif-iso">--</strong></div>
+        <div>Focal Length: <strong id="exif-focal">--</strong></div>
+        <div>Dimensions: <strong id="exif-dims">--</strong></div>
+        <div>Format: <strong id="exif-format">--</strong></div>
+        <div>Location: <strong id="exif-location">--</strong></div>
+        <div style="margin-top: 0.5rem;" id="lightbox-tags"></div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Guest Reboot Confirmation -->
+  <dialog id="reboot-dialog">
+    <div class="dialog-header">
+      <h3 style="color: var(--term-alert);">[⚠️ CONFIRM GUEST REBOOT]</h3>
+      <button class="card-icon-btn" id="close-reboot-dialog">[✕]</button>
+    </div>
+    <p>Are you sure you want to issue a reboot to <strong id="reboot-guest-name">guest</strong> (VMID: <span id="reboot-guest-vmid"></span>)?</p>
+    <div class="dialog-footer">
+      <button class="launch-btn" id="cancel-reboot-btn">[CANCEL]</button>
+      <button class="send-btn" id="confirm-reboot-btn" style="border-color: var(--term-alert); color: var(--term-alert);">[CONFIRM REBOOT]</button>
+    </div>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

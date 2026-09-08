@@ -1,0 +1,1 @@
+{"name":"restore_cluster_to_dual_9b","description":"Restore the cluster from 35B MoE back to the standard 24/7 Dual 9B Stack (Q8 Coordinator on GPU 0, Q4 Worker on GPU 1).","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}

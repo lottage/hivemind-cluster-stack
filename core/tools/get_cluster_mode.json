@@ -1,0 +1,1 @@
+{"name":"get_cluster_mode","description":"Check whether the cluster is in Dual 9B Stack mode (Q8 Coordinator + Q4 Worker) or Unified 35B MoE mode (Ornith-1.5-35B-A3B spanning dual-GPU VRAM).","parameters":{"additionalProperties":false,"properties":{},"type":"object"}}
