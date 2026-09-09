@@ -1,7 +1,7 @@
 # Helper script for homelab-ssh-setup skill
 param(
     [string]$TargetHost = "127.0.0.1",
-    [string]$TargetUser = "austin"
+    [string]$TargetUser = "user"
 )
 
 $KeyPath = "$HOME\.ssh\id_ed25519"

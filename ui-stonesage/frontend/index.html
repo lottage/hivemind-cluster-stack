@@ -87,6 +87,8 @@
       <div class="cluster-pill" id="cluster-status-pill" title="Cluster & Vector Brain Status">
         <span id="cluster-status-text">[CLUSTER: PROBING...]</span>
       </div>
+      <button class="launch-btn" id="header-reload-btn" onclick="location.reload()" title="Reload Entire Workstation">[🔄 REFRESH PAGE]</button>
+      <a href="/stonesage.apk" download="stonesage.apk" class="launch-btn" id="header-apk-btn" title="Download Mobile Cockpit APK for Samsung S25 Ultra" style="text-decoration:none; display:inline-block; line-height:normal;">[📲 DOWNLOAD APK]</a>
       <button class="launch-btn" id="open-settings-btn" title="Cockpit Settings & API Keys">[⚙ CONFIG]</button>
     </div>
   </header>
@@ -1122,7 +1124,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
 
       <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
         <div style="display: flex; gap: 0.5rem;">
-          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does ClusterAdmin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
+          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Operator drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
           <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
         </div>
         <div class="terminal-panel-header">
@@ -1149,7 +1151,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       </div>
       <div class="form-group">
         <label for="set-pve-token">Proxmox VE API Token (USER@REALM!TOKENID=SECRET)</label>
-        <input type="password" class="form-control" id="set-pve-token" placeholder="USER@REALM!TOKENID=YOUR_SECRET_UUIDxxxx...">
+        <input type="password" class="form-control" id="set-pve-token" placeholder="root@pam!StoneSage=751a3455-xxxx...">
       </div>
       <div class="form-group">
         <label for="set-immich-url">Immich Server URL</label>
@@ -1171,6 +1173,80 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
         <label for="set-gemini-key">Google Gemini API Key</label>
         <input type="password" class="form-control" id="set-gemini-key" placeholder="AIzaSy...">
       </div>
+      <!-- Task-to-Model Allocation Matrix -->
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.65rem; margin-top: 0.25rem;">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">[🎯 TASK &amp; MODEL ALLOCATION MATRIX]</legend>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <div class="form-group">
+            <label for="route-ideation">🗲 Fast Ideation &amp; Chores</label>
+            <select class="form-control" id="route-ideation">
+              <option value="local_worker">Local Worker (9B Q4 GPU1 - 80+ tok/s)</option>
+              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="route-solving">🧠 Deep Solving &amp; Logic</label>
+            <select class="form-control" id="route-solving">
+              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
+              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="route-audit">🏛 Frontier Meta-Auditing</label>
+            <select class="form-control" id="route-audit">
+              <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
+              <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
+              <option value="moe_35b">Ornith 35B MoE (Sleep Rumination)</option>
+              <option value="local_coordinator">Local Coordinator (14B/9B Fallback)</option>
+              <option value="openrouter">OpenRouter API</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="route-rumination">🌙 Sleep Rumination (Backlog)</label>
+            <select class="form-control" id="route-rumination">
+              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
+              <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+          <label for="route-chat">💬 Cockpit Interactive Chat</label>
+          <select class="form-control" id="route-chat">
+            <option value="local_coordinator">Local Coordinator (9B Q8 on RX 6750 XT)</option>
+            <option value="local_worker">Local Worker (9B Q4 on RX 6600 XT)</option>
+            <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+            <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem;">
+          <button type="button" class="card-icon-btn" id="preset-zero-token-btn" style="padding: 0.2rem 0.5rem;">[⚡ ZERO TOKEN COST]</button>
+          <button type="button" class="card-icon-btn" id="preset-frontier-btn" style="padding: 0.2rem 0.5rem;">[🚀 FRONTIER ACCELERATED]</button>
+          <button type="button" class="card-icon-btn" id="preset-local-btn" style="padding: 0.2rem 0.5rem;">[🔒 100% LOCAL AIRGAPPED]</button>
+        </div>
+      </fieldset>
+
+      <!-- Google One AI Plus / Gemini Web Session (Option A) -->
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.65rem; margin-top: 0.25rem;">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">[🌐 GOOGLE ONE AI PLUS / GEMINI ADVANCED ($0 TOKEN COST)]</legend>
+        <div style="font-size: 0.78rem; color: var(--term-text-muted); margin-bottom: 0.4rem;">
+          Taps into your existing Google One AI Plus subscription on <code>gemini.google.com</code> without per-token API fees or daily CLI limits.
+        </div>
+        <div class="form-group">
+          <label for="set-gemini-psid">__Secure-1PSID Cookie</label>
+          <input type="password" class="form-control" id="set-gemini-psid" placeholder="Paste __Secure-1PSID from browser dev tools">
+        </div>
+        <div class="form-group">
+          <label for="set-gemini-psidts">__Secure-1PSIDTS Cookie (Optional)</label>
+          <input type="password" class="form-control" id="set-gemini-psidts" placeholder="Paste __Secure-1PSIDTS if present">
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.35rem;">
+          <button type="button" class="launch-btn" id="test-gemini-web-btn">[🔍 TEST &amp; VALIDATE GEMINI ADVANCED SESSION]</button>
+          <span id="gemini-web-status-badge" style="font-size: 0.78rem; font-weight: bold; color: var(--term-text-muted);">[STATUS: NOT CHECKED]</span>
+        </div>
+      </fieldset>
+
       <button class="launch-btn" id="request-notifications-btn" style="margin-top: 0.35rem;">[🔔 ENABLE WEB PUSH NOTIFICATIONS]</button>
     </div>
     <div class="dialog-footer">

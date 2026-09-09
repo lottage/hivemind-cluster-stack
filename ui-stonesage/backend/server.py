@@ -250,7 +250,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             vault_p = config.get("obsidian", {}).get("user_vault_path") or config.get("obsidian", {}).get("vault_path")
             candidates = [
                 os.path.join(vault_p, "Current Status.md") if vault_p else "",
-                r"C:\Users\admin\OneDrive\Documents\obsidian\Current Status.md",
+                r"C:\Users\operator\OneDrive\Documents\obsidian\Current Status.md",
                 "/opt/stonesage/vault_backup/Current Status.md",
                 "vault_backup/Current Status.md"
             ]
@@ -275,7 +275,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/notes":
             couch_notes = couchdb.list_notes()
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\admin\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
             local_notes = []
             if user_vault and os.path.exists(user_vault):
                 for root, dirs, files in os.walk(user_vault):
@@ -336,7 +336,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/note":
             rel_path = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\admin\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
             if user_vault and os.path.exists(user_vault):
                 norm_rel = os.path.normpath(rel_path).lstrip("\\/")
                 full_path = os.path.join(user_vault, norm_rel)
@@ -398,7 +398,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/knowledge/status":
-            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\admin\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
+            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
             file_count = 0
             if os.path.exists(kb_dir):
                 for _, _, files in os.walk(kb_dir):
@@ -637,7 +637,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/cluster/models":
             try:
-                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "clusteradmin@127.0.0.1",
+                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                             "grep -E -- '--model|-c ' /etc/systemd/system/llama-coordinator.service"]
                 res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=10)
                 active_model = "Unknown"
@@ -649,7 +649,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         if "-c " in line:
                             active_ctx = line.split("-c ")[-1].strip().split()[0]
 
-                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "clusteradmin@127.0.0.1",
+                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                              "ls -lh /opt/models/*.gguf && df -h /opt/models | tail -n 1"]
                 res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=10)
                 models = []
@@ -761,6 +761,19 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(cluster.get_preemption_status())
             return
 
+        elif path == "/api/task_routing":
+            cfg = load_config()
+            self.send_json({
+                "ok": True,
+                "task_routing": cfg.get("task_routing", {}),
+                "gemini_web": {
+                    "enabled": cfg.get("gemini_web", {}).get("enabled", True),
+                    "configured": bool(cfg.get("gemini_web", {}).get("psid")),
+                    "endpoint": cfg.get("gemini_web", {}).get("endpoint", "http://127.0.0.1:8087")
+                }
+            })
+            return
+
         # Fallback to serving frontend static assets
         super().do_GET()
 
@@ -793,6 +806,50 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 cluster = ClusterClient(cfg)
                 immich = ImmichClient(cfg.get("immich", {}), UPLOADS_DIR)
                 self.send_json({"ok": True, "message": "Configuration saved successfully."})
+                return
+
+            elif path == "/api/task_routing":
+                cfg = load_config()
+                routing = body.get("task_routing", body)
+                if "task_routing" not in cfg:
+                    cfg["task_routing"] = {}
+                cfg["task_routing"].update(routing)
+                save_config(cfg)
+                self.send_json({"ok": True, "task_routing": cfg["task_routing"], "message": "Task routing updated successfully."})
+                return
+
+            elif path in ("/api/gemini_web/configure", "/api/gemini_web/cookies"):
+                cfg = load_config()
+                psid = body.get("psid", "").strip()
+                psidts = body.get("psidts", "").strip()
+                if "gemini_web" not in cfg:
+                    cfg["gemini_web"] = {}
+                if psid:
+                    cfg["gemini_web"]["psid"] = psid
+                if psidts:
+                    cfg["gemini_web"]["psidts"] = psidts
+                save_config(cfg)
+                
+                # Sync cookies directly to Gemini Web Bridge on Port 8087
+                is_valid = False
+                bridge_msg = "Saved locally"
+                try:
+                    f_url = "http://127.0.0.1:8087/api/cookies"
+                    req = urllib.request.Request(
+                        f_url,
+                        data=json.dumps({"psid": psid, "psidts": psidts}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                        res_data = json.loads(resp.read().decode("utf-8"))
+                        is_valid = bool(res_data.get("ok") and res_data.get("session_active"))
+                        bridge_msg = res_data.get("message", "Session verified")
+                except Exception as ex:
+                    bridge_msg = f"Cookie sync error: {ex}"
+                    is_valid = False
+                
+                self.send_json({"ok": is_valid, "session_active": is_valid, "message": bridge_msg})
                 return
 
             elif path == "/api/hivemind/vigilance":
@@ -1310,6 +1367,18 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     notes = couchdb.list_notes()
                     self.send_json({"ok": True, "message": f"Polled CouchDB: {len(notes)} notes indexed.", "count": len(notes)})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path == "/api/obsidian/sync-archive":
+                try:
+                    def run_sync_task():
+                        ps_script = os.path.join(WORKSPACE_ROOT, "server setup", "sync_archive_to_obsidian.ps1")
+                        if os.path.exists(ps_script):
+                            subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", ps_script], capture_output=True)
+                    threading.Thread(target=run_sync_task, daemon=True).start()
+                    self.send_json({"ok": True, "message": "Obsidian archive sync initiated in background."})
                 except Exception as ex:
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return

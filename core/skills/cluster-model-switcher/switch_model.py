@@ -23,7 +23,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-SSH_HOST = "austin@127.0.0.1"
+SSH_HOST = os.environ.get("SSH_CLUSTER_HOST", "user@127.0.0.1")
 COORDINATOR_HEALTH_URL = "http://127.0.0.1:8001/health"
 SERVICE_NAME = "llama-coordinator.service"
 SERVICE_PATH = f"/etc/systemd/system/{SERVICE_NAME}"

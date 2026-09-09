@@ -45,7 +45,7 @@ On Windows, `ssh-copy-id` is often unavailable by default. Deploy the public key
 
 ```powershell
 # Syntax: type <pubkey> | ssh <user>@<host> "<commands>"
-type "$HOME\.ssh\id_ed25519.pub" | ssh austin@127.0.0.1 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+type "$HOME\.ssh\id_ed25519.pub" | ssh <username>@127.0.0.1 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
 ```
 
 *Note: The user will be prompted for the remote account password exactly once during this step.*
@@ -55,7 +55,7 @@ type "$HOME\.ssh\id_ed25519.pub" | ssh austin@127.0.0.1 "mkdir -p ~/.ssh && chmo
 ### Step 4: Verify Passwordless Connection
 Test that authentication succeeds without prompting:
 ```powershell
-ssh -o BatchMode=yes austin@127.0.0.1 "echo '[SUCCESS] Passwordless SSH is active!'"
+ssh -o BatchMode=yes <username>@127.0.0.1 "echo '[SUCCESS] Passwordless SSH is active!'"
 ```
 If the command prints the success message without prompting for a password, setup is complete.
 
@@ -67,7 +67,7 @@ To avoid typing IP addresses and usernames, add an entry to `$HOME\.ssh\config`:
 ```text
 Host pve-ubu
     HostName 127.0.0.1
-    User austin
+    User <username>
     IdentityFile ~/.ssh/id_ed25519
 
 Host bigserv-haos

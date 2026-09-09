@@ -58,7 +58,7 @@ The script automatically dispatches each benchmark probe to the dual-GPU cluster
 ### Step 4: Lock-In & Engine Sync
 When a parameter set satisfies $\\text{CII} \\ge 8.5$:
 - The script automatically writes `calibrated_profiles.json`.
-- Updates `SAMPLING_PROFILES` in `/home/austin/cluster-bridge/autonomous_engine.py`.
+- Updates `SAMPLING_PROFILES` in `/opt/cluster-bridge/autonomous_engine.py`.
 - Syncs the certification summary to your Obsidian vault (`Autonomous Thinking/Calibration/`).
 
 ---

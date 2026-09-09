@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Obsidian Vault Vector Ingestor for StoneSage & Qdrant Brain
-Scans ClusterAdmin's primary Obsidian vault and embeds personal notes, home info,
+Scans primary Obsidian vault and embeds personal notes, home info,
 tech docs, and tasks into Qdrant collections via local BGE Embedder (:8003).
 """
 
@@ -19,7 +19,7 @@ class ObsidianIngestor:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         obsidian_cfg = config.get("obsidian", {})
-        self.user_vault = obsidian_cfg.get("user_vault_path", r"C:\Users\admin\OneDrive\Documents\obsidian")
+        self.user_vault = obsidian_cfg.get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
         self.backup_vault = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vault_backup"))
         self.embedder_url = config.get("cluster", {}).get("embedder_url", "http://127.0.0.1:8003/v1").rstrip("/")
         self.qdrant_url = config.get("cluster", {}).get("qdrant_url", "http://127.0.0.1:6333").rstrip("/")
@@ -143,7 +143,7 @@ class ObsidianIngestor:
         # Personal profile, home info, vehicle, wedding, education
         if any(k in lower_path for k in ["home info", "bmw", "accounting", "wedding", "gifts", "continuing education"]):
             return "companion_profile"
-        if any(k in lower_content for k in ["vin:", "clusteradmin", "f30", "328i", "wife", "marriage", "degree", "wgu"]):
+        if any(k in lower_content for k in ["profile", "personal", "user", "credentials"]):
             return "companion_profile"
 
         # Tasks, jots, todos

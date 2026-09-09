@@ -12,7 +12,7 @@ Directly derived from the official `skills.qdrant.tech` specification and tailor
 - **Engine Version**: Qdrant `v1.19.0`
 - **Dense Embeddings**: `bge-large-en-v1.5` (1024 dimensions, Cosine distance) on AMD Radeon RX 6600 XT (`:8003`)
 - **Active Collections**:
-  1. `companion_profile`: Austin's personal preferences, background, and companion directives.
+  1. `companion_profile`: Operator preferences and profile, background, and companion directives.
   2. `home_automation_registry`: Device states, entities, Matter IDs, and HA blueprints.
   3. `codebase_knowledge`: Ingested workspace files, architectural invariants, and technical lessons.
   4. `agent_memories`: Episodic agent memories, task completions, and working insights.

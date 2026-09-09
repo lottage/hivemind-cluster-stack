@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 Deploy comprehensive sentence triggers for ALL known controllable devices.
@@ -7,7 +8,7 @@ Uses HA conversation platform triggers for instant local matching (<0.2s).
 import json
 import urllib.request
 
-TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkODExY2E4ZDIyMzA0YWY4OGExODRlNDQ3MjQxMmUxZCIsImlhdCI6MTc4ODYzOTk1MywiZXhwIjoyMTAzOTk5OTUzfQ.qb9WoW_8wjMgIYAnBHVlmMnV5Q1fsSRZ7AHS4b6oRrs'
+TOKEN = os.environ.get("HASS_TOKEN", "YOUR_HA_LONG_LIVED_ACCESS_TOKEN")
 HA_URL = 'http://127.0.0.1:8123'
 HEADERS = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
 

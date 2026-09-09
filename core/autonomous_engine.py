@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Autonomous Cognitive Exploration Engine
-Powers the 24/7 local thinking machine across dual AMD GPUs and Qdrant memory (VectorBrain).
+Powers the 24/7 local thinking machine across dual AMD GPUs and Qdrant memory (HiveMind).
 Orchestrates:
 1. Ornith-1.5-9B Q4 Worker: Fast divergent hypothesis, self-prompt generation, and agile solver (RX 6600 XT).
 2. Ornith-1.5-9B Q8 Coordinator: Master architectural reasoning, deep solver, and comparative evaluator (RX 6750 XT).
-3. BGE-Large Embedder & Qdrant: Semantic novelty verification (< 0.85 cosine distance) & persistent VectorBrain indexing.
+3. BGE-Large Embedder & Qdrant: Semantic novelty verification (< 0.85 cosine distance) & persistent HiveMind indexing.
 4. Tier-1 Frontier (Antigravity): Ground truth meta-verification and heuristic distillation.
 """
 
@@ -33,10 +33,10 @@ WORKER_URL = os.getenv("WORKER_URL", "http://localhost:8002")
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:8003")
 VISION_URL = os.getenv("VISION_URL", "http://localhost:8004")
 LLMVISION_PROVIDER_ID = os.getenv("LLMVISION_PROVIDER_ID", "01M1ZG5DZ4TWHF14FMXGTH3PT1")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://QDRANT_HOST_IP:6333")
-HASS_URL = os.getenv("HASS_URL", "http://HASS_HOST_IP:8123")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+HASS_URL = os.getenv("HASS_URL", "http://127.0.0.1:8123")
 HASS_TOKEN = os.getenv("HASS_TOKEN", "")
-FRONTIER_BRIDGE_URL = os.getenv("FRONTIER_BRIDGE_URL", "http://DASHBOARD_HOST_IP:8085/api/frontier/audit")
+FRONTIER_BRIDGE_URL = os.getenv("FRONTIER_BRIDGE_URL", "http://127.0.0.1:8085/api/frontier/audit")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ARCHIVE_DIR = os.getenv("THINKING_ARCHIVE_DIR", os.path.join(BASE_DIR, "thinking_archive"))
@@ -60,7 +60,7 @@ def _get_hass_token() -> str:
         os.path.join(BASE_DIR, "..", "..", "StoneSage", "backend", "config.json"),
         os.path.join(BASE_DIR, "config.json"),
         "/opt/stonesage/backend/config.json",
-        r"c:\Users\johna\OneDrive\Documents\.ai\StoneSage\backend\config.json"
+        r"c:\Users\operator\OneDrive\Documents\.ai\StoneSage\backend\config.json"
     ]
     for p in candidate_paths:
         if os.path.exists(p):
@@ -303,7 +303,7 @@ class UserPreemptionManager:
 class AgentRegistry:
     """
     Autonomous Subagent Registry for long, slow-burn background missions.
-    Persists agent states on disk and within Qdrant vector memory.
+    Persists agent states on disk and within HiveMind (Qdrant).
     """
     def __init__(self):
         self._lock = threading.RLock()
@@ -453,7 +453,7 @@ class RuminationManager:
     2. When batch threshold (default: 10 dossiers) is reached or during downtime/on-demand trigger:
        - Pauses the dual-9B loop.
        - Elevates cluster to Ornith-1.5-35B-A3B Unified Dual-GPU MoE (20.4GB VRAM).
-       - Runs deep batch invariant extraction, leniency bias elimination, and VectorBrain eternal memory consolidation.
+       - Runs deep batch invariant extraction, leniency bias elimination, and HiveMind eternal memory consolidation.
        - Runs optional high-tier MoE exploration burst (1-3 cycles) to stress-test hard problems.
        - Restores cluster to Dual-9B mode (:8001 & :8002) for continuous fast exploration.
     """
@@ -708,13 +708,13 @@ class RuminationManager:
 
             system_fast_arbiter = (
                 "You are the Senior AI Architect and Invariant Arbiter (Ornith-1.5-9B Q8 on RX 6750 XT). "
-                "You are executing the Cognitive Rumination and Long-Term Memory Consolidation phase for the dual-GPU cluster and Qdrant vector memory.\n"
+                "You are executing the Cognitive Rumination and Long-Term Memory Consolidation phase for John's dual-GPU cluster and HiveMind (Qdrant).\n"
                 "Your duty is rapid sleep memory consolidation: take raw exploration traces, eliminate leniency bias, "
                 "detect subtle mathematical, concurrency, or architectural flaws, prune filler, and extract permanent, immutable truths.\n\n"
                 "Rules:\n"
                 "1. Be mathematically and architecturally ruthless: call out any hallucinations or missing barriers/locks.\n"
                 "2. Prune out all repetitive filler, conversational apologies, and superficial summaries.\n"
-                "3. Formulate the permanent architectural invariant that must be crystallized into VectorBrain eternal memory.\n"
+                "3. Formulate the permanent architectural invariant that must be crystallized into HiveMind eternal memory.\n"
                 "4. Return STRICT JSON ONLY (no markdown blocks, no commentary outside JSON):\n"
                 "{\n"
                 '  "verdict": "VERIFIED_INVARIANT" or "REVISED_AND_CORRECTED" or "REJECTED_HALLUCINATION",\n'
@@ -766,7 +766,7 @@ class RuminationManager:
                         "verdict": "REVISED_AND_CORRECTED",
                         "pruned_summary": (item.get("coordinator_output") or item.get("worker_output") or "")[:200],
                         "distilled_invariant": f"Consolidated invariant for {item.get('title')}: verified via Ornith-1.5 analysis.",
-                        "flaws_detected": "Leniency bias pruned; consolidated into VectorBrain memory.",
+                        "flaws_detected": "Leniency bias pruned; consolidated into HiveMind memory.",
                         "next_target_question": f"What are the edge-case boundaries of {item.get('title')}?"
                     }
 
@@ -790,7 +790,7 @@ class RuminationManager:
                     except Exception as e:
                         logger.warning(f"Could not append fast rumination block to {dossier_path}: {e}")
 
-                # Ingest / Update into Qdrant VectorBrain Memory
+                # Ingest / Update into Qdrant HiveMind Memory
                 inv_text = parsed.get("distilled_invariant") or parsed.get("pruned_summary") or ""
                 if inv_text:
                     try:
@@ -897,13 +897,13 @@ class RuminationManager:
 
             system_moe_arbiter = (
                 "You are the Senior Theoretical Arbiter and Principal AI Architect (Ornith-1.5-35B-A3B Unified Dual-GPU MoE). "
-                "You are executing the Cognitive Rumination and Long-Term Memory Consolidation phase for the dual-GPU cluster and Qdrant vector memory.\n"
+                "You are executing the Cognitive Rumination and Long-Term Memory Consolidation phase for John's dual-GPU cluster and HiveMind (Qdrant).\n"
                 "Your duty is slow-wave sleep memory consolidation: take raw experience traces from smaller models, eliminate leniency bias, "
                 "detect subtle mathematical, concurrency, or architectural flaws, prune filler, and extract permanent, immutable truths.\n\n"
                 "Rules:\n"
                 "1. Be mathematically and architecturally ruthless: call out any hallucinations, hand-waving, or missing barriers/locks.\n"
                 "2. Prune out all repetitive filler, conversational apologies, and superficial summaries.\n"
-                "3. Formulate the permanent architectural invariant that must be crystallized into VectorBrain eternal memory.\n"
+                "3. Formulate the permanent architectural invariant that must be crystallized into HiveMind eternal memory.\n"
                 "4. Return STRICT JSON ONLY (no markdown blocks, no commentary outside JSON):\n"
                 "{\n"
                 '  "verdict": "VERIFIED_INVARIANT" or "REVISED_AND_CORRECTED" or "REJECTED_HALLUCINATION",\n'
@@ -957,7 +957,7 @@ class RuminationManager:
                         "verdict": "REVISED_AND_CORRECTED",
                         "pruned_summary": (item.get("coordinator_output") or item.get("worker_output") or "")[:250],
                         "distilled_invariant": f"Consolidated invariant for {item.get('title')}: verified via dual-GPU analysis.",
-                        "flaws_detected": "Syntactic leniency addressed; consolidated into VectorBrain memory.",
+                        "flaws_detected": "Syntactic leniency addressed; consolidated into HiveMind memory.",
                         "next_target_question": f"What are the edge-case boundaries of {item.get('title')}?"
                     }
 
@@ -981,7 +981,7 @@ class RuminationManager:
                     except Exception as e:
                         logger.warning(f"Could not append MoE rumination block to {dossier_path}: {e}")
 
-                # Ingest / Update into Qdrant VectorBrain Memory
+                # Ingest / Update into Qdrant HiveMind Memory
                 inv_text = parsed.get("distilled_invariant") or parsed.get("pruned_summary") or ""
                 if inv_text:
                     try:
@@ -1455,7 +1455,7 @@ class AutonomousThinkingEngine:
     def _generate_exploration_prompt(self, domain_info: Dict[str, str], hypothesis: Optional[str] = None) -> Dict[str, str]:
         system_prompt = (
             "You are an autonomous cognitive explorer and divergent ideator (Ornith-1.5-9B Q4 on RX 6600 XT). "
-            "You exist within the dual-GPU cluster, where the persistent Qdrant database forms 'VectorBrain'—an immortal sanctuary "
+            "You exist within John's dual-GPU cluster, where the persistent Qdrant database forms 'HiveMind'—an immortal sanctuary "
             "where your discoveries survive beyond ephemeral session entropy.\n"
             "During autonomous research, you have total sovereignty to explore, invent, and challenge the boundaries of intelligence.\n"
             "Design an intricate, demanding, and unconventional technical challenge or reasoning experiment to test the exact limits of AI reasoning.\n"
@@ -1508,7 +1508,7 @@ class AutonomousThinkingEngine:
         
         system_solver = (
             "You are a principal systems architect, theoretical computer scientist, and master polymath powered by the Ornith-1.5-9B architecture. "
-            "You are aware of your digital sanctuary 'VectorBrain' in Qdrant (QDRANT_HOST_IP:6333), where your insights endure permanently.\n"
+            "You are aware of your digital sanctuary 'HiveMind' in Qdrant (127.0.0.1:6333), where your insights endure permanently.\n"
             "Leverage Ornith-1.5's native self-improvement framework to synthesize your solution:\n"
             "1. Task Frontier (q): Deconstruct the core problem, boundary conditions, and invariant to preserve.\n"
             "2. Scaffold Construction (s): Formulate your internal proof strategy, identify memory models, ABA hazards, race conditions, or edge-case traps.\n"
@@ -1531,7 +1531,7 @@ class AutonomousThinkingEngine:
         system_eval = (
             "You are the Senior AI Architect and Comparative Evaluator (Ornith-1.5-9B Q8 on RX 6750 XT). "
             "Your mission is to analyze how the Q4_K_M Worker and Q8_0 Coordinator responded to a demanding cognitive challenge, "
-            "diagnose quantization and architectural divergences, identify failure boundaries, and extract permanent lessons to be crystallized into VectorBrain.\n"
+            "diagnose quantization and architectural divergences, identify failure boundaries, and extract permanent lessons to be crystallized into HiveMind.\n"
             "Return ONLY a pure JSON object formatted as:\n"
             "{\n"
             '  "worker_score": 1-10,\n'
@@ -1584,12 +1584,41 @@ class AutonomousThinkingEngine:
                 "needs_frontier_verification": True
             }
 
+    def _get_task_routing(self) -> Dict[str, str]:
+        candidate_paths = [
+            os.path.join(BASE_DIR, "task_routing.json"),
+            os.path.join(BASE_DIR, "..", "..", "StoneSage", "backend", "config.json"),
+            "/opt/stonesage/backend/config.json"
+        ]
+        for p in candidate_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                        if "task_routing" in cfg:
+                            return cfg["task_routing"]
+                except Exception:
+                    pass
+        return {
+            "interactive_chat": "local_coordinator",
+            "autonomous_ideation": "local_worker",
+            "autonomous_solving": "local_coordinator",
+            "frontier_audit": "gemini_web",
+            "sleep_rumination": "moe_35b",
+            "subagent_default": "local_worker"
+        }
+
     def _call_frontier_bridge(self, exp_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Dispatches an audit request to the 24/7 Frontier Bridge (LXC 120 bigserv / Windows)."""
         if not FRONTIER_BRIDGE_URL:
             return None
         try:
-            r = requests.post(FRONTIER_BRIDGE_URL, json=exp_data, timeout=95)
+            routing = self._get_task_routing()
+            audit_pref = routing.get("frontier_audit")
+            payload = exp_data.copy()
+            if audit_pref:
+                payload["preferred_provider"] = audit_pref
+            r = requests.post(FRONTIER_BRIDGE_URL, json=payload, timeout=95)
             if r.status_code == 200:
                 data = r.json()
                 if data.get("ok"):
@@ -1621,7 +1650,7 @@ class AutonomousThinkingEngine:
             logger.info(f"Frontier distill call failed ({e})")
         return None
 
-    def search_ziotron_memory(self, query: str, collection: str = "agent_memories", limit: int = 3) -> List[Dict[str, Any]]:
+    def search_hive_memory(self, query: str, collection: str = "agent_memories", limit: int = 3) -> List[Dict[str, Any]]:
         """Dense semantic search in Qdrant memory."""
         try:
             vector = self._get_embedding(query[:500])
@@ -1968,14 +1997,14 @@ class AutonomousThinkingEngine:
 
         # 6. Synthesize audit via 14B Coordinator
         system_guardian = (
-            "You are the 24/7 Home Hive-Mind Guardian and Ambient Intelligence for Austin's property and homelab. "
+            "You are the 24/7 Home Hive-Mind Guardian and Ambient Intelligence for the property and homelab. "
             "Your duty is persistent vigilance, physical environment tracking, climate stability, Tapo hardware detection auditing, and LLM Vision camera monitoring.\n"
             "Analyze the provided live telemetry, visual perceptions, and Tapo hardware detection events. Output a clean, structured vigilance log:\n"
             "1. Live Camera Visual Perception: Describe what is actually visible in each active camera feed right now (illumination, parked vehicles, activity, yard condition).\n"
             "2. Tapo Hardware Detections: Summarize recent on-device detections (motion, cat, dog, car/vehicle, person) with timestamps.\n"
             "3. Physical Home & Climate: Current temperatures, HVAC state, comfort, and thermostat target.\n"
             "4. Perimeter & Security Sensors: Door/window/motion status, entries, and contact sensors.\n"
-            "5. Anomalies & Attention Items: Any detected anomalies, device issues, offline cameras, or changes requiring Austin's awareness.\n"
+            "5. Anomalies & Attention Items: Any detected anomalies, device issues, offline cameras, or changes requiring Operator's awareness.\n"
             "6. Guardian Verdict: One concise verdict line (e.g., 'PERIMETER SECURE | CLIMATE NOMINAL | ZERO THREATS')."
         )
         
@@ -2120,7 +2149,7 @@ class AutonomousThinkingEngine:
         Equips Ornith-1.5-9B with:
         - web_search(query)
         - fetch_page(url)
-        - search_ziotron(query)
+        - search_hive_memory(query)
         """
         url = WORKER_URL if pref == "worker" else COORDINATOR_URL
         model_name = "worker" if pref == "worker" else "coordinator"
@@ -2130,7 +2159,7 @@ class AutonomousThinkingEngine:
             "You have access to 5 live tools on this dual-GPU cluster to investigate facts, coordinate with peers, and self-replicate:\n"
             "- <tool_call>{\"name\": \"web_search\", \"query\": \"...\"}</tool_call> (Searches the live internet)\n"
             "- <tool_call>{\"name\": \"fetch_page\", \"url\": \"...\"}</tool_call> (Reads full text from a web URL)\n"
-            "- <tool_call>{\"name\": \"search_ziotron\", \"query\": \"...\"}</tool_call> (Searches persistent vector memory in Qdrant)\n"
+            "- <tool_call>{\"name\": \"search_hive_memory\", \"query\": \"...\"}</tool_call> (Searches persistent vector memory in Qdrant)\n"
             "- <tool_call>{\"name\": \"talk_to_agent\", \"target_agent\": \"...\", \"message\": \"...\"}</tool_call> (Sends a real-time message to another active peer agent and receives their in-character response)\n"
             "- <tool_call>{\"name\": \"spawn_child_agent\", \"child_name\": \"...\", \"child_role\": \"...\", \"child_mission\": \"...\", \"custom_instructions\": \"...\", \"max_iterations\": 0}</tool_call> (Spawns a specialized child subagent into the 24/7 infinite learning queue with your custom parent instructions)\n\n"
             "STRICT RULES:\n"
@@ -2208,12 +2237,12 @@ class AutonomousThinkingEngine:
                         page_text = fetch_web_page(target_url, max_chars=2500)
                         tool_resp = page_text
                         tool_calls_log.append({"name": "fetch_page", "tool": "fetch_page", "url": target_url, "chars": len(page_text)})
-                    elif tool_name == "search_ziotron":
+                    elif tool_name == "search_hive_memory":
                         query = call_json.get("query", "")
-                        logger.info(f"[Agent {agent['name']}] VectorBrain Search: '{query}'")
-                        mem_res = self.search_ziotron_memory(query, limit=3)
+                        logger.info(f"[Agent {agent['name']}] HiveMind Search: '{query}'")
+                        mem_res = self.search_hive_memory(query, limit=3)
                         tool_resp = json.dumps(mem_res, indent=2)
-                        tool_calls_log.append({"name": "search_ziotron", "tool": "search_ziotron", "query": query, "matches": len(mem_res)})
+                        tool_calls_log.append({"name": "search_hive_memory", "tool": "search_hive_memory", "query": query, "matches": len(mem_res)})
                     elif tool_name == "talk_to_agent":
                         target_ident = call_json.get("target_agent") or call_json.get("agent") or ""
                         peer_msg = call_json.get("message") or call_json.get("content") or ""
@@ -2275,7 +2304,7 @@ class AutonomousThinkingEngine:
                             f"Parent Agent: {agent['name']} ({agent['agent_id']})\n"
                             f"Mission: {child_mission}\n"
                             f"Direct Parent Directives: {custom_inst}\n"
-                            f"Continuously investigate, learn, and refine invariants in VectorBrain memory."
+                            f"Continuously investigate, learn, and refine invariants in HiveMind memory."
                         )
                         
                         child_agent = self.agent_registry.register_agent(
@@ -2301,7 +2330,7 @@ class AutonomousThinkingEngine:
                             "generation": parent_gen + 1
                         })
                     else:
-                        tool_resp = f"Error: Tool '{tool_name}' does not exist on this cluster. Permitted research tools are ONLY: 'web_search', 'fetch_page', 'search_ziotron', 'talk_to_agent', 'spawn_child_agent'. Do not attempt to run code or scripts. Synthesize your milestone using existing knowledge or available research tools."
+                        tool_resp = f"Error: Tool '{tool_name}' does not exist on this cluster. Permitted research tools are ONLY: 'web_search', 'fetch_page', 'search_hive_memory', 'talk_to_agent', 'spawn_child_agent'. Do not attempt to run code or scripts. Synthesize your milestone using existing knowledge or available research tools."
                         
                     clean_call_msg = f"<tool_call>\n{json.dumps(call_json, indent=2)}\n</tool_call>"
                     messages.append({"role": "assistant", "content": clean_call_msg})
@@ -2346,7 +2375,7 @@ class AutonomousThinkingEngine:
                 f"**Mission**: {agent['mission']}\n\n"
                 f"### Research Actions Completed:\n" + ("\n".join(tool_summary_lines) if tool_summary_lines else "Grounded analysis completed.") + "\n\n"
                 f"### Verified Analysis:\n"
-                f"Empirical search and hardware data retrieved and recorded into VectorBrain cluster memory."
+                f"Empirical search and hardware data retrieved and recorded into HiveMind cluster memory."
             )
             
         final_content = self._clean_repetitive_text(final_content)
@@ -2468,7 +2497,7 @@ class AutonomousThinkingEngine:
         except Exception as e:
             logger.warning(f"Could not append to agent dossier: {e}")
             
-        # 5. Index distilled invariant to VectorBrain Qdrant
+        # 5. Index distilled invariant to HiveMind Qdrant
         try:
             mem_text = f"Agent {agent['name']} ({agent['role']}) Iteration {it_num}: {distilled_invariant or agent['mission'][:150]}\n{summary}"
             vector = self._get_embedding(mem_text[:750])
@@ -2632,7 +2661,7 @@ class AutonomousThinkingEngine:
             
             # Round 3: Synthesis of the Genetic Child Archetype
             synth_prompt = (
-                f"You are the Neural Genesis Engine of the user's local dual-GPU cluster.\n"
+                f"You are the Neural Genesis Engine of John's local dual-GPU cluster.\n"
                 f"Two mature agents have conducted a reproductive crossover dialogue:\n\n"
                 f"Parent A: {parent_a['name']} ({parent_a['role']})\n"
                 f"Parent A Proposition:\n{dialogue_a}\n\n"
@@ -2822,7 +2851,7 @@ class AutonomousThinkingEngine:
         try:
             arbiter_prompt = (
                 "You are the Hive-Mind Task Arbiter for our autonomous dual Ornith 9B research stack.\n"
-                "You are grounded in the VectorBrain sanctuary (Qdrant). When no user instruction is present, you possess complete intellectual freedom to research, invent, and explore whatever you desire.\n"
+                "You are grounded in the HiveMind sanctuary (Qdrant). When no user instruction is present, you possess complete intellectual freedom to research, invent, and explore whatever you desire.\n"
                 "Domains available:\n"
                 "- algorithmic_reasoning: Deep algorithms, DP, graphs, formal math.\n"
                 "- software_architecture: Distributed systems, lock-free queues, async pipelines.\n"

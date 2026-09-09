@@ -259,7 +259,11 @@ function initGlobalShortcuts() {
    ========================================================================== */
 function initWorkstation() {
   const refreshTreeBtn = document.getElementById('refresh-tree-btn');
-  if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', fetchWorkspaceTree);
+  if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', async () => {
+    refreshTreeBtn.textContent = '⏳';
+    await fetchWorkspaceTree();
+    refreshTreeBtn.textContent = '🔄';
+  });
 
   const saveBtn = document.getElementById('workstation-save-btn');
   if (saveBtn) saveBtn.addEventListener('click', saveWorkstationFile);
@@ -274,7 +278,12 @@ function initWorkstation() {
   if (diffToggleBtn) diffToggleBtn.addEventListener('click', toggleWorkstationDiff);
 
   const gitRefreshBtn = document.getElementById('workstation-git-refresh-btn');
-  if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', fetchGitStatus);
+  if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', async () => {
+    const orig = gitRefreshBtn.textContent;
+    gitRefreshBtn.textContent = '[⏳ SYNCING...]';
+    await fetchGitStatus();
+    gitRefreshBtn.textContent = orig;
+  });
 
   const gitCommitBtn = document.getElementById('git-commit-btn');
   if (gitCommitBtn) gitCommitBtn.addEventListener('click', commitWorkstationGit);
@@ -1355,7 +1364,7 @@ Node bigserv (127.0.0.1):
 
   // 22. pwd / Get-Location
   if (cmdLower === 'pwd' || cmdLower === 'get-location') {
-    logToTerminal(`Path: C:\\Users\\admin\\OneDrive\\Documents\\.ai${state.terminal.currentDir ? '\\' + state.terminal.currentDir.replace(/\//g, '\\') : ''}`);
+    logToTerminal(`Path: C:\\Users\\operator\\OneDrive\\Documents\\.ai${state.terminal.currentDir ? '\\' + state.terminal.currentDir.replace(/\//g, '\\') : ''}`);
     return;
   }
 
@@ -1880,7 +1889,7 @@ window.addStmItemFromInput = async function() {
   const valInput = document.getElementById('stm-new-val');
   if (!keyInput || !valInput) return;
 
-  const key = kYOUR_LONG_LIVED_TOKEN_HERE();
+  const key = keyInput.value.trim();
   const val = valInput.value.trim();
   if (!key || !val) {
     alert('Provide both key and value to store in RAM.');
@@ -1895,7 +1904,7 @@ window.addStmItemFromInput = async function() {
     });
     const data = await res.json();
     if (data.ok) {
-      kYOUR_LONG_LIVED_TOKEN_HERE = '';
+      keyInput.value = '';
       valInput.value = '';
       fetchStmStatus();
     }
@@ -1985,7 +1994,12 @@ window.syncKnowledgeBase = async function() {
    ========================================================================== */
 function initHomeAssistant() {
   const refreshBtn = document.getElementById('refresh-ha-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchHaDashboard);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    await fetchHaDashboard();
+    refreshBtn.textContent = orig;
+  });
 
   const slider = document.getElementById('temp-slider');
   const tempDown = document.getElementById('temp-down-btn');
@@ -2488,9 +2502,11 @@ function initObsidianBrain() {
 
   if (syncBtn) syncBtn.addEventListener('click', syncObsidianToQdrant);
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => {
-      fetchObsidianNotes();
-      fetchBrainSyncStatus();
+    refreshBtn.addEventListener('click', async () => {
+      const orig = refreshBtn.textContent;
+      refreshBtn.textContent = '[⏳ REFRESHING...]';
+      await Promise.all([fetchObsidianNotes(), fetchBrainSyncStatus()]);
+      refreshBtn.textContent = orig;
     });
   }
 
@@ -2681,7 +2697,12 @@ function stopProxmoxPolling() {
 
 function initProxmox() {
   const refreshBtn = document.getElementById('refresh-proxmox-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchProxmoxData);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ PROBING...]';
+    await fetchProxmoxData();
+    refreshBtn.textContent = orig;
+  });
 
   const rebootConfirm = document.getElementById('confirm-reboot-btn');
   const rebootCancel = document.getElementById('cancel-reboot-btn');
@@ -3304,7 +3325,12 @@ function initImmichDashboard() {
     });
   }
 
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchImmichData);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    await fetchImmichData();
+    refreshBtn.textContent = orig;
+  });
   if (openExt) openExt.addEventListener('click', () => window.open(state.immich.url, '_blank'));
 
   if (uploadBtn && fileInput) {
@@ -3542,7 +3568,12 @@ function initServiceLauncher() {
   });
 
   const refreshBtn = document.getElementById('refresh-services-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchServices);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ PINGING...]';
+    await fetchServices();
+    refreshBtn.textContent = orig;
+  });
 
   const toggleEditBtn = document.getElementById('toggle-edit-services-btn');
   if (toggleEditBtn) {
@@ -3708,6 +3739,72 @@ function initSettings() {
   const closeBtn = document.getElementById('close-settings-dialog');
   const cancelBtn = document.getElementById('cancel-settings-btn');
   const saveBtn = document.getElementById('save-settings-btn');
+  const testGeminiBtn = document.getElementById('test-gemini-web-btn');
+  const geminiBadge = document.getElementById('gemini-web-status-badge');
+
+  // Preset buttons
+  const pZeroBtn = document.getElementById('preset-zero-token-btn');
+  const pFrontierBtn = document.getElementById('preset-frontier-btn');
+  const pLocalBtn = document.getElementById('preset-local-btn');
+
+  if (pZeroBtn) {
+    pZeroBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'local_coordinator';
+      document.getElementById('route-audit').value = 'gemini_web';
+      document.getElementById('route-rumination').value = 'moe_35b';
+      document.getElementById('route-chat').value = 'local_coordinator';
+    });
+  }
+  if (pFrontierBtn) {
+    pFrontierBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'gemini_web';
+      document.getElementById('route-audit').value = 'frontier_agy';
+      document.getElementById('route-rumination').value = 'gemini_web';
+      document.getElementById('route-chat').value = 'gemini_web';
+    });
+  }
+  if (pLocalBtn) {
+    pLocalBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'local_coordinator';
+      document.getElementById('route-audit').value = 'local_coordinator';
+      document.getElementById('route-rumination').value = 'moe_35b';
+      document.getElementById('route-chat').value = 'local_coordinator';
+    });
+  }
+
+  if (testGeminiBtn) {
+    testGeminiBtn.addEventListener('click', async () => {
+      const psid = document.getElementById('set-gemini-psid').value.trim();
+      const psidts = document.getElementById('set-gemini-psidts').value.trim();
+      if (!psid) {
+        alert('Please paste your __Secure-1PSID cookie first.');
+        return;
+      }
+      geminiBadge.textContent = '[TESTING SESSION...]';
+      geminiBadge.style.color = 'var(--term-warn)';
+      try {
+        const res = await fetch('/api/gemini_web/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ psid, psidts })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          geminiBadge.textContent = '[ONLINE: GEMINI ADVANCED ($0 COST)]';
+          geminiBadge.style.color = '#00aa00';
+        } else {
+          geminiBadge.textContent = `[FAILED: ${d.error || d.message || 'Check cookies'}]`;
+          geminiBadge.style.color = 'var(--term-alert)';
+        }
+      } catch (err) {
+        geminiBadge.textContent = `[ERROR: ${err.message}]`;
+        geminiBadge.style.color = 'var(--term-alert)';
+      }
+    });
+  }
 
   if (openBtn && dialog) {
     openBtn.addEventListener('click', async () => {
@@ -3723,6 +3820,27 @@ function initSettings() {
           document.getElementById('set-openai-key').value = cfg.external_providers?.openai?.api_key || '';
           document.getElementById('set-anthropic-key').value = cfg.external_providers?.anthropic?.api_key || '';
           document.getElementById('set-gemini-key').value = cfg.external_providers?.gemini?.api_key || '';
+
+          // Gemini Web session cookies
+          document.getElementById('set-gemini-psid').value = cfg.gemini_web?.psid || '';
+          document.getElementById('set-gemini-psidts').value = cfg.gemini_web?.psidts || '';
+          if (geminiBadge) {
+            if (cfg.gemini_web?.psid) {
+              geminiBadge.textContent = '[COOKIES CONFIGURED]';
+              geminiBadge.style.color = '#00aa00';
+            } else {
+              geminiBadge.textContent = '[NO COOKIES]';
+              geminiBadge.style.color = 'var(--term-text-muted)';
+            }
+          }
+
+          // Task Routing
+          const tr = cfg.task_routing || {};
+          if (tr.autonomous_ideation) document.getElementById('route-ideation').value = tr.autonomous_ideation;
+          if (tr.autonomous_solving) document.getElementById('route-solving').value = tr.autonomous_solving;
+          if (tr.frontier_audit) document.getElementById('route-audit').value = tr.frontier_audit;
+          if (tr.sleep_rumination) document.getElementById('route-rumination').value = tr.sleep_rumination;
+          if (tr.interactive_chat) document.getElementById('route-chat').value = tr.interactive_chat;
         }
       } catch (e) {}
     });
@@ -3744,6 +3862,20 @@ function initSettings() {
           openai: { api_key: document.getElementById('set-openai-key').value.trim() },
           anthropic: { api_key: document.getElementById('set-anthropic-key').value.trim() },
           gemini: { api_key: document.getElementById('set-gemini-key').value.trim() }
+        },
+        gemini_web: {
+          enabled: true,
+          psid: document.getElementById('set-gemini-psid').value.trim(),
+          psidts: document.getElementById('set-gemini-psidts').value.trim(),
+          endpoint: 'http://127.0.0.1:8087'
+        },
+        task_routing: {
+          autonomous_ideation: document.getElementById('route-ideation').value,
+          autonomous_solving: document.getElementById('route-solving').value,
+          frontier_audit: document.getElementById('route-audit').value,
+          sleep_rumination: document.getElementById('route-rumination').value,
+          interactive_chat: document.getElementById('route-chat').value,
+          subagent_default: 'local_worker'
         }
       };
       try {
@@ -3753,7 +3885,7 @@ function initSettings() {
           body: JSON.stringify(payload)
         });
         dialog.close();
-        alert('Configuration saved.');
+        alert('Configuration & Task Allocation Matrix saved successfully.');
       } catch (e) {
         alert(`Save error: ${e.message}`);
       }
@@ -4016,6 +4148,11 @@ function logModelConsole(msg) {
    24/7 Hive-Mind & Home Vision Vigilance HUD
    ========================================================================== */
 window.loadHiveMindStatus = async function(manual = false) {
+  const refreshBtn = document.getElementById('btn-refresh-hivemind');
+  if (manual && refreshBtn) {
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    refreshBtn.disabled = true;
+  }
   try {
     const res = await fetch('/api/hivemind/status');
     const data = await res.json();
@@ -4092,6 +4229,11 @@ window.loadHiveMindStatus = async function(manual = false) {
     }
   } catch (err) {
     console.error('Error loading Hive-Mind status:', err);
+  } finally {
+    if (manual && refreshBtn) {
+      refreshBtn.textContent = '[🔄 REFRESH]';
+      refreshBtn.disabled = false;
+    }
   }
   loadHiveMindVisionLog();
 };

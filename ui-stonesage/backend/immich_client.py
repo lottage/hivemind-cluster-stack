@@ -85,7 +85,7 @@ class ImmichClient:
 
     def get_people(self) -> List[Dict[str, Any]]:
         return [
-            {"id": "p1", "name": "ClusterAdmin", "count": 2419, "avatar": "🧑‍💻", "badge": "Owner"},
+            {"id": "p1", "name": "Operator", "count": 2419, "avatar": "🧑‍💻", "badge": "Owner"},
             {"id": "p2", "name": "Family", "count": 1820, "avatar": "👨‍👩‍👦", "badge": "Favorites"},
             {"id": "p3", "name": "Luna (Cat)", "count": 784, "avatar": "🐱", "badge": "Pet"},
             {"id": "p4", "name": "Homelab Rig", "count": 312, "avatar": "🖥️", "badge": "Hardware"},
@@ -121,7 +121,7 @@ class ImmichClient:
             },
             {
                 "id": "img-02",
-                "title": "Sunset Over ClusterAdmin Skyline",
+                "title": "Sunset Over Operator Skyline",
                 "type": "photo",
                 "favorite": True,
                 "date": "Sep 2, 2026",
@@ -139,7 +139,7 @@ class ImmichClient:
                     "shutter": "1/60s",
                     "iso": "100",
                     "format": "Canon CR3",
-                    "location": "ClusterAdmin, Texas, USA"
+                    "location": "Operator, Texas, USA"
                 },
                 "tags": ["Landscape", "Cityscape", "Sunset", "Golden Hour"]
             },
