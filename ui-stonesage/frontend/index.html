@@ -43,7 +43,7 @@
         <span class="win95-address-label">Location:</span>
         <div class="win95-address-box">
           <span class="win95-address-proto">http://</span>
-          <input type="text" class="win95-address-input" id="win95-address-input" value="192.168.1.132:8080" readonly>
+          <input type="text" class="win95-address-input" id="win95-address-input" value="127.0.0.1:8080" readonly>
         </div>
         <button class="win95-btn win95-tool-btn" id="win95-go-btn" onclick="location.reload()"><u>G</u>o ➔</button>
         <button class="win95-btn win95-tool-btn" onclick="location.reload()">🔄 <u>R</u>eload</button>
@@ -61,7 +61,7 @@
       <span>[SYS]</span>
       <span>AEVUM NAVIGATOR</span>
       <span class="brand-badge">v3.0</span>
-      <span class="lan-ip-badge" id="lan-ip-badge" title="Click to copy host LAN address">LAN: http://192.168.1.132:8080 📋</span>
+      <span class="lan-ip-badge" id="lan-ip-badge" title="Click to copy host LAN address">LAN: http://127.0.0.1:8080 📋</span>
     </div>
 
     <nav class="nav-tabs" id="nav-tabs">
@@ -73,8 +73,9 @@
       <button class="tab-btn" data-view="view-obsidian">[F6:OBSIDIAN BRAIN]</button>
       <button class="tab-btn" data-view="view-proxmox">[F7:PROXMOX]</button>
       <button class="tab-btn" data-view="view-canvas">[F8:CANVAS &amp; VOICE]</button>
-      <button class="tab-btn" data-view="view-immich">[F9:IMMICH]</button>
-      <button class="tab-btn" data-view="view-memory">[F10:MEMORY]</button>
+      <button class="tab-btn" data-view="view-harness">[F9:HARNESS STUDIO]</button>
+      <button class="tab-btn" data-view="view-immich">[F10:IMMICH]</button>
+      <button class="tab-btn" data-view="view-memory">[F11:MEMORY]</button>
     </nav>
 
     <div class="header-actions">
@@ -88,7 +89,7 @@
         <span id="cluster-status-text">[CLUSTER: PROBING...]</span>
       </div>
       <button class="launch-btn" id="header-reload-btn" onclick="location.reload()" title="Reload Entire Workstation">[🔄 REFRESH PAGE]</button>
-      <a href="/stonesage.apk" download="stonesage.apk" class="launch-btn" id="header-apk-btn" title="Download Mobile Cockpit APK for Samsung S25 Ultra" style="text-decoration:none; display:inline-block; line-height:normal;">[📲 DOWNLOAD APK]</a>
+      <button class="launch-btn" id="header-apk-btn" onclick="openApkDownloadModal()" title="Download Mobile Cockpit APK for Samsung S25 Ultra" style="display:inline-block; line-height:normal;">[📲 DOWNLOAD APK]</button>
       <button class="launch-btn" id="open-settings-btn" title="Cockpit Settings & API Keys">[⚙ CONFIG]</button>
     </div>
   </header>
@@ -96,10 +97,10 @@
   <!-- Hardware Tier Telemetry Sub-Header -->
   <div class="cluster-tier-bar">
     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-      <span class="tier-badge"><strong>14B COORD:</strong> RX 6750 XT 12GB (:8001/Vulkan0)</span>
-      <span class="tier-badge"><strong>3B WORKER:</strong> RX 6600 XT 8GB (:8002/Vulkan1 - 80+ t/s)</span>
-      <span class="tier-badge"><strong>BGE EMBEDDER:</strong> RX 6600 XT 8GB (:8003/1024-dim)</span>
-      <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 192.168.1.112:6333</span>
+      <span class="tier-badge" id="badge-coordinator"><strong>COORDINATOR:</strong> Primary Accelerator (:8001/Vulkan0)</span>
+      <span class="tier-badge" id="badge-worker"><strong>WORKER:</strong> Worker Accelerator (:8002/Vulkan1)</span>
+      <span class="tier-badge" id="badge-embedder"><strong>BGE EMBEDDER:</strong> Vector Engine (:8003/1024-dim)</span>
+      <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 127.0.0.1:6333</span>
     </div>
     <div style="display: flex; gap: 0.5rem; align-items: center;">
       <span id="header-time-indicator" style="font-family: var(--font-terminal); color: var(--term-text-bright);"></span>
@@ -114,7 +115,7 @@
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ SERVICES & CONTAINER LAUNCHER ]</h2>
-          <p>Real-time status probes across Proxmox nodes <code>pve</code> (192.168.1.229) and <code>bigserv</code> (192.168.1.82)</p>
+          <p>Real-time status probes across Proxmox nodes <code>pve</code> (127.0.0.1) and <code>bigserv</code> (127.0.0.1)</p>
         </div>
         <div class="filter-bar">
           <button class="filter-btn active" data-category="all">[ALL]</button>
@@ -236,8 +237,8 @@
           </div>
           <div style="display: flex; flex-direction: column; gap: 0.35rem;">
             <select class="form-control" id="subagent-model-quick">
-              <option value="worker" selected>[3B WORKER :8002 (80+ tok/s)]</option>
-              <option value="coordinator">[14B COORDINATOR :8001 (RX 6750 XT)]</option>
+              <option value="worker" selected>[WORKER :8002 (80+ tok/s)]</option>
+              <option value="coordinator">[COORDINATOR :8001 (Primary)]</option>
             </select>
             <textarea class="form-control" id="subagent-task-quick" rows="2" placeholder="Task for subagent (e.g. write unit tests, review diff)..."></textarea>
             <button class="send-btn" id="subagent-dispatch-quick-btn">[DISPATCH SUBAGENT]</button>
@@ -259,9 +260,10 @@
           <button class="filter-btn" id="ai-tab-stm" onclick="switchAiCockpitTab('stm')">[🧠 STM RAM HUD]</button>
           <button class="filter-btn" id="ai-tab-kb" onclick="switchAiCockpitTab('kb')">[📚 KNOWLEDGE SYNC]</button>
           <button class="filter-btn" id="ai-tab-models" onclick="switchAiCockpitTab('models')">[🔄 MODEL FINDER &amp; SWITCH]</button>
+          <button class="filter-btn" id="ai-tab-harness-btn" onclick="document.querySelector('.tab-btn[data-view=\'view-harness\']').click()">[🎛️ HARNESS PARAMS]</button>
           <select class="form-control" id="ai-active-model" style="width: 220px; margin-left: 0.5rem;">
-            <option value="coordinator" selected>[14B COORD :8001 (RX 6750 XT)]</option>
-            <option value="worker">[3B WORKER :8002 (RX 6600 XT - 80+ t/s)]</option>
+            <option value="coordinator" selected>[PRIMARY COORD :8001]</option>
+            <option value="worker">[SECONDARY WORKER :8002 (80+ t/s)]</option>
             <option value="openai">[FRONTIER: GPT-4o]</option>
             <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
             <option value="gemini">[FRONTIER: Gemini 2.5 Pro]</option>
@@ -322,12 +324,12 @@
                 </div>
                 <div class="chat-msg-body">
 StoneSage Cognitive Terminal &amp; Harness online.
-Dual AMD GPU Passthrough active:
-- Coordinator: Qwen2.5-Coder-14B-Instruct (:8001 on RX 6750 XT 12GB Vulkan0)
-- Worker: Qwen2.5-Coder-3B-Instruct (:8002 on RX 6600 XT 8GB Vulkan1 - 80+ t/s)
-- Embedder: BGE-Large-en-v1.5 (:8003 on RX 6600 XT 8GB Vulkan1)
-- Vector DB: Qdrant @ 192.168.1.112:6333 (CouchDB + User Vault Ingested)
-- Short-Term Memory: Active In-RAM cache with 3B Worker context compression
+Dual Compute Accelerator Cluster active:
+- Coordinator: Active Model (:8001 on Primary Accelerator Vulkan0)
+- Worker: Active Model (:8002 on Worker Accelerator Vulkan1 - 80+ t/s)
+- Embedder: BGE-Large-en-v1.5 (:8003 on Vector Engine Vulkan1)
+- Vector DB: Qdrant @ 127.0.0.1:6333 (CouchDB + User Vault Ingested)
+- Short-Term Memory: Active In-RAM cache with Worker context compression
 
 Ready for directives, planner decomposition, finite instruction set execution, or homelab automation.
                 </div>
@@ -448,7 +450,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
             <!-- Top Status Panel -->
             <div class="terminal-panel">
               <div class="terminal-panel-header">
-                <span>⚡ ACTIVE COORDINATOR ENGINE (:8001 / RX 6750 XT 12GB)</span>
+                <span>⚡ ACTIVE COORDINATOR ENGINE (:8001 / Primary Accelerator)</span>
                 <div style="display: flex; gap: 0.35rem;">
                   <button class="launch-btn" onclick="fetchClusterModels()">[🔄 REFRESH]</button>
                   <button class="launch-btn" onclick="rollbackClusterModel()" style="color: var(--term-warn); border-color: var(--term-warn);">[↩️ ROLLBACK]</button>
@@ -466,7 +468,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                   </div>
                   <div class="immich-stat-card">
                     <div>HARDWARE:</div>
-                    <strong style="color: var(--term-text-bright);">Vulkan0 (RX 6750 XT)</strong>
+                    <strong id="active-model-hardware" style="color: var(--term-text-bright);">Vulkan0 (Primary Accelerator)</strong>
                   </div>
                   <div class="immich-stat-card">
                     <div>STATUS:</div>
@@ -589,6 +591,7 @@ Select a model above or click a one-click preset to switch and tune.
         <div class="filter-bar">
           <button class="win95-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
           <button class="win95-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
+          <button class="win95-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind" style="color: #ffff88; font-weight: bold;">[⚡ NUDGE / UNBLOCK]</button>
           <button class="win95-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
           <button class="win95-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
         </div>
@@ -710,7 +713,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ HOME ASSISTANT & NEST THERMOSTAT ]</h2>
-          <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (192.168.1.82:8123)</p>
+          <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (127.0.0.1:8123)</p>
         </div>
         <div class="filter-bar">
           <button class="launch-btn" id="refresh-ha-btn">[🔄 REFRESH STATES]</button>
@@ -853,7 +856,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ OBSIDIAN USER VAULT &amp; COUCHDB SYNC ]</h2>
-          <p>24/7 CouchDB on LXC 116 (192.168.1.230:5984) • Qdrant Vector Memory Ingestion</p>
+          <p>24/7 CouchDB on LXC 116 (127.0.0.1:5984) • Qdrant Vector Memory Ingestion</p>
         </div>
         <div class="filter-bar">
           <span class="service-status-badge online" id="couchdb-status-badge">[COUCHDB: PROBING...]</span>
@@ -911,7 +914,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ PROXMOX VE HYPERVISOR FLEET ]</h2>
-          <p>Cluster VIP <code>https://192.168.1.245:8006</code> • Dual Nodes <code>pve</code> and <code>bigserv</code></p>
+          <p>Cluster VIP <code>https://127.0.0.1:8006</code> • Dual Nodes <code>pve</code> and <code>bigserv</code></p>
         </div>
         <div class="filter-bar">
           <button class="launch-btn" id="refresh-proxmox-btn" onclick="fetchProxmoxData()">[🔄 PROBE NODES]</button>
@@ -922,7 +925,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
         <!-- Node 1: pve -->
         <div class="terminal-panel" id="pve-node-panel">
           <div class="terminal-panel-header">
-            <span>🖥 NODE 1: pve (192.168.1.245)</span>
+            <span>🖥 NODE 1: pve (127.0.0.1)</span>
             <span class="service-status-badge online" id="pve-node-badge">[ONLINE]</span>
           </div>
           <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="pve-node-body">
@@ -939,7 +942,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
         <!-- Node 2: bigserv -->
         <div class="terminal-panel" id="bigserv-node-panel">
           <div class="terminal-panel-header">
-            <span>🖥 NODE 2: bigserv (192.168.1.245)</span>
+            <span>🖥 NODE 2: bigserv (127.0.0.1)</span>
             <span class="service-status-badge online" id="bigserv-node-badge">[ONLINE]</span>
           </div>
           <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="bigserv-node-body">
@@ -1110,7 +1113,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ QDRANT VECTOR MEMORY EXPLORER ]</h2>
-          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>192.168.1.112:6333</code></p>
+          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>127.0.0.1:6333</code></p>
         </div>
         <div class="filter-bar">
           <select class="form-control" id="memory-search-collection">
@@ -1124,7 +1127,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
 
       <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
         <div style="display: flex; gap: 0.5rem;">
-          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Austin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
+          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Operator drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
           <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
         </div>
         <div class="terminal-panel-header">
@@ -1133,6 +1136,120 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
         <div id="memory-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
           <div style="color: var(--term-text-muted); padding: 0.5rem;">Enter a query above to inspect hardware-accelerated vector recall from local Qdrant memory.</div>
         </div>
+      </div>
+    </section>
+
+    <!-- VIEW: Comprehensive Harness Parameter Studio -->
+    <section class="view-pane" id="view-harness">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ HARNESS PARAMETER STUDIO &amp; DAEMON CONTROLLER ]</h2>
+          <p>Granular Direct Parameter Control • llama.cpp, Hermes ReAct, Snapdragon NPU &amp; OpenWebUI • Zero Coarse Toggles</p>
+        </div>
+        <div class="filter-bar">
+          <button class="filter-btn active" data-harness="hermes" onclick="switchHarnessStudio('hermes')">[🤖 HERMES 3 AGENTIC (DEFAULT)]</button>
+          <button class="filter-btn" data-harness="llama_coordinator" onclick="switchHarnessStudio('llama_coordinator')">[🎛️ LLAMA COORDINATOR (:8001)]</button>
+          <button class="filter-btn" data-harness="llama_worker" onclick="switchHarnessStudio('llama_worker')">[⚡ LLAMA WORKER (:8002)]</button>
+          <button class="filter-btn" data-harness="snapdragon" onclick="switchHarnessStudio('snapdragon')">[📱 SNAPDRAGON EDGE NPU]</button>
+          <button class="filter-btn" data-harness="openwebui" onclick="switchHarnessStudio('openwebui')">[🌐 OPENWEBUI PIPELINE]</button>
+          <button class="launch-btn" onclick="refreshHarnessStudio()">[🔄 REFRESH LIVE PARAMS]</button>
+          <button class="send-btn" id="apply-harness-btn" onclick="applyHarnessStudio()" style="padding: 2px 10px; font-weight: bold;">[💾 APPLY TO CLUSTER DAEMON]</button>
+        </div>
+      </div>
+
+      <div class="harness-studio-workspace" style="padding: 0.75rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;">
+        
+        <!-- Live Status & Target Info Banner -->
+        <div class="terminal-panel">
+          <div class="terminal-panel-header">
+            <span id="harness-header-title">🎛️ ACTIVE HARNESS: LLAMA.CPP COORDINATOR (:8001)</span>
+            <span id="harness-health-badge" style="color: var(--term-online); font-weight: bold;">[HEALTH: PROBING...]</span>
+          </div>
+          <div style="padding: 0.6rem; font-size: 0.8rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; background: rgba(0,0,0,0.03);">
+            <div><strong>Active Model:</strong> <span id="harness-active-model">--</span></div>
+            <div><strong>Active Context:</strong> <span id="harness-active-ctx">--</span></div>
+            <div><strong>Compute Device:</strong> <span id="harness-active-device">--</span></div>
+            <div><strong>Parallel Slots:</strong> <span id="harness-active-slots">--</span></div>
+            <div style="margin-left: auto;">
+              <button class="launch-btn" onclick="resetHarnessStudioDefaults()">[↺ Reset Hardware Defaults]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Form Container -->
+        <div id="harness-form-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <!-- Populated dynamically by app.js depending on active harness -->
+        </div>
+
+        <!-- Homelab Training Dataset Compiler & Highest-Tier Curator Panel -->
+        <div class="terminal-panel" id="dataset-compiler-panel">
+          <div class="terminal-panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>📦 HOMELAB TRAINING DATASET COMPILER &amp; HIGHEST-TIER CURATOR</span>
+            <span id="dataset-curator-badge" style="color: var(--term-online); font-weight: bold;">[IDLE]</span>
+          </div>
+          <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.65rem; background: rgba(0,0,0,0.03);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-size: 0.82rem; line-height: 1.4;">
+                <strong>Corpus Sources:</strong> Qdrant (3.2k vectors), CouchDB (15.6k notes), 340+ Thinking Dossiers
+                <br>
+                <strong>Curation Engine:</strong> <span id="dataset-curator-model" style="color: #008080; font-weight: bold;">Tier-2/Frontier (:8001 Coordinator)</span>
+                <br>
+                <strong>Hallucination Purge:</strong> Deterministic Python AST Validation + Network Grounding + Zero-Leniency Audit (Score &ge; 8.5)
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <label for="dataset-sample-limit" style="font-size: 0.8rem; font-weight: bold;">Limit:</label>
+                <select id="dataset-sample-limit" class="form-control" style="width: auto; padding: 2px 6px; font-size: 0.8rem;">
+                  <option value="25">25 Pairs (Fast)</option>
+                  <option value="50">50 Pairs (Recommended)</option>
+                  <option value="100">100 Pairs (Standard)</option>
+                  <option value="250">250 Pairs (Deep)</option>
+                  <option value="0">All Points (Uncapped)</option>
+                </select>
+                <button class="send-btn" id="btn-compile-dataset" onclick="startDatasetCompilation()" style="padding: 4px 12px; font-weight: bold;">[🚀 COMPILE &amp; CURATE DATASET]</button>
+                <button class="launch-btn" id="btn-stop-dataset" onclick="stopDatasetCompilation()" style="padding: 4px 8px; display: none; color: #cc0000; font-weight: bold;">[⏹ STOP]</button>
+                <button class="launch-btn" onclick="refreshDatasetStatus()" style="padding: 4px 8px;">[🔄 REFRESH]</button>
+              </div>
+            </div>
+
+            <!-- Progress Bar & Live Counters -->
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: bold;">
+                <span id="dataset-progress-text">Progress: 0 / 0 (0%)</span>
+                <span id="dataset-stats-summary">Accepted: 0 | Rejected: 0 (AST: 0, Ungrounded: 0, Low Score: 0)</span>
+              </div>
+              <div style="background: #ccc; border: 1px inset #888; height: 16px; width: 100%; position: relative; overflow: hidden;">
+                <div id="dataset-progress-bar" style="background: var(--win95-title-blue, #000080); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+              </div>
+            </div>
+
+            <!-- Download Links & Manifest Summary -->
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; padding-top: 0.4rem; border-top: 1px dotted #ccc; font-size: 0.8rem;">
+              <span style="font-weight: bold;">Exported Formats:</span>
+              <a href="/api/dataset/download?type=sharegpt" download="homelab_curated_sharegpt.jsonl" class="launch-btn" style="text-decoration: none; padding: 3px 8px;">📥 ShareGPT (JSONL)</a>
+              <a href="/api/dataset/download?type=alpaca" download="homelab_curated_alpaca.jsonl" class="launch-btn" style="text-decoration: none; padding: 3px 8px;">📥 Alpaca (JSONL)</a>
+              <a href="/api/dataset/download?type=manifest" target="_blank" class="launch-btn" style="text-decoration: none; padding: 3px 8px;">📄 Manifest Metadata</a>
+              <span id="dataset-last-timestamp" style="margin-left: auto; color: #555; font-size: 0.75rem;">Last build: None</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Raw CLI & JSON Inspector Accordion -->
+        <details class="terminal-panel" style="padding: 0.5rem; background: var(--bg-card);">
+          <summary style="font-weight: bold; cursor: pointer; color: var(--term-text-bright); font-family: var(--font-terminal);">
+            📋 [INSPECT GENERATED DAEMON CLI COMMAND &amp; PAYLOAD]
+          </summary>
+          <div style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: bold;">Simulated Systemd ExecStart:</label>
+              <pre id="harness-exec-preview" style="background: #111; color: #0f0; padding: 0.5rem; font-family: monospace; font-size: 0.75rem; overflow-x: auto; border: 1px inset #888; white-space: pre-wrap;"></pre>
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: bold;">Raw Parameter JSON:</label>
+              <pre id="harness-json-preview" style="background: #111; color: #0f0; padding: 0.5rem; font-family: monospace; font-size: 0.75rem; overflow-x: auto; border: 1px inset #888; white-space: pre-wrap;"></pre>
+            </div>
+          </div>
+        </details>
+
       </div>
     </section>
 
@@ -1155,7 +1272,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       </div>
       <div class="form-group">
         <label for="set-immich-url">Immich Server URL</label>
-        <input type="text" class="form-control" id="set-immich-url" placeholder="http://192.168.1.238:9000">
+        <input type="text" class="form-control" id="set-immich-url" placeholder="http://127.0.0.1:9000">
       </div>
       <div class="form-group">
         <label for="set-immich-key">Immich API Key</label>
@@ -1214,9 +1331,9 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
         <div class="form-group" style="margin-bottom: 0.5rem;">
           <label for="route-chat">💬 Cockpit Interactive Chat</label>
           <select class="form-control" id="route-chat">
-            <option value="local_coordinator">Local Coordinator (9B Q8 on RX 6750 XT)</option>
-            <option value="local_worker">Local Worker (9B Q4 on RX 6600 XT)</option>
-            <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+            <option value="local_coordinator">Local Coordinator (9B Q8 on :8001)</option>
+            <option value="local_worker">Local Worker (9B Q4 on :8002)</option>
+            <option value="moe_35b">Ornith 35B MoE (Dual Accelerator)</option>
             <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
           </select>
         </div>
@@ -1356,6 +1473,51 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
     <div class="dialog-footer">
       <button class="launch-btn" id="cancel-reboot-btn">[CANCEL]</button>
       <button class="send-btn" id="confirm-reboot-btn" style="border-color: var(--term-alert); color: var(--term-alert);">[CONFIRM REBOOT]</button>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: APK Download & Android Firefox Helper -->
+  <dialog id="apk-download-dialog" style="max-width: 540px; border: 3px outset #dfdfdf; background: #c0c0c0; color: #000; font-family: var(--font-win95);">
+    <div class="dialog-header">
+      <h3>[📲 DOWNLOAD AEVUM MOBILE COCKPIT APK]</h3>
+      <button class="card-icon-btn" onclick="document.getElementById('apk-download-dialog').close()">[✕]</button>
+    </div>
+    <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem;">
+      <div style="background: #fff; padding: 0.5rem; border: 2px inset #888;">
+        <strong>Current Release:</strong> Aevum AI Sovereign Mobile Cockpit (Universal Release APK)
+      </div>
+
+      <div style="display: flex; gap: 0.5rem;">
+        <a href="/aevum.apk" download="aevum.apk" target="_blank" rel="noopener noreferrer" class="send-btn" style="flex: 1; text-align: center; text-decoration: none; padding: 0.5rem; font-weight: bold; background: #000080; color: #fff;">
+          ⬇️ Direct Download (aevum.apk)
+        </a>
+        <a href="/stonesage.apk" download="stonesage.apk" target="_blank" rel="noopener noreferrer" class="launch-btn" style="flex: 1; text-align: center; text-decoration: none; padding: 0.5rem;">
+          ⬇️ Direct Download (stonesage.apk)
+        </a>
+      </div>
+
+      <div>
+        <label style="font-weight: bold; font-size: 0.78rem;">Direct Download URL (Click to Copy):</label>
+        <div style="display: flex; gap: 0.35rem; margin-top: 0.25rem;">
+          <input type="text" class="form-control" id="apk-direct-url" value="http://127.0.0.1:8080/aevum.apk" readonly style="font-family: monospace; font-size: 0.78rem;">
+          <button class="launch-btn" onclick="navigator.clipboard.writeText(document.getElementById('apk-direct-url').value); alert('URL copied to clipboard! Paste into browser or download manager.');">[📋 COPY]</button>
+        </div>
+      </div>
+
+      <!-- Android Firefox Guide -->
+      <div style="border: 2px groove #dfdfdf; padding: 0.6rem; background: #fffbe6; color: #664d03; font-size: 0.8rem; line-height: 1.4;">
+        <strong>🦊 Android Firefox Connection Notice:</strong><br>
+        If Firefox on your phone displays <em>"HTTPS-Only Mode: Cannot Connect"</em> or download fails to initiate:
+        <ol style="margin: 0.35rem 0 0 1.2rem; padding: 0;">
+          <li>Tap <strong>"Continue to HTTP Site"</strong> in Firefox when prompted.</li>
+          <li>Or <strong>long-press</strong> the download button above and tap <strong>"Download Link"</strong>.</li>
+          <li>Or copy the direct URL above and open it in Samsung Internet or Chrome.</li>
+        </ol>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button class="launch-btn" onclick="document.getElementById('apk-download-dialog').close()">[CLOSE]</button>
+      </div>
     </div>
   </dialog>
 

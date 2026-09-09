@@ -1,7 +1,7 @@
 """
 Short-Term Memory (STM) RAM Engine for StoneSage
 Maintains an ultra-fast in-memory working context buffer (RAM cache)
-and leverages the local 3B worker (80+ tok/s) on RX 6600 XT for rapid
+and leverages the local worker (80+ tok/s) on Secondary Accelerator (:8002) for rapid
 context compression, active scratchpad management, and low-context prompt injection.
 """
 

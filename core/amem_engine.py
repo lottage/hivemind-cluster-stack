@@ -27,10 +27,10 @@ except ImportError:
 
 logger = logging.getLogger("AMEM-Engine")
 
-VALKEY_HOST = os.environ.get("VALKEY_HOST", "192.168.1.105")
+VALKEY_HOST = os.environ.get("VALKEY_HOST", "127.0.0.1")
 VALKEY_PORT = int(os.environ.get("VALKEY_PORT", 6379))
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://192.168.1.112:6333")
-EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://192.168.1.105:8003/v1/embeddings")
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
+EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://127.0.0.1:8003/v1/embeddings")
 
 STOPWORDS = {
     "a", "an", "the", "is", "are", "was", "were", "what", "which", "who",
@@ -250,7 +250,7 @@ class AMEMEngine:
         core_atoms = [
             (
                 "cluster.topology.management_vip",
-                "Proxmox Datacenter 'home' unified API VIP is https://192.168.1.245:8006 managing physical nodes pve (192.168.1.229) and bigserv (192.168.1.82).",
+                "Proxmox Datacenter 'home' unified API VIP is https://127.0.0.1:8006 managing physical nodes pve (127.0.0.1) and bigserv (127.0.0.1).",
                 ["proxmox", "pve", "bigserv", "cluster", "vip", "management", "api", "topology"],
                 "cluster"
             ),
@@ -274,31 +274,31 @@ class AMEMEngine:
             ),
             (
                 "cluster.services.qdrant",
-                "Qdrant vector database is hosted on LXC 117 (192.168.1.112:6333) storing companion_profile, codebase_knowledge, and autonomous_thinking.",
+                "Qdrant vector database is hosted on LXC 117 (127.0.0.1:6333) storing companion_profile, codebase_knowledge, and autonomous_thinking.",
                 ["qdrant", "vector", "database", "memory", "112", "6333", "lxc117"],
                 "cluster"
             ),
             (
                 "cluster.services.couchdb_obsidian",
-                "Obsidian LiveSync CouchDB is hosted on LXC 116 (192.168.1.230:5984) database 'obsidiannotes' with AES-256-GCM E2EE.",
+                "Obsidian LiveSync CouchDB is hosted on LXC 116 (127.0.0.1:5984) database 'obsidiannotes' with AES-256-GCM E2EE.",
                 ["obsidian", "couchdb", "sync", "livesync", "notes", "vault", "116", "230", "5984"],
                 "cluster"
             ),
             (
                 "cluster.services.assembly_hall",
-                "Sovereign Agent Assembly Hall server runs at http://192.168.1.105:8766 (ws://192.168.1.105:8766/ws) with multi-channel real-time agent streaming.",
+                "Sovereign Agent Assembly Hall server runs at http://127.0.0.1:8766 (ws://127.0.0.1:8766/ws) with multi-channel real-time agent streaming.",
                 ["assembly", "hall", "assembly_hall", "8766", "channels", "agora", "streaming", "interagent"],
                 "cluster"
             ),
             (
                 "home.climate.nest_thermostat",
-                "Nest Thermostat 9A6E is at 192.168.1.62, controlled via Home Assistant OS (VM 103 @ 192.168.1.82:8123).",
+                "Nest Thermostat 9A6E is at 127.0.0.1, controlled via Home Assistant OS (VM 103 @ 127.0.0.1:8123).",
                 ["nest", "thermostat", "climate", "hvac", "temperature", "haos", "8123"],
                 "home_automation"
             ),
             (
                 "home.energy.smart_plugs",
-                "TP-Link KP125 energy plug is at 192.168.1.109:9999. GE smart plugs: B0BC (192.168.1.17), 1FB4 (192.168.1.111), EAF0 (192.168.1.143).",
+                "TP-Link KP125 energy plug is at 127.0.0.1:9999. GE smart plugs: B0BC (127.0.0.1), 1FB4 (127.0.0.1), EAF0 (127.0.0.1).",
                 ["plug", "plugs", "kp125", "ge", "energy", "smart", "kasa"],
                 "home_automation"
             ),
@@ -322,7 +322,7 @@ class AMEMEngine:
             ),
             (
                 "operator.workstation.ip",
-                "Windows development host is assigned local LAN IP 192.168.1.132, hosting StoneSage frontend and mobile harness.",
+                "Windows development host is assigned local LAN IP 127.0.0.1, hosting StoneSage frontend and mobile harness.",
                 ["workstation", "windows", "host", "132", "lan", "ip"],
                 "cluster"
             )

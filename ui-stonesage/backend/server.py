@@ -77,10 +77,12 @@ from immich_client import ImmichClient
 from obsidian_ingestor import ObsidianIngestor
 from couchdb_client import CouchDBClient
 from stm_engine import ShortTermMemoryEngine
+from dataset_compiler import DatasetCompiler
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("application/vnd.android.package-archive", ".apk")
 
 def load_config() -> Dict[str, Any]:
     if os.path.exists(CONFIG_FILE):
@@ -98,7 +100,7 @@ def save_config(cfg: Dict[str, Any]):
 config = load_config()
 proxmox = ProxmoxClient(config.get("proxmox", {}))
 hass = HomeAssistantClient(
-    config.get("homeassistant", {}).get("url", "http://192.168.1.82:8123"),
+    config.get("homeassistant", {}).get("url", "http://127.0.0.1:8123"),
     config.get("homeassistant", {}).get("token", "")
 )
 vault = ObsidianVault(os.path.join(ROOT_DIR, config.get("obsidian", {}).get("vault_path", "vault_backup")))
@@ -107,6 +109,7 @@ immich = ImmichClient(config.get("immich", {}), UPLOADS_DIR)
 obsidian_ingestor = ObsidianIngestor(config)
 couchdb = CouchDBClient(config.get("couchdb", {}))
 stm = ShortTermMemoryEngine(config)
+dataset_compiler = DatasetCompiler(config)
 
 def extract_tool_call(text: str):
     """Extract tool name and arguments from model content (supporting XML-style, markdown codeblocks, or raw JSON)."""
@@ -139,6 +142,458 @@ def extract_tool_call(text: str):
                 pass
     return None, None
 
+def get_service_execstart(service_name: str) -> str:
+    try:
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+               f"grep '^ExecStart=' /etc/systemd/system/{service_name}"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        if res.returncode == 0:
+            return res.stdout.strip().replace("ExecStart=", "")
+    except Exception:
+        pass
+    return ""
+
+def parse_llama_flags(exec_start: str) -> Dict[str, Any]:
+    flags: Dict[str, Any] = {
+        "model": "",
+        "n_ctx": 8192,
+        "n_gpu_layers": 99,
+        "flash_attn": "on",
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "batch_size": 2048,
+        "ubatch_size": 512,
+        "threads": 8,
+        "threads_batch": 8,
+        "parallel": 4,
+        "device": "Vulkan0",
+        "defrag_thold": 0.1,
+        "mlock": False,
+        "no_mmap": False,
+        "cont_batching": False,
+        "custom_flags": ""
+    }
+    if not exec_start:
+        return flags
+    tokens = exec_start.split()
+    recognized = set()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--model" and i + 1 < len(tokens):
+            flags["model"] = tokens[i+1]
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-c", "--ctx-size") and i + 1 < len(tokens):
+            try: flags["n_ctx"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-ngl", "--gpu-layers") and i + 1 < len(tokens):
+            try: flags["n_gpu_layers"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok == "--flash-attn" and i + 1 < len(tokens):
+            flags["flash_attn"] = tokens[i+1]
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-ctk", "--cache-type-k") and i + 1 < len(tokens):
+            flags["cache_type_k"] = tokens[i+1]
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-ctv", "--cache-type-v") and i + 1 < len(tokens):
+            flags["cache_type_v"] = tokens[i+1]
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-b", "--batch-size") and i + 1 < len(tokens):
+            try: flags["batch_size"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-ub", "--ubatch-size") and i + 1 < len(tokens):
+            try: flags["ubatch_size"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-t", "--threads") and i + 1 < len(tokens):
+            try: flags["threads"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-tb", "--threads-batch") and i + 1 < len(tokens):
+            try: flags["threads_batch"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok in ("-np", "--parallel") and i + 1 < len(tokens):
+            try: flags["parallel"] = int(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok == "--device" and i + 1 < len(tokens):
+            flags["device"] = tokens[i+1]
+            recognized.update([i, i+1])
+            i += 2
+        elif tok == "--defrag-thold" and i + 1 < len(tokens):
+            try: flags["defrag_thold"] = float(tokens[i+1])
+            except ValueError: pass
+            recognized.update([i, i+1])
+            i += 2
+        elif tok == "--mlock":
+            flags["mlock"] = True
+            recognized.add(i)
+            i += 1
+        elif tok == "--no-mmap":
+            flags["no_mmap"] = True
+            recognized.add(i)
+            i += 1
+        elif tok == "--cont-batching":
+            flags["cont_batching"] = True
+            recognized.add(i)
+            i += 1
+        elif tok in ("--host", "--port", "--alias", "/usr/local/bin/llama-server"):
+            recognized.add(i)
+            if tok in ("--host", "--port", "--alias") and i + 1 < len(tokens):
+                recognized.add(i + 1)
+                i += 1
+            i += 1
+        else:
+            i += 1
+    
+    custom = [tokens[j] for j in range(len(tokens)) if j not in recognized and not tokens[j].startswith("/usr/local/bin")]
+    flags["custom_flags"] = " ".join(custom).strip()
+    return flags
+
+def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dict[str, Any]) -> tuple:
+    try:
+        get_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                   f"cat /etc/systemd/system/{service_name}"]
+        res = subprocess.run(get_cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode != 0:
+            return False, f"Could not read existing service file: {res.stderr}"
+        current_content = res.stdout
+
+        current_exec = ""
+        for line in current_content.splitlines():
+            if line.startswith("ExecStart="):
+                current_exec = line.replace("ExecStart=", "").strip()
+                break
+        current_flags = parse_llama_flags(current_exec)
+        model_path = params.get("model") or current_flags.get("model") or "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf"
+
+        n_ctx = int(params.get("n_ctx", current_flags.get("n_ctx", 8192)))
+        n_gpu_layers = int(params.get("n_gpu_layers", current_flags.get("n_gpu_layers", 99)))
+        flash_attn = params.get("flash_attn", current_flags.get("flash_attn", "on"))
+        cache_type_k = params.get("cache_type_k", current_flags.get("cache_type_k", "q4_0"))
+        cache_type_v = params.get("cache_type_v", current_flags.get("cache_type_v", "q4_0"))
+        device = params.get("device", current_flags.get("device", "Vulkan0" if port == 8001 else "Vulkan1"))
+        
+        cmd_parts = [
+            "/usr/local/bin/llama-server",
+            "--model", model_path,
+            "--host", "0.0.0.0",
+            "--port", str(port),
+            "--device", device,
+            "-ngl", str(n_gpu_layers),
+            "-c", str(n_ctx),
+            "--flash-attn", flash_attn,
+            "-ctk", cache_type_k,
+            "-ctv", cache_type_v,
+            "--alias", alias,
+            "--metrics"
+        ]
+        if "batch_size" in params and params["batch_size"]:
+            cmd_parts.extend(["-b", str(params["batch_size"])])
+        if "ubatch_size" in params and params["ubatch_size"]:
+            cmd_parts.extend(["-ub", str(params["ubatch_size"])])
+        if "threads" in params and params["threads"]:
+            cmd_parts.extend(["-t", str(params["threads"])])
+        if "threads_batch" in params and params["threads_batch"]:
+            cmd_parts.extend(["-tb", str(params["threads_batch"])])
+        if "parallel" in params and params["parallel"]:
+            cmd_parts.extend(["-np", str(params["parallel"])])
+        if "defrag_thold" in params and params["defrag_thold"] is not None:
+            cmd_parts.extend(["--defrag-thold", str(params["defrag_thold"])])
+        if params.get("mlock"):
+            cmd_parts.append("--mlock")
+        if params.get("no_mmap"):
+            cmd_parts.append("--no-mmap")
+        if params.get("cont_batching"):
+            cmd_parts.append("--cont-batching")
+        if params.get("custom_flags"):
+            cmd_parts.append(str(params["custom_flags"]).strip())
+
+        new_exec_start = " ".join(cmd_parts)
+
+        new_lines = []
+        for line in current_content.splitlines():
+            if line.startswith("ExecStart="):
+                new_lines.append(f"ExecStart={new_exec_start}")
+            elif line.startswith("Description="):
+                clean_desc = re.sub(r"RX\s*6[76]50\s*XT", "Vulkan Accelerator", line)
+                new_lines.append(clean_desc)
+            else:
+                new_lines.append(line)
+        new_content = "\n".join(new_lines) + "\n"
+
+        b64_new = base64.b64encode(new_content.encode("utf-8")).decode("ascii")
+        remote_script = f"""
+set -e
+sudo cp /etc/systemd/system/{service_name} /etc/systemd/system/{service_name}.bak
+echo '{b64_new}' | base64 -d | sudo tee /etc/systemd/system/{service_name} > /dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart {service_name}
+"""
+        ssh_apply = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                     "bash -s"]
+        res_apply = subprocess.run(ssh_apply, input=remote_script, text=True, capture_output=True, timeout=15)
+        if res_apply.returncode != 0:
+            return False, f"Failed to restart systemd service: {res_apply.stderr}"
+
+        health_ok = False
+        health_url = f"http://127.0.0.1:{port}/health"
+        for _ in range(15):
+            time.sleep(2)
+            try:
+                req = urllib.request.Request(health_url)
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    h_data = json.loads(resp.read().decode("utf-8"))
+                    if h_data.get("status") == "ok":
+                        health_ok = True
+                        break
+            except Exception:
+                pass
+
+        if health_ok:
+            return True, f"{service_name} reconfigured and healthy at :{port}!"
+        else:
+            rollback_script = f"""
+sudo cp /etc/systemd/system/{service_name}.bak /etc/systemd/system/{service_name}
+sudo systemctl daemon-reload
+sudo systemctl restart {service_name}
+"""
+            subprocess.run(ssh_apply, input=rollback_script, text=True, capture_output=True, timeout=15)
+            return False, "Health check failed or timed out after applying parameters. Automatically rolled back to prior working service configuration."
+    except Exception as e:
+        return False, str(e)
+
+def is_moe_active() -> bool:
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8001/v1/models")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for m in data.get("data", []):
+                if "moe" in m.get("id", "").lower() or "ornith" in m.get("id", "").lower():
+                    return True
+    except Exception:
+        pass
+    return False
+
+def get_harness_parameters(harness: str) -> Dict[str, Any]:
+    cfg = load_config()
+    harness_settings = cfg.get("harness_settings", {})
+    
+    if harness in ("llama_coordinator", "coordinator"):
+        exec_start = get_service_execstart("llama-coordinator.service")
+        flags = parse_llama_flags(exec_start)
+        props = {}
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8001/props")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                props = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+        gen_params = props.get("default_generation_settings", {}).get("params", {})
+        saved_params = harness_settings.get("llama_coordinator", {})
+        
+        sampling = {
+            "temperature": saved_params.get("temperature", round(float(gen_params.get("temperature", 0.70)), 2)),
+            "min_p": saved_params.get("min_p", round(float(gen_params.get("min_p", 0.06)), 2)),
+            "top_p": saved_params.get("top_p", round(float(gen_params.get("top_p", 0.95)), 2)),
+            "top_k": saved_params.get("top_k", int(gen_params.get("top_k", 40))),
+            "presence_penalty": saved_params.get("presence_penalty", round(float(gen_params.get("presence_penalty", 0.20)), 2)),
+            "frequency_penalty": saved_params.get("frequency_penalty", round(float(gen_params.get("frequency_penalty", 0.0)), 2)),
+            "repeat_penalty": saved_params.get("repeat_penalty", round(float(gen_params.get("repeat_penalty", 1.0)), 2)),
+            "repeat_last_n": saved_params.get("repeat_last_n", int(gen_params.get("repeat_last_n", 64))),
+            "mirostat": saved_params.get("mirostat", int(gen_params.get("mirostat", 0))),
+            "mirostat_tau": saved_params.get("mirostat_tau", round(float(gen_params.get("mirostat_tau", 5.0)), 2)),
+            "mirostat_eta": saved_params.get("mirostat_eta", round(float(gen_params.get("mirostat_eta", 0.10)), 2))
+        }
+
+        return {
+            "harness_id": "llama_coordinator",
+            "name": "llama.cpp Primary Coordinator (:8001)",
+            "role": "Primary Compute Accelerator",
+            "device": flags.get("device", "Vulkan0"),
+            "model_path": flags.get("model", ""),
+            "model_alias": props.get("model_alias", "coordinator"),
+            "server_params": {
+                "n_ctx": flags.get("n_ctx", 8192),
+                "n_gpu_layers": flags.get("n_gpu_layers", 99),
+                "flash_attn": flags.get("flash_attn", "on"),
+                "cache_type_k": flags.get("cache_type_k", "q4_0"),
+                "cache_type_v": flags.get("cache_type_v", "q4_0"),
+                "batch_size": flags.get("batch_size", 2048),
+                "ubatch_size": flags.get("ubatch_size", 512),
+                "threads": flags.get("threads", 8),
+                "threads_batch": flags.get("threads_batch", 8),
+                "parallel": flags.get("parallel", 4),
+                "defrag_thold": flags.get("defrag_thold", 0.1),
+                "mlock": flags.get("mlock", False),
+                "no_mmap": flags.get("no_mmap", False),
+                "cont_batching": flags.get("cont_batching", False),
+                "custom_flags": flags.get("custom_flags", "")
+            },
+            "sampling_params": sampling,
+            "options": {
+                "flash_attn": ["on", "off", "auto"],
+                "cache_types": ["q4_0", "q8_0", "f16", "q4_1", "q5_0"],
+                "devices": ["Vulkan0", "Vulkan1", "CUDA0", "CPU"],
+                "mirostat_modes": [0, 1, 2]
+            }
+        }
+    elif harness in ("llama_worker", "worker"):
+        exec_start = get_service_execstart("llama-worker.service")
+        flags = parse_llama_flags(exec_start)
+        props = {}
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8002/props")
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                props = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+        gen_params = props.get("default_generation_settings", {}).get("params", {})
+        saved_params = harness_settings.get("llama_worker", {})
+        
+        sampling = {
+            "temperature": saved_params.get("temperature", round(float(gen_params.get("temperature", 0.65)), 2)),
+            "min_p": saved_params.get("min_p", round(float(gen_params.get("min_p", 0.06)), 2)),
+            "top_p": saved_params.get("top_p", round(float(gen_params.get("top_p", 0.95)), 2)),
+            "top_k": saved_params.get("top_k", int(gen_params.get("top_k", 40))),
+            "presence_penalty": saved_params.get("presence_penalty", round(float(gen_params.get("presence_penalty", 0.20)), 2)),
+            "frequency_penalty": saved_params.get("frequency_penalty", round(float(gen_params.get("frequency_penalty", 0.0)), 2)),
+            "repeat_penalty": saved_params.get("repeat_penalty", round(float(gen_params.get("repeat_penalty", 1.0)), 2)),
+            "repeat_last_n": saved_params.get("repeat_last_n", int(gen_params.get("repeat_last_n", 64))),
+            "mirostat": saved_params.get("mirostat", int(gen_params.get("mirostat", 0))),
+            "mirostat_tau": saved_params.get("mirostat_tau", round(float(gen_params.get("mirostat_tau", 5.0)), 2)),
+            "mirostat_eta": saved_params.get("mirostat_eta", round(float(gen_params.get("mirostat_eta", 0.10)), 2))
+        }
+
+        return {
+            "harness_id": "llama_worker",
+            "name": "llama.cpp Secondary Worker (:8002)",
+            "role": "Secondary Worker Accelerator",
+            "device": flags.get("device", "Vulkan1"),
+            "model_path": flags.get("model", ""),
+            "model_alias": props.get("model_alias", "worker"),
+            "server_params": {
+                "n_ctx": flags.get("n_ctx", 8192),
+                "n_gpu_layers": flags.get("n_gpu_layers", 99),
+                "flash_attn": flags.get("flash_attn", "on"),
+                "cache_type_k": flags.get("cache_type_k", "q4_0"),
+                "cache_type_v": flags.get("cache_type_v", "q4_0"),
+                "batch_size": flags.get("batch_size", 2048),
+                "ubatch_size": flags.get("ubatch_size", 512),
+                "threads": flags.get("threads", 8),
+                "threads_batch": flags.get("threads_batch", 8),
+                "parallel": flags.get("parallel", 4),
+                "defrag_thold": flags.get("defrag_thold", 0.1),
+                "mlock": flags.get("mlock", False),
+                "no_mmap": flags.get("no_mmap", False),
+                "cont_batching": flags.get("cont_batching", False),
+                "custom_flags": flags.get("custom_flags", "")
+            },
+            "sampling_params": sampling,
+            "options": {
+                "flash_attn": ["on", "off", "auto"],
+                "cache_types": ["q4_0", "q8_0", "f16", "q4_1", "q5_0"],
+                "devices": ["Vulkan0", "Vulkan1", "CUDA0", "CPU"],
+                "mirostat_modes": [0, 1, 2]
+            }
+        }
+    elif harness in ("hermes", "hermes_agentic", "moe"):
+        defaults = {
+            "model_target": "moe",
+            "context_window": 16384,
+            "max_iterations": 10,
+            "temperature": 0.70,
+            "min_p": 0.06,
+            "presence_penalty": 0.25,
+            "repeat_penalty": 1.15,
+            "timeout_sec": 60,
+            "system_prompt_mode": "agentic",
+            "tool_call_retries": 3,
+            "divergence_threshold": 0.85,
+            "reflection_enabled": True,
+            "custom_prompt_prefix": ""
+        }
+        saved = harness_settings.get("hermes", {})
+        return {
+            "harness_id": "hermes",
+            "name": "Hermes 3 Agentic Loop (Ornith-1.5-35B MoE 16k)",
+            "role": "ReAct Tool Execution Loop & Multi-Turn Reasoning",
+            "device": "Vulkan0,Vulkan1 (Dual AMD GPU - 20.4 GB VRAM)",
+            "model_alias": "Ornith-1.5-35B-A3B MoE (16k Ctx)",
+            "server_params": {k: saved.get(k, v) for k, v in defaults.items()},
+            "sampling_params": {
+                "temperature": saved.get("temperature", 0.70),
+                "min_p": saved.get("min_p", 0.06),
+                "presence_penalty": saved.get("presence_penalty", 0.25),
+                "repeat_penalty": saved.get("repeat_penalty", 1.15)
+            },
+            "options": {
+                "system_prompt_mode": ["agentic", "strict_invariants", "exploratory", "minimal"],
+                "model_target": ["moe", "coordinator", "worker"]
+            }
+        }
+    elif harness == "snapdragon":
+        defaults = {
+            "quantization": "q4_k_m",
+            "npu_power_profile": "sustained_high_performance",
+            "threads": 4,
+            "context_window": 4096,
+            "compute_precision": "fp16",
+            "kv_cache_budget_mb": 512,
+            "temperature": 0.70,
+            "top_p": 0.95
+        }
+        saved = harness_settings.get("snapdragon", {})
+        return {
+            "harness_id": "snapdragon",
+            "name": "Snapdragon Edge NPU",
+            "role": "Mobile On-Device NPU Acceleration",
+            "server_params": {k: saved.get(k, v) for k, v in defaults.items()},
+            "sampling_params": {},
+            "options": {
+                "quantization": ["q4_k_m", "q8_0", "f16", "int4_w4a16"],
+                "npu_power_profile": ["burst", "sustained_high_performance", "balanced", "power_saver"],
+                "compute_precision": ["fp16", "fp32", "int8"]
+            }
+        }
+    elif harness == "openwebui":
+        defaults = {
+            "api_endpoint": "http://127.0.0.1:8080",
+            "model_routing": "coordinator",
+            "stream_timeout_sec": 90,
+            "rag_top_k": 5,
+            "default_system_prompt": "You are an intelligent homelab assistant running on the local dual accelerator cluster.",
+            "temperature": 0.70,
+            "max_tokens": 4096
+        }
+        saved = harness_settings.get("openwebui", {})
+        return {
+            "harness_id": "openwebui",
+            "name": "OpenWebUI (LXC 119)",
+            "role": "Web Chat Interface & Pipeline",
+            "server_params": {k: saved.get(k, v) for k, v in defaults.items()},
+            "sampling_params": {},
+            "options": {
+                "model_routing": ["coordinator", "worker", "cluster_hybrid", "cloud_frontier"]
+            }
+        }
+    return {}
+
 class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=FRONTEND_DIR, **kwargs)
@@ -146,9 +601,54 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, Range")
         self.end_headers()
+
+    def do_HEAD(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        clean_path = path.strip().rstrip("/")
+        if clean_path.endswith(".apk") or "aevum.apk" in path or "stonesage.apk" in path or clean_path in ("/download/aevum", "/download/stonesage", "/download", "/apk", "/aevum", "/stonesage"):
+            apk_filename = "stonesage.apk" if "stonesage" in clean_path else "aevum.apk"
+            apk_path = os.path.join(FRONTEND_DIR, apk_filename)
+            if not os.path.exists(apk_path):
+                fallback_apk = os.path.join(FRONTEND_DIR, "aevum.apk")
+                if os.path.exists(fallback_apk):
+                    apk_path = fallback_apk
+            if os.path.exists(apk_path):
+                total_size = os.path.getsize(apk_path)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.android.package-archive")
+                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(apk_path)}"')
+                self.send_header("Content-Length", str(total_size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
+        elif clean_path == "/api/dataset/download":
+            query = urllib.parse.parse_qs(parsed.query)
+            q_type = query.get("type", ["sharegpt"])[0]
+            fname = "homelab_curated_sharegpt.jsonl" if q_type == "sharegpt" else ("homelab_curated_alpaca.jsonl" if q_type == "alpaca" else "homelab_curated_manifest.json")
+            fpath = os.path.join(ROOT_DIR, "datasets", fname)
+            if os.path.exists(fpath):
+                total_size = os.path.getsize(fpath)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-jsonlines" if fname.endswith(".jsonl") else "application/json")
+                self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+                self.send_header("Content-Length", str(total_size))
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+        super().do_HEAD()
 
     def send_json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
@@ -172,8 +672,138 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+        clean_path = path.strip().rstrip("/")
 
-        if path == "/api/config":
+        if clean_path.endswith(".apk") or "aevum.apk" in path or "stonesage.apk" in path or clean_path in ("/download/aevum", "/download/stonesage", "/download", "/apk", "/aevum", "/stonesage"):
+            apk_filename = "stonesage.apk" if "stonesage" in clean_path else "aevum.apk"
+            apk_path = os.path.join(FRONTEND_DIR, apk_filename)
+            if not os.path.exists(apk_path):
+                fallback_apk = os.path.join(FRONTEND_DIR, "aevum.apk")
+                if os.path.exists(fallback_apk):
+                    apk_path = fallback_apk
+            
+            if os.path.exists(apk_path):
+                self.close_connection = True
+                try:
+                    total_size = os.path.getsize(apk_path)
+                    range_header = self.headers.get("Range")
+                    if range_header and range_header.startswith("bytes="):
+                        range_spec = range_header[6:].strip()
+                        parts = range_spec.split("-")
+                        start = int(parts[0]) if parts[0] else 0
+                        end = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
+                        if start >= total_size:
+                            self.send_response(416)
+                            self.send_header("Content-Range", f"bytes */{total_size}")
+                            self.send_header("Connection", "close")
+                            self.end_headers()
+                            return
+                        end = min(end, total_size - 1)
+                        content_length = (end - start) + 1
+
+                        self.send_response(206)
+                        self.send_header("Content-Type", "application/vnd.android.package-archive")
+                        self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(apk_path)}"')
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{total_size}")
+                        self.send_header("Content-Length", str(content_length))
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Connection", "close")
+                        self.end_headers()
+
+                        with open(apk_path, "rb") as f:
+                            f.seek(start)
+                            remaining = content_length
+                            while remaining > 0:
+                                chunk = f.read(min(remaining, 65536))
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                remaining -= len(chunk)
+                        try:
+                            self.wfile.flush()
+                        except Exception:
+                            pass
+                        return
+                    else:
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/vnd.android.package-archive")
+                        self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(apk_path)}"')
+                        self.send_header("Content-Length", str(total_size))
+                        self.send_header("Accept-Ranges", "bytes")
+                        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Connection", "close")
+                        self.end_headers()
+
+                        with open(apk_path, "rb") as f:
+                            while True:
+                                chunk = f.read(65536)
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                        try:
+                            self.wfile.flush()
+                        except Exception:
+                            pass
+                        return
+                except (ConnectionResetError, BrokenPipeError):
+                    return
+                except Exception as ex:
+                    try:
+                        self.send_json({"ok": False, "error": str(ex)}, 500)
+                    except Exception:
+                        pass
+                    return
+            else:
+                self.close_connection = True
+                self.send_response(404)
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return
+
+        elif path == "/api/harness/parameters":
+            harness = urllib.parse.parse_qs(parsed.query).get("harness", ["llama_coordinator"])[0]
+            data = get_harness_parameters(harness)
+            self.send_json({"ok": True, "harness": harness, "data": data})
+            return
+
+        elif path == "/api/dataset/status":
+            self.send_json({"ok": True, "status": dataset_compiler.get_status()})
+            return
+
+        elif path == "/api/dataset/download":
+            query = urllib.parse.parse_qs(parsed.query)
+            q_type = query.get("type", ["sharegpt"])[0]
+            fname = "homelab_curated_sharegpt.jsonl" if q_type == "sharegpt" else ("homelab_curated_alpaca.jsonl" if q_type == "alpaca" else "homelab_curated_manifest.json")
+            fpath = os.path.join(ROOT_DIR, "datasets", fname)
+            if os.path.exists(fpath):
+                self.close_connection = True
+                total_size = os.path.getsize(fpath)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-jsonlines" if fname.endswith(".jsonl") else "application/json")
+                self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+                self.send_header("Content-Length", str(total_size))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                with open(fpath, "rb") as f:
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                try:
+                    self.wfile.flush()
+                except Exception:
+                    pass
+                return
+            else:
+                self.send_json({"ok": False, "error": f"Dataset file {fname} not compiled yet."}, 404)
+                return
+
+        elif path == "/api/config":
             self.send_json(load_config())
             return
 
@@ -263,7 +893,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             vault_p = config.get("obsidian", {}).get("user_vault_path") or config.get("obsidian", {}).get("vault_path")
             candidates = [
                 os.path.join(vault_p, "Current Status.md") if vault_p else "",
-                r"C:\Users\johna\OneDrive\Documents\obsidian\Current Status.md",
+                r"C:\Users\operator\OneDrive\Documents\obsidian\Current Status.md",
                 "/opt/stonesage/vault_backup/Current Status.md",
                 "vault_backup/Current Status.md"
             ]
@@ -288,7 +918,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/notes":
             couch_notes = couchdb.list_notes()
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
             local_notes = []
             if user_vault and os.path.exists(user_vault):
                 for root, dirs, files in os.walk(user_vault):
@@ -349,7 +979,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/note":
             rel_path = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
             if user_vault and os.path.exists(user_vault):
                 norm_rel = os.path.normpath(rel_path).lstrip("\\/")
                 full_path = os.path.join(user_vault, norm_rel)
@@ -411,7 +1041,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/knowledge/status":
-            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
+            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
             file_count = 0
             if os.path.exists(kb_dir):
                 for _, _, files in os.walk(kb_dir):
@@ -653,7 +1283,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # 1. Query live coordinator models from :8001/v1/models
                 coord_info = {"id": "coordinator", "status": "unknown"}
                 try:
-                    req_c = urllib.request.Request("http://192.168.1.105:8001/v1/models", headers={"User-Agent": "Aevum-Server"})
+                    req_c = urllib.request.Request("http://127.0.0.1:8001/v1/models", headers={"User-Agent": "Aevum-Server"})
                     with urllib.request.urlopen(req_c, timeout=2.5) as resp_c:
                         c_data = json.loads(resp_c.read().decode("utf-8"))
                         if c_data.get("data"):
@@ -665,7 +1295,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # 2. Query live worker models from :8002/v1/models
                 worker_info = {"id": "worker", "status": "unknown"}
                 try:
-                    req_w = urllib.request.Request("http://192.168.1.105:8002/v1/models", headers={"User-Agent": "Aevum-Server"})
+                    req_w = urllib.request.Request("http://127.0.0.1:8002/v1/models", headers={"User-Agent": "Aevum-Server"})
                     with urllib.request.urlopen(req_w, timeout=2.5) as resp_w:
                         w_data = json.loads(resp_w.read().decode("utf-8"))
                         if w_data.get("data"):
@@ -677,7 +1307,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # 3. Retrieve installed models list from disk or SSH
                 installed_models = []
                 try:
-                    full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                    full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                                  "ls -lh /opt/models/*.gguf"]
                     res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=5)
                     if res2.returncode == 0 and res2.stdout:
@@ -700,13 +1330,15 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     ]
 
                 available_harnesses = [
-                    {"id": "aevum", "name": "Aevum Native Cockpit", "description": "Duplex WebSocket RAG Harness with real-time streaming"},
-                    {"id": "hermes", "name": "Hermes Agentic Loop", "description": "ReAct tool loop with autonomous step dispatch"},
+                    {"id": "hermes", "name": "Hermes 3 Agentic Loop (DEFAULT)", "description": "Ornith-1.5-35B MoE (16k Ctx, Dual-GPU Vulkan) with ReAct Step Loop"},
+                    {"id": "llama_coordinator", "name": "llama.cpp Primary Coordinator (:8001)", "description": "Primary Uncensored Reasoning, Architecture & Coding Daemon"},
+                    {"id": "llama_worker", "name": "llama.cpp Secondary Worker (:8002)", "description": "Secondary Divergent Ideation, Utility & Linter Daemon"},
+                    {"id": "snapdragon", "name": "Snapdragon Edge NPU", "description": "Mobile on-device hardware accelerator"},
                     {"id": "openwebui", "name": "OpenWebUI (LXC 119)", "description": "Community chat interface on :8080"}
                 ]
 
                 available_backends = [
-                    {"id": "cluster_lan", "name": "Dual-GPU Vulkan Cluster (192.168.1.105)", "description": "RX 6750 XT (12GB) + RX 6600 XT (8GB)"},
+                    {"id": "cluster_lan", "name": "Dual-Accelerator Vulkan Cluster (127.0.0.1)", "description": "Primary Compute Accelerator + Secondary Worker Accelerator"},
                     {"id": "tailscale_vip", "name": "Tailscale Mesh VIP", "description": "Encrypted remote WireGuard mesh"},
                     {"id": "local_edge", "name": "On-Device Snapdragon NPU", "description": "Mobile local inference"}
                 ]
@@ -726,7 +1358,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/cluster/models":
             try:
-                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                             "grep -E -- '--model|-c ' /etc/systemd/system/llama-coordinator.service"]
                 res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=10)
                 active_model = "Unknown"
@@ -738,7 +1370,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         if "-c " in line:
                             active_ctx = line.split("-c ")[-1].strip().split()[0]
 
-                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                              "ls -lh /opt/models/*.gguf && df -h /opt/models | tail -n 1"]
                 res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=10)
                 models = []
@@ -775,7 +1407,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(ex)}, 500)
         elif path == "/api/hivemind/status":
             cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
             try:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "autonomous_thinking_status"}}
                 req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -789,9 +1421,48 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(ex)}, 500)
             return
 
+        elif path == "/api/hivemind/agents":
+            cfg = load_config()
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+            try:
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "list_active_agents"}}
+                req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+                    raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "[]")
+                    agents = json.loads(raw_txt) if raw_txt else []
+                    self.send_json({"ok": True, "agents": agents})
+            except Exception as ex:
+                self.send_json({"ok": False, "error": str(ex), "agents": []}, 500)
+            return
+
+        elif path == "/api/hivemind/live_stream":
+            cfg = load_config()
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+            try:
+                payload_st = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "autonomous_thinking_status"}}
+                payload_ag = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_active_agents"}}
+                
+                req_st = urllib.request.Request(mcp_u, data=json.dumps(payload_st).encode("utf-8"), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req_st, timeout=10) as resp:
+                    res_st = json.loads(resp.read().decode("utf-8"))
+                    raw_st = res_st.get("result", {}).get("content", [{}])[0].get("text", "{}")
+                    status = json.loads(raw_st)
+                
+                req_ag = urllib.request.Request(mcp_u, data=json.dumps(payload_ag).encode("utf-8"), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req_ag, timeout=10) as resp:
+                    res_ag = json.loads(resp.read().decode("utf-8"))
+                    raw_ag = res_ag.get("result", {}).get("content", [{}])[0].get("text", "[]")
+                    agents = json.loads(raw_ag) if raw_ag else []
+
+                self.send_json({"ok": True, "status": status, "agents": agents, "events": []})
+            except Exception as ex:
+                self.send_json({"ok": False, "error": str(ex)}, 500)
+            return
+
         elif path == "/api/hivemind/vision_log":
             cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
             limit = int(urllib.parse.parse_qs(parsed.query).get("limit", [150])[0])
             try:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_home_vision_log", "arguments": {"limit_lines": limit}}}
@@ -858,7 +1529,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 "gemini_web": {
                     "enabled": cfg.get("gemini_web", {}).get("enabled", True),
                     "configured": bool(cfg.get("gemini_web", {}).get("psid")),
-                    "endpoint": cfg.get("gemini_web", {}).get("endpoint", "http://192.168.1.167:8087")
+                    "endpoint": cfg.get("gemini_web", {}).get("endpoint", "http://127.0.0.1:8087")
                 }
             })
             return
@@ -872,7 +1543,48 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             path = parsed.path
             body = self.read_json_body()
 
-            if path == "/api/config":
+            if path == "/api/harness/apply_parameters":
+                harness = body.get("harness", "llama_coordinator")
+                params = body.get("parameters", {})
+                
+                cfg = load_config()
+                if "harness_settings" not in cfg:
+                    cfg["harness_settings"] = {}
+                if harness not in cfg["harness_settings"]:
+                    cfg["harness_settings"][harness] = {}
+                cfg["harness_settings"][harness].update(params)
+                save_config(cfg)
+
+                if harness in ("hermes", "moe"):
+                    ok, msg = apply_llama_parameters("llama-moe.service", 8001, "moe", params)
+                    self.send_json({"ok": ok, "message": msg}, 200 if ok else 400)
+                    return
+                elif harness in ("llama_coordinator", "coordinator"):
+                    svc = "llama-moe.service" if is_moe_active() else "llama-coordinator.service"
+                    target_alias = "moe" if is_moe_active() else "coordinator"
+                    ok, msg = apply_llama_parameters(svc, 8001, target_alias, params)
+                    self.send_json({"ok": ok, "message": msg}, 200 if ok else 400)
+                    return
+                elif harness in ("llama_worker", "worker"):
+                    ok, msg = apply_llama_parameters("llama-worker.service", 8002, "worker", params)
+                    self.send_json({"ok": ok, "message": msg}, 200 if ok else 400)
+                    return
+                else:
+                    self.send_json({"ok": True, "message": f"{harness} configuration updated successfully!"})
+                    return
+
+            elif path == "/api/dataset/compile":
+                limit = int(body.get("limit", 25))
+                res = dataset_compiler.run_compilation(limit=limit)
+                self.send_json(res)
+                return
+
+            elif path == "/api/dataset/stop":
+                res = dataset_compiler.stop_compilation()
+                self.send_json(res)
+                return
+
+            elif path == "/api/config":
                 cfg = load_config()
                 deep_update(cfg, body)
                 # Auto-parse proxmox token_value if provided
@@ -923,7 +1635,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 is_valid = False
                 bridge_msg = "Saved locally"
                 try:
-                    f_url = "http://192.168.1.167:8087/api/cookies"
+                    f_url = "http://127.0.0.1:8087/api/cookies"
                     req = urllib.request.Request(
                         f_url,
                         data=json.dumps({"psid": psid, "psidts": psidts}).encode("utf-8"),
@@ -943,7 +1655,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/vigilance":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
                 try:
                     payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "trigger_home_vigilance_sweep"}}
                     req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -957,7 +1669,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/cycle":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
                 domain = body.get("domain")
                 prompt = body.get("prompt")
                 args = {}
@@ -976,7 +1688,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/toggle":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
                 action = body.get("action", "start")
                 t_name = "start_autonomous_thinking" if action == "start" else "stop_autonomous_thinking"
                 t_args = {"interval_seconds": body.get("interval_seconds", 120)} if action == "start" else {}
@@ -987,6 +1699,89 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         res = json.loads(resp.read().decode("utf-8"))
                         raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
                         self.send_json({"ok": True, "message": raw_txt})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path == "/api/agent/nudge":
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                agent_id = body.get("agent_id", "engine")
+                directive = body.get("directive")
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "nudge_agent", "arguments": {"agent_id": agent_id, "directive": directive}}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "{}")
+                        self.send_json({"ok": True, "result": json.loads(raw_txt)})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path == "/api/agent/delete":
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                agent_id = body.get("agent_id")
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "delete_active_agent", "arguments": {"agent_id": agent_id}}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
+                        self.send_json({"ok": True, "message": raw_txt})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path == "/api/agent/stop":
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                agent_id = body.get("agent_id")
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "stop_background_agent", "arguments": {"agent_id": agent_id}}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
+                        self.send_json({"ok": True, "message": raw_txt})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path == "/api/agent/reproduce":
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                p_args = {
+                    "parent_a_id": body.get("parent_a_id"),
+                    "parent_b_id": body.get("parent_b_id"),
+                    "blend_ratio": body.get("blend_ratio", 0.5),
+                    "focus_intent": body.get("focus_intent"),
+                    "custom_name": body.get("custom_name"),
+                    "custom_role": body.get("custom_role"),
+                    "custom_mission": body.get("custom_mission"),
+                    "custom_system_prompt": body.get("custom_system_prompt"),
+                    "custom_focus_question": body.get("custom_focus_question"),
+                    "model_preference": body.get("model_preference", "coordinator")
+                }
+                # Remove None entries
+                p_args = {k: v for k, v in p_args.items() if v is not None}
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "reproduce_blended_agent", "arguments": p_args}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        if "error" in res:
+                            err_msg = res["error"].get("message", str(res["error"])) if isinstance(res["error"], dict) else str(res["error"])
+                            self.send_json({"ok": False, "error": err_msg}, 400)
+                            return
+                        content_list = res.get("result", {}).get("content", [])
+                        raw_txt = content_list[0].get("text", "{}") if content_list else "{}"
+                        try:
+                            parsed_res = json.loads(raw_txt)
+                        except Exception:
+                            parsed_res = {"message": raw_txt}
+                        self.send_json({"ok": True, "result": parsed_res})
                 except Exception as ex:
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
@@ -1141,14 +1936,14 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 try:
                     # Check active models
-                    chk_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                    chk_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                                "grep -E -- '--model' /etc/systemd/system/llama-*.service"]
                     chk_res = subprocess.run(chk_cmd, capture_output=True, text=True, timeout=10)
                     if chk_res.returncode == 0 and safe_filename in chk_res.stdout:
                         self.send_json({"ok": False, "error": f"Cannot delete '{safe_filename}' because it is currently loaded in an active service. Switch models first."}, 400)
                         return
 
-                    del_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                    del_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
                                f"rm -f /opt/models/{safe_filename}"]
                     del_res = subprocess.run(del_cmd, capture_output=True, text=True, timeout=15)
                     if del_res.returncode == 0:
@@ -1277,7 +2072,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     del subagent_registry[agent_id]
                 # Call cluster MCP delete_active_agent
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
                 try:
                     payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "delete_active_agent", "arguments": {"agent_id": agent_id}}}
                     req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -2126,16 +2921,16 @@ if __name__ == "__main__":
             print(f"    To force restart, run start.bat which will automatically free the port.")
             sys.exit(1)
         raise
-    lan_ip = config.get("server", {}).get("lan_ip", "192.168.1.132")
+    lan_ip = config.get("server", {}).get("lan_ip", "127.0.0.1")
     print("=" * 68)
     print("  [ STONESAGE COGNITIVE TERMINAL WORKSTATION v3.0 ]")
     print(f"  Local Browser:     http://localhost:{port} (or http://127.0.0.1:{port})")
     print(f"  LAN Workstation:   http://{lan_ip}:{port}")
-    print(f"  Cluster Nodes:     pve (192.168.1.229) & bigserv (192.168.1.82)")
+    print(f"  Cluster Nodes:     pve (127.0.0.1) & bigserv (127.0.0.1)")
     print(f"  Dual-GPU Cluster:  14B Coord (:8001/Vulkan0) & 3B Worker (:8002/Vulkan1)")
     print(f"  RAG Proxy (HA):    http://{lan_ip}:{port}/api/ai/coordinator/v1")
-    print(f"  Qdrant Memory:     192.168.1.112:6333 (User Obsidian Ingested)")
-    print(f"  Home Assistant:    http://192.168.1.82:8123")
+    print(f"  Qdrant Memory:     127.0.0.1:6333 (User Obsidian Ingested)")
+    print(f"  Home Assistant:    http://127.0.0.1:8123")
     print("=" * 68)
     print("=" * 65)
 

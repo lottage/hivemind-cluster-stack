@@ -40,7 +40,7 @@ Instead of dumping raw documents, facts are isolated into single-purpose, self-c
 - **No Defensive Invariants**: Omits all negative "you are not a car" boilerplate.
 
 ### B. In-RAM Valkey Store (`:6379`) & Sub-Millisecond Tag Index
-- **Host**: VM 102 (`192.168.1.105:6379`) running `valkey-server` 9.0.4.
+- **Host**: VM 102 (`127.0.0.1:6379`) running `valkey-server` 9.0.4.
 - **Data Structure**:
   - `amem:card:{atom_id}`: Hash storing `atom`, `tags`, `category`, and `timestamp`.
   - `amem:tag:{token}`: Redis Set of card IDs tagged with that normalized keyword.
@@ -53,7 +53,7 @@ Instead of dumping raw documents, facts are isolated into single-purpose, self-c
 ### C. Dynamic Tiered System Prompts
 ```python
 LEAN_SYSTEM_PROMPT = (
-    "You are StoneSage, Austin's AI assistant. "
+    "You are StoneSage, Operator's AI assistant. "
     "Provide clear, accurate, direct answers without meta-commentary, reasoning monologues, or filler."
 )
 ```

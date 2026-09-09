@@ -53,7 +53,7 @@ class ClusterClient:
         return results
 
     def get_embedding(self, text: str) -> List[float]:
-        """Generate 1024-dim dense vector embedding on the RX 6600 XT."""
+        """Generate 1024-dim dense vector embedding on the Embedder (:8003)."""
         # Bound text to < 800 characters to strictly respect BGE 512-token context limit
         safe_text = text[:800] if text else ""
         url = f"{self.embedder_url}/embeddings"
@@ -193,9 +193,13 @@ class ClusterClient:
             base_url = self.worker_url
             model_name = "worker"
             headers = {"Content-Type": "application/json"}
+        elif target_lower in ["hermes", "moe", "hermes_agentic", "ornith", "ornith-1.5-35b-moe", "hermes-3", "agentic"]:
+            base_url = self.coordinator_url
+            model_name = "moe"
+            headers = {"Content-Type": "application/json"}
         elif target_lower in ["coordinator", "14b", "coordinator_14b", "qwen-14b", "pve-coordinator"]:
             base_url = self.coordinator_url
-            model_name = "coordinator"
+            model_name = "moe"
             headers = {"Content-Type": "application/json"}
         elif "gemini" in target_lower:
             gem_cfg = self.external_cfg.get("gemini", {})
@@ -205,7 +209,7 @@ class ClusterClient:
                 model_name = target
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             else:
-                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: Google Gemini API key not configured in Settings (⚙️). Routing request automatically to your local **14B Coordinator (RX 6750 XT)** with zero token limits!\n\n"
+                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: Google Gemini API key not configured in Settings (⚙️). Routing request automatically to your local **Primary Coordinator (:8001)** with zero token limits!\n\n"
                 base_url = self.coordinator_url
                 model_name = "coordinator"
                 headers = {"Content-Type": "application/json"}
@@ -217,7 +221,7 @@ class ClusterClient:
                 model_name = target
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             else:
-                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: Anthropic API key not configured in Settings (⚙️). Routing request automatically to your local **14B Coordinator (RX 6750 XT)**.\n\n"
+                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: Anthropic API key not configured in Settings (⚙️). Routing request automatically to your local **Primary Coordinator (:8001)**.\n\n"
                 base_url = self.coordinator_url
                 model_name = "coordinator"
                 headers = {"Content-Type": "application/json"}
@@ -229,7 +233,7 @@ class ClusterClient:
                 model_name = target
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             else:
-                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: OpenAI API key not configured in Settings (⚙️). Routing request automatically to your local **14B Coordinator (RX 6750 XT)**.\n\n"
+                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: OpenAI API key not configured in Settings (⚙️). Routing request automatically to your local **Primary Coordinator (:8001)**.\n\n"
                 base_url = self.coordinator_url
                 model_name = "coordinator"
                 headers = {"Content-Type": "application/json"}
@@ -241,7 +245,7 @@ class ClusterClient:
                 model_name = "deepseek/deepseek-r1"
                 headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             else:
-                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: OpenRouter API key not configured in Settings (⚙️). Routing request automatically to your local **14B Coordinator (RX 6750 XT)**.\n\n"
+                notice = f"\n> [!NOTE]\n> **Model Routing ({target})**: OpenRouter API key not configured in Settings (⚙️). Routing request automatically to your local **Primary Coordinator (:8001)**.\n\n"
                 base_url = self.coordinator_url
                 model_name = "coordinator"
                 headers = {"Content-Type": "application/json"}
@@ -297,18 +301,18 @@ class ClusterClient:
                     pass
 
         # Optimal quantized model sampling invariant
-        temp_default = 0.72 if model_name in ["coordinator", "worker"] else 0.4
+        temp_default = 0.70 if model_name in ["coordinator", "worker", "moe"] else 0.4
         url = f"{base_url.rstrip('/')}/chat/completions"
         body = {
             "model": model_name,
             "messages": dispatch_messages,
             "stream": True,
             "temperature": float(params.get("temperature", temp_default)),
-            "max_tokens": int(params.get("max_tokens", 4096))
+            "max_tokens": min(int(params.get("max_tokens", 8192)), 16384)
         }
-        if model_name in ["coordinator", "worker"]:
+        if model_name in ["coordinator", "worker", "moe"]:
             body["min_p"] = float(params.get("min_p", 0.06))
-            body["presence_penalty"] = float(params.get("presence_penalty", 0.2))
+            body["presence_penalty"] = float(params.get("presence_penalty", 0.25))
             body["top_p"] = float(params.get("top_p", 0.95))
 
         for key in ["top_k", "repetition_penalty", "frequency_penalty"]:
@@ -361,7 +365,7 @@ class ClusterClient:
         return results
 
     def synthesize_answers(self, prompt: str, answers: Dict[str, str]) -> str:
-        """Use the 14B Coordinator on the RX 6750 XT to merge and synthesize multiple answers."""
+        """Use the Primary Coordinator (:8001) to merge and synthesize multiple answers."""
         combined_text = "\n\n".join([f"### Model Response from [{k}]:\n{v}" for k, v in answers.items()])
         synth_prompt = (
             f"You are a master synthesis arbiter. Two or more AI models answered the following user prompt:\n\n"

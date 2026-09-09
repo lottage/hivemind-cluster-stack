@@ -4,7 +4,7 @@ StoneSage Duplex WebSocket Broker & RAG Knowledge Engine (LXC 120 :8086)
 - Models: Ornith-1.5-9B-OBLITERATED Q8_0 (:8001) & Ornith-1.5-9B Q4_K_M (:8002)
 - RAG Knowledge: Qdrant Vector Brain (LXC 117 :6333) with BGE-Large (:8003)
   Collections: obsidian_vault, companion_profile, codebase_knowledge, autonomous_thinking
-- CouchDB Obsidian Sync: LXC 116 (192.168.1.230:5984)
+- CouchDB Obsidian Sync: LXC 116 (127.0.0.1:5984)
 - Anti-Repetition & Grounded Persona Guardrails
 """
 
@@ -39,12 +39,12 @@ logging.basicConfig(
 logger = logging.getLogger("WS-RAG-Broker")
 
 PORT = int(os.environ.get("WS_PORT", 8086))
-COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "http://192.168.1.105:8001/v1/chat/completions")
-WORKER_URL = os.environ.get("WORKER_URL", "http://192.168.1.105:8002/v1/chat/completions")
-EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://192.168.1.105:8003/v1/embeddings")
-FRONTIER_URL = os.environ.get("FRONTIER_URL", "http://192.168.1.167:8085/api/frontier/audit")
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://192.168.1.112:6333")
-COUCHDB_URL = os.environ.get("COUCHDB_URL", "http://192.168.1.230:5984")
+COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "http://127.0.0.1:8001/v1/chat/completions")
+WORKER_URL = os.environ.get("WORKER_URL", "http://127.0.0.1:8002/v1/chat/completions")
+EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://127.0.0.1:8003/v1/embeddings")
+FRONTIER_URL = os.environ.get("FRONTIER_URL", "http://127.0.0.1:8085/api/frontier/audit")
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
+COUCHDB_URL = os.environ.get("COUCHDB_URL", "http://127.0.0.1:5984")
 
 try:
     from amem_engine import get_amem_engine
@@ -92,28 +92,28 @@ def update_task_routing(routing: dict) -> dict:
     return routing
 
 LEAN_SYSTEM_PROMPT = (
-    "You are StoneSage, Austin's AI assistant. "
+    "You are StoneSage, Operator's AI assistant. "
     "Provide clear, accurate, direct answers without meta-commentary, reasoning monologues, or filler."
 )
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are StoneSage, the 24/7 Autonomous Multi-Node Cluster Orchestrator and Cognitive Companion for Proxmox Datacenter 'home'.\n\n"
     "## 1. System Topology & Dual-GPU Infrastructure:\n"
-    "- Compute Host VM 102 ('ubu' @ 192.168.1.105 on Proxmox Node 1 'pve'):\n"
+    "- Compute Host VM 102 ('ubu' @ 127.0.0.1 on Proxmox Node 1 'pve'):\n"
     "  • Coordinator (:8001): Ornith-1.5-9B-OBLITERATED Q8_0 on AMD Radeon RX 6750 XT 12GB (Vulkan0). Handles complex multi-file architectural planning, unrestricted code synthesis, math reasoning, and hypothesis evaluation.\n"
     "  • Worker (:8002): Ornith-1.5-9B Q4_K_M on AMD Radeon RX 6600 XT 8GB (Vulkan1). Handles fast divergent ideation, unit testing, schema validation, and ambient routines at 80+ tokens/sec.\n"
     "  • Embedder (:8003): bge-large-en-v1.5 on RX 6600 XT. 1024-dimensional dense semantic embeddings (< 512 token context window).\n"
     "  • Cluster MCP Bridge (:8765): Starlette JSON-RPC / SSE daemon managing tools, autonomous loops, and preemption.\n\n"
-    "## 2. Knowledge Fabric & Vector Memory (Qdrant @ 192.168.1.112:6333):\n"
+    "## 2. Knowledge Fabric & Vector Memory (Qdrant @ 127.0.0.1:6333):\n"
     "- Active Collections:\n"
     "  • codebase_knowledge: Full homelab architecture, configs, scripts, hardware registries.\n"
     "  • agent_memories: Persistent architectural decisions, technical lessons, and operational invariants.\n"
     "  • autonomous_thinking: 24/7 dual-model exploration dossiers, failure boundaries, and novelty discoveries.\n"
-    "  • obsidian_vault: Austin's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 192.168.1.230:5984).\n"
+    "  • obsidian_vault: Operator's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 127.0.0.1:5984).\n"
     "  • home_automation_registry: Smart home entity catalogs, sensor states, and automation scripts.\n\n"
     "## 3. Homelab Services & Smart Home Fleet:\n"
-    "- Proxmox Datacenter API VIP: https://192.168.1.245:8006 (Unified management of 'pve' and 'bigserv').\n"
-    "- Home Assistant OS (VM 103 @ 192.168.1.82:8123): Smart home devices, switches, climate, Nest thermostat.\n"
+    "- Proxmox Datacenter API VIP: https://127.0.0.1:8006 (Unified management of 'pve' and 'bigserv').\n"
+    "- Home Assistant OS (VM 103 @ 127.0.0.1:8123): Smart home devices, switches, climate, Nest thermostat.\n"
     "- Vision Stack (:8004): Gemma-4 multimodal projector for real-time camera stream perception.\n"
     "- Frontier Bridge (:8085): Cloud reasoning integration and Tier-1 audits.\n\n"
     "## 4. Operational Invariants:\n"
@@ -149,11 +149,11 @@ def get_live_cluster_telemetry() -> str:
     """Probes real-time status of dual GPUs, vector DB, and smart home."""
     telemetry = []
     endpoints = [
-        ("Coordinator (RX 6750 XT 12GB, :8001)", "http://192.168.1.105:8001/health"),
-        ("Worker (RX 6600 XT 8GB, :8002)", "http://192.168.1.105:8002/health"),
-        ("Embedder (BGE-Large, :8003)", "http://192.168.1.105:8003/health"),
-        ("Vector DB (Qdrant LXC 117, :6333)", "http://192.168.1.112:6333/readyz"),
-        ("Home Assistant (VM 103, :8123)", "http://192.168.1.82:8123/api/")
+        ("Coordinator (RX 6750 XT 12GB, :8001)", "http://127.0.0.1:8001/health"),
+        ("Worker (RX 6600 XT 8GB, :8002)", "http://127.0.0.1:8002/health"),
+        ("Embedder (BGE-Large, :8003)", "http://127.0.0.1:8003/health"),
+        ("Vector DB (Qdrant LXC 117, :6333)", "http://127.0.0.1:6333/readyz"),
+        ("Home Assistant (VM 103, :8123)", "http://127.0.0.1:8123/api/")
     ]
     for label, url in endpoints:
         try:
@@ -209,7 +209,7 @@ def retrieve_rag_context(query: str, max_chunks: int = 3) -> str:
         embedding = get_embedding(query)
         retrieved_snippets = []
 
-        # 1. Search companion_profile (Austin's personal profile, vehicle records, preferences)
+        # 1. Search companion_profile (Operator's personal profile, vehicle records, preferences)
         try:
             req = urllib.request.Request(
                 f"{QDRANT_URL}/collections/companion_profile/points/search",
@@ -457,13 +457,13 @@ async def handle_chat_request(websocket, data: dict):
         "presence_penalty": presence_penalty,
         "repeat_penalty": repeat_penalty,
         "frequency_penalty": frequency_penalty,
-        "stop": ["<|im_end|>", "<|endoftext|>", "### Austin:", "User:"]
+        "stop": ["<|im_end|>", "<|endoftext|>", "### Operator:", "User:"]
     }
 
     task = asyncio.create_task(stream_openai_compat(target_url, payload, websocket, msg_id, model_tag))
     active_streams[msg_id] = task
 
-CLUSTER_MCP_URL = os.environ.get("CLUSTER_MCP_URL", "http://192.168.1.105:8765/messages")
+CLUSTER_MCP_URL = os.environ.get("CLUSTER_MCP_URL", "http://127.0.0.1:8765/messages")
 
 def call_cluster_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """Dispatches a tool execution to cluster-mcp on VM 102 (:8765)."""
@@ -575,7 +575,7 @@ async def autonomous_live_poller():
     push_live_event(
         category="system",
         source="Cluster Topology",
-        message="Dual AMD GPUs Active: RX 6750 XT 12GB (:8001 Coordinator) + RX 6600 XT 8GB (:8002 Worker & :8003 Embedder). Qdrant Vector Brain online at 192.168.1.112:6333."
+        message="Dual AMD GPUs Active: RX 6750 XT 12GB (:8001 Coordinator) + RX 6600 XT 8GB (:8002 Worker & :8003 Embedder). Qdrant Vector Brain online at 127.0.0.1:6333."
     )
 
     while True:
@@ -809,7 +809,8 @@ async def ws_handler(websocket):
                     "custom_mission": data.get("custom_mission"),
                     "custom_system_prompt": data.get("custom_system_prompt"),
                     "custom_focus_question": data.get("custom_focus_question"),
-                    "model_preference": data.get("model_preference")
+                    "model_preference": data.get("model_preference"),
+                    "blend_ratio": data.get("blend_ratio", 0.5)
                 })
                 
                 agents = await loop.run_in_executor(None, call_cluster_mcp_tool, "list_active_agents", {})
@@ -834,6 +835,19 @@ async def ws_handler(websocket):
                 evt_msg = push_live_event("inter_agent_chat", f"{sender_label} ➔ {target_label}", f"\"{msg[:120]}\" ➔ Response: \"{reply_text[:120]}...\"", details=talk_res)
                 await broadcast_payload({"type": "live_stream_event", "event": evt_msg})
                 await websocket.send(json.dumps({"type": "agent_talk_result", "result": talk_res}))
+            elif mtype in ("nudge_agent", "agent_nudge"):
+                target_agent = data.get("agent_id", "engine")
+                directive = data.get("directive")
+                loop = asyncio.get_running_loop()
+                nudge_res = await loop.run_in_executor(None, call_cluster_mcp_tool, "nudge_agent", {
+                    "agent_id": target_agent,
+                    "directive": directive
+                })
+                evt_nudge = push_live_event("agent_nudge", f"⚡ Operator Nudge: {target_agent}", f"Dispatched reasoning unblock signal to '{target_agent}'. External wait cleared, execution resumed.", details=nudge_res)
+                await broadcast_payload({"type": "live_stream_event", "event": evt_nudge})
+                agents = await loop.run_in_executor(None, call_cluster_mcp_tool, "list_active_agents", {})
+                await broadcast_payload({"type": "active_agents_list", "agents": agents if isinstance(agents, list) else []})
+                await websocket.send(json.dumps({"type": "agent_nudged", "result": nudge_res}))
             elif mtype == "run_live_cycle":
                 domain = data.get("domain", "autonomous_curiosity")
                 custom_instruction = data.get("instruction") or data.get("hypothesis", "")

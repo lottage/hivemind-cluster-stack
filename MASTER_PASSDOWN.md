@@ -190,7 +190,7 @@ Backed by systemd service `/etc/systemd/system/llama-moe.service`:
 
 ---
 
-## 2.4 The Ziotron Council & Inter-Agent Mesh
+## 2.4 The HiveMind Council & Inter-Agent Mesh
 
 - **Shared Blackboard**: Located at `/opt/cluster-bridge/thinking_archive/council/blackboard.json`.
 - **Protocol**:
