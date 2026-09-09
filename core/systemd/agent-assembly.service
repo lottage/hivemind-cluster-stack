@@ -1,0 +1,26 @@
+# /etc/systemd/system/agent-assembly.service
+[Unit]
+Description=Sovereign Agent Assembly Hall Server (:8766)
+After=network.target valkey-server.service llama-coordinator.service llama-worker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/cluster-bridge
+Environment="ASSEMBLY_PORT=8766"
+Environment="VALKEY_HOST=127.0.0.1"
+Environment="VALKEY_PORT=6379"
+Environment="COORDINATOR_URL=http://localhost:8001/v1/chat/completions"
+Environment="WORKER_URL=http://localhost:8002/v1/chat/completions"
+Environment="EMBEDDER_URL=http://localhost:8003/v1/embeddings"
+Environment="QDRANT_URL=http://192.168.1.112:6333"
+Environment="PROFILES_DIR=/opt/cluster-bridge/agent_profiles"
+Environment="NOTABLE_MOMENTS_DIR=/opt/cluster-bridge/assembly_moments"
+ExecStart=/opt/cluster-env/bin/python3 /opt/cluster-bridge/assembly_server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

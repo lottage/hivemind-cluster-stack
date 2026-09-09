@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>StoneSage 98 - Early Internet Command Workstation</title>
+  <title>Aevum 98 - Early Internet Command Workstation</title>
   <meta name="description" content="90s Retro Pre-Bloat HTML Homelab Command Center & AI Cognitive Workstation inspired by the early internet.">
   <meta name="theme-color" content="#008080">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -17,11 +17,11 @@
     <div class="win95-titlebar">
       <div class="win95-titlebar-title">
         <span class="win95-title-icon">🌐</span>
-        <span class="win95-title-text">StoneSage 98 - Early Internet Command Workstation</span>
+        <span class="win95-title-text">Aevum 98 - Early Internet Command Workstation</span>
         <span class="win95-title-sub">[Proxmox Datacenter: bigserv &amp; pve]</span>
       </div>
       <div class="win95-title-controls">
-        <button class="win95-btn win95-btn-min" title="Minimize" onclick="alert('StoneSage 98 is running 24/7 in background')">_</button>
+        <button class="win95-btn win95-btn-min" title="Minimize" onclick="alert('Aevum 98 is running 24/7 in background')">_</button>
         <button class="win95-btn win95-btn-max" title="Maximize" onclick="document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()">□</button>
         <button class="win95-btn win95-btn-close" title="Close" onclick="alert('Session locked to Proxmox Cluster 24/7')">✕</button>
       </div>
@@ -43,13 +43,13 @@
         <span class="win95-address-label">Location:</span>
         <div class="win95-address-box">
           <span class="win95-address-proto">http://</span>
-          <input type="text" class="win95-address-input" id="win95-address-input" value="127.0.0.1:8080" readonly>
+          <input type="text" class="win95-address-input" id="win95-address-input" value="192.168.1.132:8080" readonly>
         </div>
         <button class="win95-btn win95-tool-btn" id="win95-go-btn" onclick="location.reload()"><u>G</u>o ➔</button>
         <button class="win95-btn win95-tool-btn" onclick="location.reload()">🔄 <u>R</u>eload</button>
         <button class="win95-btn win95-tool-btn" onclick="document.querySelector('.tab-btn[data-view=\'view-launchpad\']').click()">🏠 <u>H</u>ome</button>
       </div>
-      <div class="win95-netscape-n" title="StoneSage 98 Connected">
+      <div class="win95-netscape-n" title="Aevum 98 Connected">
         <span class="netscape-badge">N</span>
       </div>
     </div>
@@ -59,9 +59,9 @@
   <header class="app-header">
     <div class="brand-container">
       <span>[SYS]</span>
-      <span>STONESAGE NAVIGATOR</span>
+      <span>AEVUM NAVIGATOR</span>
       <span class="brand-badge">v3.0</span>
-      <span class="lan-ip-badge" id="lan-ip-badge" title="Click to copy host LAN address">LAN: http://127.0.0.1:8080 📋</span>
+      <span class="lan-ip-badge" id="lan-ip-badge" title="Click to copy host LAN address">LAN: http://192.168.1.132:8080 📋</span>
     </div>
 
     <nav class="nav-tabs" id="nav-tabs">
@@ -99,7 +99,7 @@
       <span class="tier-badge"><strong>14B COORD:</strong> RX 6750 XT 12GB (:8001/Vulkan0)</span>
       <span class="tier-badge"><strong>3B WORKER:</strong> RX 6600 XT 8GB (:8002/Vulkan1 - 80+ t/s)</span>
       <span class="tier-badge"><strong>BGE EMBEDDER:</strong> RX 6600 XT 8GB (:8003/1024-dim)</span>
-      <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 127.0.0.1:6333</span>
+      <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 192.168.1.112:6333</span>
     </div>
     <div style="display: flex; gap: 0.5rem; align-items: center;">
       <span id="header-time-indicator" style="font-family: var(--font-terminal); color: var(--term-text-bright);"></span>
@@ -114,7 +114,7 @@
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ SERVICES & CONTAINER LAUNCHER ]</h2>
-          <p>Real-time status probes across Proxmox nodes <code>pve</code> (127.0.0.1) and <code>bigserv</code> (127.0.0.1)</p>
+          <p>Real-time status probes across Proxmox nodes <code>pve</code> (192.168.1.229) and <code>bigserv</code> (192.168.1.82)</p>
         </div>
         <div class="filter-bar">
           <button class="filter-btn active" data-category="all">[ALL]</button>
@@ -326,7 +326,7 @@ Dual AMD GPU Passthrough active:
 - Coordinator: Qwen2.5-Coder-14B-Instruct (:8001 on RX 6750 XT 12GB Vulkan0)
 - Worker: Qwen2.5-Coder-3B-Instruct (:8002 on RX 6600 XT 8GB Vulkan1 - 80+ t/s)
 - Embedder: BGE-Large-en-v1.5 (:8003 on RX 6600 XT 8GB Vulkan1)
-- Vector DB: Qdrant @ 127.0.0.1:6333 (CouchDB + User Vault Ingested)
+- Vector DB: Qdrant @ 192.168.1.112:6333 (CouchDB + User Vault Ingested)
 - Short-Term Memory: Active In-RAM cache with 3B Worker context compression
 
 Ready for directives, planner decomposition, finite instruction set execution, or homelab automation.
@@ -710,7 +710,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ HOME ASSISTANT & NEST THERMOSTAT ]</h2>
-          <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (127.0.0.1:8123)</p>
+          <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (192.168.1.82:8123)</p>
         </div>
         <div class="filter-bar">
           <button class="launch-btn" id="refresh-ha-btn">[🔄 REFRESH STATES]</button>
@@ -853,7 +853,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ OBSIDIAN USER VAULT &amp; COUCHDB SYNC ]</h2>
-          <p>24/7 CouchDB on LXC 116 (127.0.0.1:5984) • Qdrant Vector Memory Ingestion</p>
+          <p>24/7 CouchDB on LXC 116 (192.168.1.230:5984) • Qdrant Vector Memory Ingestion</p>
         </div>
         <div class="filter-bar">
           <span class="service-status-badge online" id="couchdb-status-badge">[COUCHDB: PROBING...]</span>
@@ -911,7 +911,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ PROXMOX VE HYPERVISOR FLEET ]</h2>
-          <p>Cluster VIP <code>https://127.0.0.1:8006</code> • Dual Nodes <code>pve</code> and <code>bigserv</code></p>
+          <p>Cluster VIP <code>https://192.168.1.245:8006</code> • Dual Nodes <code>pve</code> and <code>bigserv</code></p>
         </div>
         <div class="filter-bar">
           <button class="launch-btn" id="refresh-proxmox-btn" onclick="fetchProxmoxData()">[🔄 PROBE NODES]</button>
@@ -922,7 +922,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
         <!-- Node 1: pve -->
         <div class="terminal-panel" id="pve-node-panel">
           <div class="terminal-panel-header">
-            <span>🖥 NODE 1: pve (127.0.0.1)</span>
+            <span>🖥 NODE 1: pve (192.168.1.245)</span>
             <span class="service-status-badge online" id="pve-node-badge">[ONLINE]</span>
           </div>
           <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="pve-node-body">
@@ -939,7 +939,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
         <!-- Node 2: bigserv -->
         <div class="terminal-panel" id="bigserv-node-panel">
           <div class="terminal-panel-header">
-            <span>🖥 NODE 2: bigserv (127.0.0.1)</span>
+            <span>🖥 NODE 2: bigserv (192.168.1.245)</span>
             <span class="service-status-badge online" id="bigserv-node-badge">[ONLINE]</span>
           </div>
           <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;" id="bigserv-node-body">
@@ -1110,7 +1110,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ QDRANT VECTOR MEMORY EXPLORER ]</h2>
-          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>127.0.0.1:6333</code></p>
+          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>192.168.1.112:6333</code></p>
         </div>
         <div class="filter-bar">
           <select class="form-control" id="memory-search-collection">
@@ -1124,7 +1124,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
 
       <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
         <div style="display: flex; gap: 0.5rem;">
-          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Operator drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
+          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Austin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
           <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
         </div>
         <div class="terminal-panel-header">
@@ -1155,7 +1155,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       </div>
       <div class="form-group">
         <label for="set-immich-url">Immich Server URL</label>
-        <input type="text" class="form-control" id="set-immich-url" placeholder="http://127.0.0.1:9000">
+        <input type="text" class="form-control" id="set-immich-url" placeholder="http://192.168.1.238:9000">
       </div>
       <div class="form-group">
         <label for="set-immich-key">Immich API Key</label>

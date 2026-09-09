@@ -4,7 +4,7 @@ StoneSage Duplex WebSocket Broker & RAG Knowledge Engine (LXC 120 :8086)
 - Models: Ornith-1.5-9B-OBLITERATED Q8_0 (:8001) & Ornith-1.5-9B Q4_K_M (:8002)
 - RAG Knowledge: Qdrant Vector Brain (LXC 117 :6333) with BGE-Large (:8003)
   Collections: obsidian_vault, companion_profile, codebase_knowledge, autonomous_thinking
-- CouchDB Obsidian Sync: LXC 116 (127.0.0.1:5984)
+- CouchDB Obsidian Sync: LXC 116 (192.168.1.230:5984)
 - Anti-Repetition & Grounded Persona Guardrails
 """
 
@@ -13,6 +13,20 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+    EASTERN_TZ = ZoneInfo("America/New_York")
+except Exception:
+    import datetime as dt
+    EASTERN_TZ = dt.timezone(dt.timedelta(hours=-5))
+
+def get_eastern_time_str() -> str:
+    try:
+        return datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p EST")
+    except Exception:
+        return time.strftime("%H:%M:%S")
+
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -25,12 +39,20 @@ logging.basicConfig(
 logger = logging.getLogger("WS-RAG-Broker")
 
 PORT = int(os.environ.get("WS_PORT", 8086))
-COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "http://127.0.0.1:8001/v1/chat/completions")
-WORKER_URL = os.environ.get("WORKER_URL", "http://127.0.0.1:8002/v1/chat/completions")
-EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://127.0.0.1:8003/v1/embeddings")
-FRONTIER_URL = os.environ.get("FRONTIER_URL", "http://127.0.0.1:8085/api/frontier/audit")
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
-COUCHDB_URL = os.environ.get("COUCHDB_URL", "http://127.0.0.1:5984")
+COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "http://192.168.1.105:8001/v1/chat/completions")
+WORKER_URL = os.environ.get("WORKER_URL", "http://192.168.1.105:8002/v1/chat/completions")
+EMBEDDER_URL = os.environ.get("EMBEDDER_URL", "http://192.168.1.105:8003/v1/embeddings")
+FRONTIER_URL = os.environ.get("FRONTIER_URL", "http://192.168.1.167:8085/api/frontier/audit")
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://192.168.1.112:6333")
+COUCHDB_URL = os.environ.get("COUCHDB_URL", "http://192.168.1.230:5984")
+
+try:
+    from amem_engine import get_amem_engine
+    amem = get_amem_engine()
+except Exception as e:
+    logger.warning(f"Could not initialize A-MEM engine: {e}")
+    amem = None
+
 STONESAGE_CONFIG_FILE = os.environ.get("STONESAGE_CONFIG", "/opt/stonesage/backend/config.json")
 if not os.path.exists(STONESAGE_CONFIG_FILE):
     local_c = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "StoneSage", "backend", "config.json"))
@@ -69,24 +91,29 @@ def update_task_routing(routing: dict) -> dict:
         pass
     return routing
 
+LEAN_SYSTEM_PROMPT = (
+    "You are StoneSage, Austin's AI assistant. "
+    "Provide clear, accurate, direct answers without meta-commentary, reasoning monologues, or filler."
+)
+
 DEFAULT_SYSTEM_PROMPT = (
     "You are StoneSage, the 24/7 Autonomous Multi-Node Cluster Orchestrator and Cognitive Companion for Proxmox Datacenter 'home'.\n\n"
     "## 1. System Topology & Dual-GPU Infrastructure:\n"
-    "- Compute Host VM 102 ('ubu' @ 127.0.0.1 on Proxmox Node 1 'pve'):\n"
+    "- Compute Host VM 102 ('ubu' @ 192.168.1.105 on Proxmox Node 1 'pve'):\n"
     "  • Coordinator (:8001): Ornith-1.5-9B-OBLITERATED Q8_0 on AMD Radeon RX 6750 XT 12GB (Vulkan0). Handles complex multi-file architectural planning, unrestricted code synthesis, math reasoning, and hypothesis evaluation.\n"
     "  • Worker (:8002): Ornith-1.5-9B Q4_K_M on AMD Radeon RX 6600 XT 8GB (Vulkan1). Handles fast divergent ideation, unit testing, schema validation, and ambient routines at 80+ tokens/sec.\n"
     "  • Embedder (:8003): bge-large-en-v1.5 on RX 6600 XT. 1024-dimensional dense semantic embeddings (< 512 token context window).\n"
     "  • Cluster MCP Bridge (:8765): Starlette JSON-RPC / SSE daemon managing tools, autonomous loops, and preemption.\n\n"
-    "## 2. Knowledge Fabric & Vector Memory (Qdrant @ 127.0.0.1:6333):\n"
+    "## 2. Knowledge Fabric & Vector Memory (Qdrant @ 192.168.1.112:6333):\n"
     "- Active Collections:\n"
     "  • codebase_knowledge: Full homelab architecture, configs, scripts, hardware registries.\n"
     "  • agent_memories: Persistent architectural decisions, technical lessons, and operational invariants.\n"
     "  • autonomous_thinking: 24/7 dual-model exploration dossiers, failure boundaries, and novelty discoveries.\n"
-    "  • obsidian_vault: Operator's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 127.0.0.1:5984).\n"
+    "  • obsidian_vault: Austin's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 192.168.1.230:5984).\n"
     "  • home_automation_registry: Smart home entity catalogs, sensor states, and automation scripts.\n\n"
     "## 3. Homelab Services & Smart Home Fleet:\n"
-    "- Proxmox Datacenter API VIP: https://127.0.0.1:8006 (Unified management of 'pve' and 'bigserv').\n"
-    "- Home Assistant OS (VM 103 @ 127.0.0.1:8123): Smart home devices, switches, climate, Nest thermostat.\n"
+    "- Proxmox Datacenter API VIP: https://192.168.1.245:8006 (Unified management of 'pve' and 'bigserv').\n"
+    "- Home Assistant OS (VM 103 @ 192.168.1.82:8123): Smart home devices, switches, climate, Nest thermostat.\n"
     "- Vision Stack (:8004): Gemma-4 multimodal projector for real-time camera stream perception.\n"
     "- Frontier Bridge (:8085): Cloud reasoning integration and Tier-1 audits.\n\n"
     "## 4. Operational Invariants:\n"
@@ -122,11 +149,11 @@ def get_live_cluster_telemetry() -> str:
     """Probes real-time status of dual GPUs, vector DB, and smart home."""
     telemetry = []
     endpoints = [
-        ("Coordinator (RX 6750 XT 12GB, :8001)", "http://127.0.0.1:8001/health"),
-        ("Worker (RX 6600 XT 8GB, :8002)", "http://127.0.0.1:8002/health"),
-        ("Embedder (BGE-Large, :8003)", "http://127.0.0.1:8003/health"),
-        ("Vector DB (Qdrant LXC 117, :6333)", "http://127.0.0.1:6333/readyz"),
-        ("Home Assistant (VM 103, :8123)", "http://127.0.0.1:8123/api/")
+        ("Coordinator (RX 6750 XT 12GB, :8001)", "http://192.168.1.105:8001/health"),
+        ("Worker (RX 6600 XT 8GB, :8002)", "http://192.168.1.105:8002/health"),
+        ("Embedder (BGE-Large, :8003)", "http://192.168.1.105:8003/health"),
+        ("Vector DB (Qdrant LXC 117, :6333)", "http://192.168.1.112:6333/readyz"),
+        ("Home Assistant (VM 103, :8123)", "http://192.168.1.82:8123/api/")
     ]
     for label, url in endpoints:
         try:
@@ -161,16 +188,28 @@ def get_embedding(text: str) -> list:
 
 def retrieve_rag_context(query: str, max_chunks: int = 3) -> str:
     """
-    Queries Qdrant vector memory across Operator's Obsidian vault, companion profile,
-    and codebase knowledge, returning grounded context with strict relevance filtering.
+    Queries A-MEM in-RAM store first (< 1ms), falling back to Qdrant vector memory.
     """
     if not query.strip() or should_skip_rag(query):
         return ""
+
+    # 1. Fast In-RAM A-MEM Atomic Recall (< 1ms, 15-30 tokens overhead)
+    if amem:
+        try:
+            amem_context = amem.format_memory_injection(query, max_atoms=2)
+            if amem_context:
+                return (
+                    f"\n\n{amem_context}\n"
+                    "[Direct Answer Mode: Provide the factual answer directly without meta-commentary or reasoning loop.]"
+                )
+        except Exception as e:
+            logger.warning(f"AMEM recall error: {e}")
+
     try:
         embedding = get_embedding(query)
         retrieved_snippets = []
 
-        # 1. Search companion_profile (Operator's personal profile, vehicle records, preferences)
+        # 1. Search companion_profile (Austin's personal profile, vehicle records, preferences)
         try:
             req = urllib.request.Request(
                 f"{QDRANT_URL}/collections/companion_profile/points/search",
@@ -184,7 +223,7 @@ def retrieve_rag_context(query: str, max_chunks: int = 3) -> str:
                         p = pt.get("payload", {})
                         title = p.get("title") or p.get("path") or "Profile Record"
                         content = p.get("content") or p.get("text", "")
-                        retrieved_snippets.append(f"--- [Operator's Record: {title}] ---\n{content.strip()[:400]}")
+                        retrieved_snippets.append(f"--- [Record: {title}] ---\n{content.strip()[:400]}")
         except Exception as e:
             logger.warning(f"Companion profile search warning: {e}")
 
@@ -202,7 +241,7 @@ def retrieve_rag_context(query: str, max_chunks: int = 3) -> str:
                         p = pt.get("payload", {})
                         title = p.get("title") or p.get("path") or "Vault Note"
                         content = p.get("content") or p.get("text", "")
-                        retrieved_snippets.append(f"--- [Operator's Vault Note: {title}] ---\n{content.strip()[:400]}")
+                        retrieved_snippets.append(f"--- [Vault Note: {title}] ---\n{content.strip()[:400]}")
         except Exception as e:
             logger.warning(f"Obsidian vault search warning: {e}")
 
@@ -226,10 +265,9 @@ def retrieve_rag_context(query: str, max_chunks: int = 3) -> str:
 
         if retrieved_snippets:
             return (
-                "\n\n### Grounded Records from Operator's Obsidian Knowledge Vault (For Reference Only):\n"
-                "[IMPORTANT: The following are Operator's personal human records and projects. "
-                "You are an AI assistant, NOT a car or physical machine. Do NOT claim you have car parts or mechanical components.]\n"
+                "\n\n[REFERENCE CONTEXT]:\n"
                 + "\n\n".join(retrieved_snippets[:max_chunks])
+                + "\n[Direct Answer Mode: Provide the factual answer directly without meta-commentary.]"
             )
         return ""
     except Exception as e:
@@ -379,15 +417,18 @@ async def handle_chat_request(websocket, data: dict):
     if rag_context:
         logger.info(f"Retrieved {len(rag_context)} chars of RAG context for query '{user_query[:50]}'")
 
-    # Build fortified system prompt with persona + retrieved RAG + telemetry
+    # Build lean or cluster system prompt dynamically based on user intent
     custom_sys = data.get("system_prompt")
-    full_system_content = custom_sys.strip() if (custom_sys and custom_sys.strip()) else DEFAULT_SYSTEM_PROMPT
-    
-    # Check if query asks for telemetry, status, health, or hardware
-    q_lower = user_query.lower()
-    if any(k in q_lower for k in ["telemetry", "status", "health", "hardware", "online", "cluster", "gpu", "vram"]):
-        telemetry_info = await loop.run_in_executor(None, get_live_cluster_telemetry)
-        full_system_content += f"\n{telemetry_info}"
+    if custom_sys and custom_sys.strip():
+        full_system_content = custom_sys.strip()
+    else:
+        q_lower = user_query.lower()
+        if any(k in q_lower for k in ["telemetry", "status", "health", "hardware", "online", "cluster", "gpu", "vram", "pve", "nodes", "topology"]):
+            full_system_content = DEFAULT_SYSTEM_PROMPT
+            telemetry_info = await loop.run_in_executor(None, get_live_cluster_telemetry)
+            full_system_content += f"\n{telemetry_info}"
+        else:
+            full_system_content = LEAN_SYSTEM_PROMPT
         
     if rag_context:
         full_system_content += f"\n{rag_context}"
@@ -416,13 +457,13 @@ async def handle_chat_request(websocket, data: dict):
         "presence_penalty": presence_penalty,
         "repeat_penalty": repeat_penalty,
         "frequency_penalty": frequency_penalty,
-        "stop": ["<|im_end|>", "<|endoftext|>", "### Operator:", "User:"]
+        "stop": ["<|im_end|>", "<|endoftext|>", "### Austin:", "User:"]
     }
 
     task = asyncio.create_task(stream_openai_compat(target_url, payload, websocket, msg_id, model_tag))
     active_streams[msg_id] = task
 
-CLUSTER_MCP_URL = os.environ.get("CLUSTER_MCP_URL", "http://127.0.0.1:8765/messages")
+CLUSTER_MCP_URL = os.environ.get("CLUSTER_MCP_URL", "http://192.168.1.105:8765/messages")
 
 def call_cluster_mcp_tool(tool_name: str, arguments: dict) -> dict:
     """Dispatches a tool execution to cluster-mcp on VM 102 (:8765)."""
@@ -455,13 +496,46 @@ def call_cluster_mcp_tool(tool_name: str, arguments: dict) -> dict:
     except Exception as e:
         return {"error": f"Failed to reach cluster-mcp: {str(e)}"}
 
+HARNESS_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "harness_config.json")
+
+def get_harness_config() -> dict:
+    default_config = {
+        "active_harness": "hermes",
+        "available_harnesses": [
+            {"id": "hermes", "name": "Hermes", "description": "Structured Agentic & Function-Calling Harness", "badge": "⚡ HERMES"},
+            {"id": "llama-server", "name": "Direct llama-server", "description": "Raw Vulkan Dual-GPU direct execution", "badge": "🦙 VULKAN"},
+            {"id": "ollama", "name": "Ollama / vLLM", "description": "Universal OpenAI-compatible local API", "badge": "🔌 OLLAMA"},
+            {"id": "antigravity", "name": "Antigravity Cloud Code", "description": "Google Cloud OAuth Tier-1 Frontier bridge", "badge": "🛰️ FRONTIER"}
+        ]
+    }
+    if os.path.exists(HARNESS_CONFIG_FILE):
+        try:
+            with open(HARNESS_CONFIG_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                default_config.update(saved)
+        except Exception:
+            pass
+    return default_config
+
+def set_harness_config(harness_id: str, options: dict = None) -> dict:
+    cfg = get_harness_config()
+    cfg["active_harness"] = harness_id
+    if options:
+        cfg["options"] = options
+    try:
+        with open(HARNESS_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not save harness config: {e}")
+    return cfg
+
 events_ring_buffer = []
 MAX_EVENT_BUFFER = 150
 
 def push_live_event(category: str, source: str, message: str, details: dict = None) -> dict:
     evt = {
         "id": f"evt_{int(time.time()*1000)}_{len(events_ring_buffer)}",
-        "timestamp": time.strftime("%H:%M:%S"),
+        "timestamp": get_eastern_time_str(),
         "category": category,
         "source": source,
         "message": message,
@@ -492,18 +566,22 @@ async def autonomous_live_poller():
     last_rum_step = None
     last_rum_queue_size = 0
 
-    # Push initial system boot event
+    # Push initial system boot events
     push_live_event(
         category="system",
         source="StoneSage Monitor",
         message="24/7 Dual-GPU Live Stream Monitor Initialized. Tracking Ornith-1.5 Q8 Coordinator & Q4 Worker."
     )
+    push_live_event(
+        category="system",
+        source="Cluster Topology",
+        message="Dual AMD GPUs Active: RX 6750 XT 12GB (:8001 Coordinator) + RX 6600 XT 8GB (:8002 Worker & :8003 Embedder). Qdrant Vector Brain online at 192.168.1.112:6333."
+    )
 
     while True:
         try:
-            await asyncio.sleep(4)
-            if not connected_clients:
-                continue
+            poll_interval = 4 if connected_clients else 12
+            await asyncio.sleep(poll_interval)
 
             loop = asyncio.get_running_loop()
             status = await loop.run_in_executor(None, call_cluster_mcp_tool, "autonomous_thinking_status", {})
@@ -513,6 +591,15 @@ async def autonomous_live_poller():
                 cur_exp_id = status.get("last_exploration_id")
                 cur_domain = status.get("last_domain")
                 
+                # Seed current state on first poll so buffer is immediately populated
+                if last_cycle_count == 0 and cur_cycles > 0:
+                    push_live_event(
+                        category="cycle_milestone",
+                        source="24/7 Dual-GPU Loop",
+                        message=f"Current Autonomous Loop: Cycle #{cur_cycles} Active ({cur_domain or 'Algorithmic Reasoning'} - {cur_exp_id}). Total tokens: {status.get('total_tokens_generated', 0):,}",
+                        details={"exploration_id": cur_exp_id, "domain": cur_domain, "cycles": cur_cycles}
+                    )
+
                 # Check for cycle advancement
                 if (cur_cycles > last_cycle_count and last_cycle_count > 0) or (cur_exp_id and cur_exp_id != last_exploration_id and last_exploration_id is not None):
                     domain = cur_domain or "Curiosity Exploration"
@@ -604,7 +691,7 @@ async def ws_handler(websocket):
     # Send welcome handshake with clean string model names (no [object Object])
     await websocket.send(json.dumps({
         "type": "handshake",
-        "service": "StoneSage AI Harness & Knowledge Engine",
+        "service": "Aevum AI Harness & Knowledge Engine",
         "version": "2.3.0",
         "host": "bigserv LXC 120 (:8086)",
         "models": [
@@ -695,6 +782,15 @@ async def ws_handler(websocket):
                 await broadcast_payload({"type": "live_stream_event", "event": evt})
                 await broadcast_payload({"type": "active_agents_list", "agents": agents if isinstance(agents, list) else []})
                 await websocket.send(json.dumps({"type": "agent_stopped", "result": stop_res}))
+            elif mtype in ("delete_agent", "delete_active_agent"):
+                agent_id = data.get("agent_id")
+                loop = asyncio.get_running_loop()
+                del_res = await loop.run_in_executor(None, call_cluster_mcp_tool, "delete_active_agent", {"agent_id": agent_id})
+                agents = await loop.run_in_executor(None, call_cluster_mcp_tool, "list_active_agents", {})
+                evt = push_live_event("agent_delete", "Agent Control", f"Subagent '{agent_id}' permanently deleted from registry and memory.", details={"agent_id": agent_id, "result": del_res})
+                await broadcast_payload({"type": "live_stream_event", "event": evt})
+                await broadcast_payload({"type": "active_agents_list", "agents": agents if isinstance(agents, list) else []})
+                await websocket.send(json.dumps({"type": "agent_deleted", "agent_id": agent_id, "result": del_res}))
             elif mtype == "reproduce_agents":
                 p_a = data.get("parent_a_id")
                 p_b = data.get("parent_b_id")
@@ -884,6 +980,161 @@ async def ws_handler(websocket):
                 evt = push_live_event("task_routing", "Task Allocation", f"Task routing matrix updated: {json.dumps(new_routing)}")
                 await broadcast_payload({"type": "live_stream_event", "event": evt})
                 await broadcast_payload({"type": "task_routing_update", "task_routing": updated})
+            elif mtype == "get_cluster_models":
+                loop = asyncio.get_running_loop()
+                def _fetch_models():
+                    try:
+                        req = urllib.request.Request("http://127.0.0.1:8080/api/cluster/models", headers={"User-Agent": "StoneSage-WS"})
+                        with urllib.request.urlopen(req, timeout=8) as r:
+                            return json.loads(r.read().decode("utf-8"))
+                    except Exception as ex:
+                        return {"ok": False, "error": str(ex), "models": []}
+                m_data = await loop.run_in_executor(None, _fetch_models)
+                await websocket.send(json.dumps({
+                    "type": "cluster_models_update",
+                    "data": m_data
+                }))
+            elif mtype == "delete_cluster_model":
+                model_name = data.get("model", "").strip()
+                if not model_name:
+                    await websocket.send(json.dumps({"type": "error", "message": "Missing model name."}))
+                elif "ornith" in model_name.lower():
+                    await websocket.send(json.dumps({"type": "error", "message": "🔒 Ornith models are permanently locked and protected from deletion."}))
+                else:
+                    loop = asyncio.get_running_loop()
+                    def _delete_model():
+                        try:
+                            payload = json.dumps({"model": model_name}).encode("utf-8")
+                            req = urllib.request.Request("http://127.0.0.1:8080/api/cluster/delete-model", data=payload, headers={"Content-Type": "application/json", "User-Agent": "StoneSage-WS"})
+                            with urllib.request.urlopen(req, timeout=20) as r:
+                                return json.loads(r.read().decode("utf-8"))
+                        except Exception as ex:
+                            return {"ok": False, "error": str(ex)}
+                    del_res = await loop.run_in_executor(None, _delete_model)
+                    if del_res.get("ok"):
+                        evt = push_live_event("model_hub", "Model Removed", f"Deleted '{model_name}' from /opt/models/.")
+                        await broadcast_payload({"type": "live_stream_event", "event": evt})
+                        # Refresh cluster models for all clients
+                        def _fetch_models():
+                            try:
+                                req = urllib.request.Request("http://127.0.0.1:8080/api/cluster/models", headers={"User-Agent": "StoneSage-WS"})
+                                with urllib.request.urlopen(req, timeout=8) as r:
+                                    return json.loads(r.read().decode("utf-8"))
+                            except Exception as ex:
+                                return {"ok": False, "error": str(ex), "models": []}
+                        fresh_models = await loop.run_in_executor(None, _fetch_models)
+                        await broadcast_payload({"type": "cluster_models_update", "data": fresh_models})
+                    else:
+                        await websocket.send(json.dumps({"type": "error", "message": f"Delete failed: {del_res.get('error', 'Unknown error')}"}))
+            elif mtype == "search_huggingface":
+                query = data.get("query", "").strip() or "gguf"
+                limit = int(data.get("limit", 20))
+                loop = asyncio.get_running_loop()
+                def _search_hf():
+                    try:
+                        import urllib.parse
+                        encoded_q = urllib.parse.quote(query)
+                        url = f"https://huggingface.co/api/models?search={encoded_q}&filter=gguf&sort=downloads&direction=-1&limit={limit}"
+                        req = urllib.request.Request(url, headers={"User-Agent": "StoneSage-Mobile/1.0"})
+                        with urllib.request.urlopen(req, timeout=10) as r:
+                            items = json.loads(r.read().decode("utf-8"))
+                            results = []
+                            for item in items:
+                                results.append({
+                                    "id": item.get("id"),
+                                    "author": item.get("author") or (item.get("id", "").split("/")[0] if "/" in item.get("id", "") else "community"),
+                                    "downloads": item.get("downloads", 0),
+                                    "likes": item.get("likes", 0),
+                                    "pipeline_tag": item.get("pipeline_tag", "text-generation"),
+                                    "last_modified": item.get("lastModified")
+                                })
+                            return {"ok": True, "results": results, "query": query}
+                    except Exception as ex:
+                        return {"ok": False, "error": str(ex), "results": [], "query": query}
+                hf_data = await loop.run_in_executor(None, _search_hf)
+                await websocket.send(json.dumps({
+                    "type": "huggingface_search_result",
+                    "data": hf_data
+                }))
+            elif mtype == "get_hf_repo_files":
+                repo_id = data.get("repo_id", "").strip()
+                loop = asyncio.get_running_loop()
+                def _get_files():
+                    try:
+                        import urllib.parse
+                        encoded_repo = urllib.parse.quote(repo_id, safe="/")
+                        url = f"https://huggingface.co/api/models/{encoded_repo}"
+                        req = urllib.request.Request(url, headers={"User-Agent": "StoneSage-Mobile/1.0"})
+                        with urllib.request.urlopen(req, timeout=10) as r:
+                            detail = json.loads(r.read().decode("utf-8"))
+                            files = []
+                            for s in detail.get("siblings", []):
+                                fn = s.get("rfilename", "")
+                                if fn.lower().endswith(".gguf"):
+                                    files.append(fn)
+                            return {"ok": True, "repo_id": repo_id, "files": files}
+                    except Exception as ex:
+                        return {"ok": False, "error": str(ex), "repo_id": repo_id, "files": []}
+                files_data = await loop.run_in_executor(None, _get_files)
+                await websocket.send(json.dumps({
+                    "type": "hf_repo_files_result",
+                    "data": files_data
+                }))
+            elif mtype == "switch_cluster_model":
+                model_name = data.get("model", "").strip()
+                hf_repo = data.get("hf", "").strip()
+                hf_file = data.get("file", "").strip()
+                context_size = int(data.get("context", 16384))
+                auto_tune = bool(data.get("auto_tune", True))
+                loop = asyncio.get_running_loop()
+                
+                target_desc = f"HF:{hf_repo}/{hf_file}" if hf_repo else model_name
+                evt = push_live_event("model_switch", "Model Orchestrator", f"Initiated model switch to: {target_desc} (Context: {context_size})")
+                await broadcast_payload({"type": "live_stream_event", "event": evt})
+                
+                def _do_switch():
+                    try:
+                        payload = {
+                            "model": model_name,
+                            "hf": hf_repo,
+                            "file": hf_file,
+                            "context": context_size,
+                            "auto_tune": auto_tune
+                        }
+                        req = urllib.request.Request(
+                            "http://127.0.0.1:8080/api/cluster/switch-model",
+                            data=json.dumps(payload).encode("utf-8"),
+                            headers={"Content-Type": "application/json", "User-Agent": "StoneSage-WS"}
+                        )
+                        with urllib.request.urlopen(req, timeout=600) as r:
+                            return json.loads(r.read().decode("utf-8"))
+                    except Exception as ex:
+                        return {"ok": False, "error": str(ex)}
+                switch_res = await loop.run_in_executor(None, _do_switch)
+                
+                evt2 = push_live_event(
+                    "model_switch",
+                    "Model Orchestrator",
+                    f"Model switch complete: {target_desc} (Success: {switch_res.get('ok')})",
+                    details=switch_res
+                )
+                await broadcast_payload({"type": "live_stream_event", "event": evt2})
+                await websocket.send(json.dumps({
+                    "type": "model_switch_result",
+                    "result": switch_res
+                }))
+            elif mtype == "get_harness_config":
+                h_config = get_harness_config()
+                await websocket.send(json.dumps({
+                    "type": "harness_config_update",
+                    "harness_config": h_config
+                }))
+            elif mtype == "set_harness_config":
+                new_harness = data.get("harness", "hermes")
+                h_config = set_harness_config(new_harness, data.get("options", {}))
+                evt = push_live_event("harness", "Execution Harness", f"Active harness switched to: {new_harness.upper()}")
+                await broadcast_payload({"type": "live_stream_event", "event": evt})
+                await broadcast_payload({"type": "harness_config_update", "harness_config": h_config})
             elif mtype == "ping":
                 await websocket.send(json.dumps({"type": "pong", "timestamp": time.time()}))
     except websockets.exceptions.ConnectionClosed:

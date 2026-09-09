@@ -28,9 +28,9 @@ export const STORAGE_KEYS = {
 };
 
 export const SERVER_PRESETS = [
-  { label: 'Homelab Default', ws: 'ws://127.0.0.1:8086', http: 'http://127.0.0.1:8080', desc: 'LXC 120 (bigserv)' },
-  { label: 'Host Workstation', ws: 'ws://127.0.0.1:8086', http: 'http://127.0.0.1:8080', desc: 'Windows Dev Host' },
-  { label: 'Direct Compute', ws: 'ws://127.0.0.1:8086', http: 'http://127.0.0.1:8001', desc: 'VM 102 (Dual GPU)' },
+  { label: 'Homelab Default', ws: 'ws://192.168.1.167:8086', http: 'http://192.168.1.167:8080', desc: 'LXC 120 (bigserv)' },
+  { label: 'Host Workstation', ws: 'ws://192.168.1.110:8086', http: 'http://192.168.1.110:8080', desc: 'Windows Dev Host (.110)' },
+  { label: 'Direct Compute', ws: 'ws://192.168.1.105:8086', http: 'http://192.168.1.105:8001', desc: 'VM 102 (Dual GPU)' },
   { label: 'Localhost / Edge', ws: 'ws://127.0.0.1:8086', http: 'http://127.0.0.1:8080', desc: 'On-Device Runtime' }
 ];
 
@@ -195,29 +195,69 @@ const HOMELAB_AGENT_PRESETS: AgentPreset[] = [
   }
 ];
 
-const DEFAULT_CLUSTER_WS = 'ws://127.0.0.1:8086';
-const DEFAULT_LOCAL_EDGE_HTTP = 'http://127.0.0.1:8080';
+export const DEFAULT_CLUSTER_WS = 'ws://192.168.1.167:8086';
+export const DEFAULT_LOCAL_EDGE_HTTP = 'http://192.168.1.167:8080';
+
+export function sanitizeWsUrl(raw: string | null | undefined, defaultFallback = DEFAULT_CLUSTER_WS): string {
+  if (!raw || typeof raw !== 'string') return defaultFallback;
+  let trimmed = raw.trim();
+  if (!trimmed) return defaultFallback;
+
+  if (trimmed.startsWith('http://')) {
+    trimmed = 'ws://' + trimmed.slice(7);
+  } else if (trimmed.startsWith('https://')) {
+    trimmed = 'wss://' + trimmed.slice(8);
+  } else if (!trimmed.startsWith('ws://') && !trimmed.startsWith('wss://')) {
+    trimmed = 'ws://' + trimmed;
+  }
+
+  trimmed = trimmed.replace(/\/+$/, '');
+  const hostPart = trimmed.replace(/^wss?:\/\//, '');
+  if (!hostPart || hostPart.trim() === '') return defaultFallback;
+
+  return trimmed;
+}
+
+export function sanitizeHttpUrl(raw: string | null | undefined, defaultFallback = 'http://192.168.1.167:8080'): string {
+  if (!raw || typeof raw !== 'string') return defaultFallback;
+  let trimmed = raw.trim();
+  if (!trimmed) return defaultFallback;
+
+  if (trimmed.startsWith('ws://')) {
+    trimmed = 'http://' + trimmed.slice(5);
+  } else if (trimmed.startsWith('wss://')) {
+    trimmed = 'https://' + trimmed.slice(6);
+  } else if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    trimmed = 'http://' + trimmed;
+  }
+
+  trimmed = trimmed.replace(/\/+$/, '');
+  const hostPart = trimmed.replace(/^https?:\/\//, '');
+  if (!hostPart || hostPart.trim() === '') return defaultFallback;
+
+  return trimmed;
+}
 
 const DEFAULT_SYSTEM_PROMPT = `You are StoneSage, the 24/7 Autonomous Multi-Node Cluster Orchestrator and Cognitive Companion for Proxmox Datacenter 'home'.
 
 ## 1. System Topology & Dual-GPU Infrastructure:
-- Compute Host VM 102 ('ubu' @ 127.0.0.1 on Proxmox Node 1 'pve'):
+- Compute Host VM 102 ('ubu' @ 192.168.1.105 on Proxmox Node 1 'pve'):
   • Coordinator (:8001): Ornith-1.5-9B-OBLITERATED Q8_0 on AMD Radeon RX 6750 XT 12GB (Vulkan0). Handles complex multi-file architectural planning, unrestricted code synthesis, math reasoning, and hypothesis evaluation.
   • Worker (:8002): Ornith-1.5-9B Q4_K_M on AMD Radeon RX 6600 XT 8GB (Vulkan1). Handles fast divergent ideation, unit testing, schema validation, and ambient routines at 80+ tokens/sec.
   • Embedder (:8003): bge-large-en-v1.5 on RX 6600 XT. 1024-dimensional dense semantic embeddings (< 512 token context window).
   • Cluster MCP Bridge (:8765): Starlette JSON-RPC / SSE daemon managing tools, autonomous loops, and preemption.
 
-## 2. Knowledge Fabric & Vector Memory (Qdrant @ 127.0.0.1:6333):
+## 2. Knowledge Fabric & Vector Memory (Qdrant @ 192.168.1.112:6333):
 - Active Collections:
   • codebase_knowledge: Full homelab architecture, configs, scripts, hardware registries.
   • agent_memories: Persistent architectural decisions, technical lessons, and operational invariants.
   • autonomous_thinking: 24/7 dual-model exploration dossiers, failure boundaries, and novelty discoveries.
-  • obsidian_vault: Operator's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 127.0.0.1:5984).
+  • obsidian_vault: Austin's personal knowledge base, technical notes, and active project graphs (synced via CouchDB on LXC 116 @ 192.168.1.230:5984).
   • home_automation_registry: Smart home entity catalogs, sensor states, and automation scripts.
 
 ## 3. Homelab Services & Smart Home Fleet:
-- Proxmox Datacenter API VIP: https://127.0.0.1:8006 (Unified management of 'pve' and 'bigserv').
-- Home Assistant OS (VM 103 @ 127.0.0.1:8123): Smart home devices, switches, climate, Nest thermostat.
+- Proxmox Datacenter API VIP: https://192.168.1.245:8006 (Unified management of 'pve' and 'bigserv').
+- Home Assistant OS (VM 103 @ 192.168.1.82:8123): Smart home devices, switches, climate, Nest thermostat.
 - Vision Stack (:8004): Gemma-4 multimodal projector for real-time camera stream perception.
 - Frontier Bridge (:8085): Cloud reasoning integration and Tier-1 audits.
 
@@ -246,7 +286,7 @@ export default function App() {
   const [pingLatency, setPingLatency] = useState<number | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [tempWsUrl, setTempWsUrl] = useState(DEFAULT_CLUSTER_WS);
-  const [tempHttpUrl, setTempHttpUrl] = useState('http://127.0.0.1:8080');
+  const [tempHttpUrl, setTempHttpUrl] = useState('http://192.168.1.167:8080');
   const testPingStartRef = useRef<number | null>(null);
 
   // Model Selector, Hugging Face Browser & Harness State
@@ -289,10 +329,14 @@ export default function App() {
         const savedMode = await AsyncStorage.getItem(STORAGE_KEYS.CONNECTION_MODE);
 
         if (savedWs) {
-          setWsUrl(savedWs);
-          setTempWsUrl(savedWs);
+          const safeWs = sanitizeWsUrl(savedWs);
+          setWsUrl(safeWs);
+          setTempWsUrl(safeWs);
         }
-        if (savedHttp) setTempHttpUrl(savedHttp);
+        if (savedHttp) {
+          const safeHttp = sanitizeHttpUrl(savedHttp);
+          setTempHttpUrl(safeHttp);
+        }
         if (savedEdge) setLocalEdgeUrl(savedEdge);
         if (savedHarness && ['hermes', 'llama-server', 'ollama', 'antigravity'].includes(savedHarness)) {
           setActiveHarness(savedHarness as HarnessType);
@@ -375,6 +419,8 @@ export default function App() {
   const [reproduceChildFocus, setReproduceChildFocus] = useState('');
   const [reproduceChildModel, setReproduceChildModel] = useState<'coordinator' | 'worker'>('coordinator');
   const [isReproducing, setIsReproducing] = useState(false);
+  const [isSyncingFeed, setIsSyncingFeed] = useState(false);
+  const [isDeletingModel, setIsDeletingModel] = useState(false);
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -407,46 +453,101 @@ export default function App() {
 
   const [edgeSettingsVisible, setEdgeSettingsVisible] = useState(false);
   const [currentStreamingId, setCurrentStreamingId] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const reconnectTimerRef = useRef<any>(null);
 
   useEffect(() => {
     if (connectionMode === 'cluster') {
       connectWebSocket();
     } else {
-      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        try {
+          wsRef.current.onopen = null;
+          wsRef.current.onclose = null;
+          wsRef.current.onerror = null;
+          wsRef.current.onmessage = null;
+          wsRef.current.close();
+        } catch {}
+        wsRef.current = null;
+      }
       setIsConnected(true); // Connected to local on-device loop
       setSelectedModel('on_device');
       checkLocalEdgeHealth();
     }
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (wsRef.current) {
+        try {
+          wsRef.current.onopen = null;
+          wsRef.current.onclose = null;
+          wsRef.current.onerror = null;
+          wsRef.current.onmessage = null;
+          wsRef.current.close();
+        } catch {}
+        wsRef.current = null;
+      }
     };
   }, [connectionMode, wsUrl, localEdgeUrl]);
 
+  const scheduleReconnect = () => {
+    if (connectionMode !== 'cluster') return;
+    if (reconnectTimerRef.current) return;
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectWebSocket();
+    }, 3500);
+  };
+
   const connectWebSocket = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
     }
 
+    if (wsRef.current) {
+      try {
+        wsRef.current.onopen = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+
+    const targetUrl = sanitizeWsUrl(wsUrl);
     try {
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(targetUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
         setIsConnected(true);
+        setConnectionError(null);
         try {
           ws.send(JSON.stringify({ type: 'get_task_routing' }));
+          ws.send(JSON.stringify({ type: 'get_live_stream' }));
         } catch {}
       };
 
       ws.onclose = () => {
         setIsConnected(false);
+        scheduleReconnect();
       };
 
-      ws.onerror = () => {
+      ws.onerror = (e: any) => {
         setIsConnected(false);
+        setConnectionError(`Could not connect to ${targetUrl}`);
+        scheduleReconnect();
       };
 
       ws.onmessage = (event) => {
@@ -457,8 +558,10 @@ export default function App() {
           console.error('Failed to parse WS message:', e);
         }
       };
-    } catch (err) {
+    } catch (err: any) {
       setIsConnected(false);
+      setConnectionError(`Invalid URL or connection failed: ${err?.message || err}`);
+      scheduleReconnect();
     }
   };
 
@@ -561,6 +664,7 @@ export default function App() {
     }
 
     if (type === 'live_stream_init') {
+      setIsSyncingFeed(false);
       setLiveEvents(data.events || []);
       setActiveAgents(data.agents || []);
       if (data.status) setThinkingStatus(data.status);
@@ -822,15 +926,18 @@ export default function App() {
     setIsTestingConnection(true);
     setPingLatency(null);
     testPingStartRef.current = performance.now();
+    const safeTarget = sanitizeWsUrl(targetWs);
     try {
-      const testSocket = new WebSocket(targetWs);
+      const testSocket = new WebSocket(safeTarget);
       const timer = setTimeout(() => {
         setIsTestingConnection(false);
         setPingLatency(-1);
         try { testSocket.close(); } catch {}
-      }, 4000);
+      }, 5000);
       testSocket.onopen = () => {
-        testSocket.send(JSON.stringify({ type: 'ping' }));
+        try {
+          testSocket.send(JSON.stringify({ type: 'ping' }));
+        } catch {}
       };
       testSocket.onmessage = () => {
         clearTimeout(timer);
@@ -843,6 +950,7 @@ export default function App() {
         clearTimeout(timer);
         setIsTestingConnection(false);
         setPingLatency(-1);
+        try { testSocket.close(); } catch {}
       };
     } catch {
       setIsTestingConnection(false);
@@ -851,13 +959,19 @@ export default function App() {
   };
 
   const handleSaveConnection = async () => {
-    setWsUrl(tempWsUrl);
-    setLocalEdgeUrl(tempHttpUrl);
+    const safeWs = sanitizeWsUrl(tempWsUrl);
+    const safeHttp = sanitizeHttpUrl(tempHttpUrl);
+    setWsUrl(safeWs);
+    setTempWsUrl(safeWs);
+    setLocalEdgeUrl(safeHttp);
+    setTempHttpUrl(safeHttp);
     setServerModalVisible(false);
-    await AsyncStorage.setItem(STORAGE_KEYS.WS_URL, tempWsUrl);
-    await AsyncStorage.setItem(STORAGE_KEYS.HTTP_URL, tempHttpUrl);
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch {}
+    setEdgeSettingsVisible(false);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.WS_URL, safeWs);
+      await AsyncStorage.setItem(STORAGE_KEYS.HTTP_URL, safeHttp);
+    } catch (e) {
+      console.warn('Failed to save connection config:', e);
     }
     connectWebSocket();
   };
@@ -1324,15 +1438,53 @@ export default function App() {
     setReproduceChildModel(childGen % 2 === 0 ? 'coordinator' : 'worker');
   };
 
+  const isEligiblePartner = (pA: Agent | null, pB: Agent): { eligible: boolean; reason?: string } => {
+    if (!pA) return { eligible: false, reason: 'No primary parent' };
+    if (pA.agent_id === pB.agent_id) return { eligible: false, reason: 'Self-mating prohibited' };
+    
+    // Check if already mated together
+    const alreadyMated = activeAgents.some((ch) => {
+      const p = ch.lineage?.parents || [];
+      return p.includes(pA.agent_id) && p.includes(pB.agent_id);
+    });
+    if (alreadyMated) {
+      return { eligible: false, reason: 'Already produced offspring together' };
+    }
+
+    // Direct parent-child incest
+    const pA_p = pA.lineage?.parents || [];
+    const pB_p = pB.lineage?.parents || [];
+    if (pA_p.includes(pB.agent_id) || pB_p.includes(pA.agent_id)) {
+      return { eligible: false, reason: 'Direct parent-child crossover prohibited' };
+    }
+
+    // Sibling crossover
+    if (pA_p.length > 0 && pB_p.length > 0 && pA_p.some((pid) => pB_p.includes(pid))) {
+      return { eligible: false, reason: 'Sibling crossover prohibited' };
+    }
+
+    return { eligible: true };
+  };
+
   const handleStartReproduction = (parentA: Agent) => {
     setReproduceParentA(parentA);
-    const other = activeAgents.find((a) => a.agent_id !== parentA.agent_id);
-    const pBId = other ? other.agent_id : '';
+    const candidate = activeAgents.find((a) => {
+      if (a.agent_id === parentA.agent_id) return false;
+      return isEligiblePartner(parentA, a).eligible;
+    }) || activeAgents.find((a) => a.agent_id !== parentA.agent_id);
+
+    const pBId = candidate ? candidate.agent_id : '';
     setReproduceParentBId(pBId);
     setReproduceFocus('');
     setReproduceStep('select');
     syncReproductionDraft(parentA, pBId, '');
+    setLiveStreamModalVisible(false); // Hide parent modal on Android so touches register
     setReproduceModalVisible(true);
+  };
+
+  const handleCloseReproduction = () => {
+    setReproduceModalVisible(false);
+    setLiveStreamModalVisible(true);
   };
 
   const handleSelectParentB = (pBId: string) => {
@@ -1362,7 +1514,55 @@ export default function App() {
     setTimeout(() => {
       setIsReproducing(false);
       setReproduceModalVisible(false);
-    }, 4000);
+      setLiveStreamModalVisible(true);
+    }, 2500);
+  };
+
+  const handleSyncFeed = () => {
+    setIsSyncingFeed(true);
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      connectWebSocket();
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: 'get_live_stream' }));
+        wsRef.current.send(JSON.stringify({ type: 'get_active_agents' }));
+        wsRef.current.send(JSON.stringify({ type: 'get_thinking_status' }));
+      } catch {}
+    }
+    setTimeout(() => {
+      setIsSyncingFeed(false);
+    }, 2000);
+  };
+
+  const handleDeleteClusterModel = (modelName: string, size?: string) => {
+    if (modelName.toLowerCase().includes('ornith')) {
+      Alert.alert('Protected Architecture', '🔒 Ornith models are permanently locked and cannot be deleted.');
+      return;
+    }
+    Alert.alert(
+      'Delete Cluster Model',
+      `Are you sure you want to permanently delete "${modelName}" (${size || 'GGUF'}) from /opt/models/ on the cluster?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setIsDeletingModel(true);
+            if (wsRef.current) {
+              wsRef.current.send(
+                JSON.stringify({
+                  type: 'delete_cluster_model',
+                  model: modelName
+                })
+              );
+            }
+            setTimeout(() => setIsDeletingModel(false), 3500);
+          }
+        }
+      ]
+    );
   };
 
   return (
@@ -1377,7 +1577,7 @@ export default function App() {
           <View>
             <Text style={styles.title}>StoneSage Mobile</Text>
             {/* Mode Switcher Badge */}
-            <TouchableOpacity onPress={() => setEdgeSettingsVisible(true)}>
+            <TouchableOpacity onPress={() => setServerModalVisible(true)}>
               <View style={styles.connectionBadge}>
                 <View
                   style={[
@@ -1397,8 +1597,8 @@ export default function App() {
                 <Text style={styles.connectionText}>
                   {connectionMode === 'cluster'
                     ? isConnected
-                      ? 'Cluster: LXC 120 (ONLINE)'
-                      : 'Cluster: OFFLINE (Tap to Switch)'
+                      ? 'Cluster: ONLINE'
+                      : 'Cluster: DISCONNECTED (Tap to Setup)'
                     : localEdgeHealthy
                     ? 'On-Device Edge: 127.0.0.1 (ONLINE)'
                     : 'On-Device Edge: (Offline Mode)'}
@@ -1427,10 +1627,10 @@ export default function App() {
 
             <TouchableOpacity
               style={styles.headerRightBadge}
-              onPress={() => setEdgeSettingsVisible(true)}
+              onPress={() => setServerModalVisible(true)}
             >
               <Text style={styles.headerRightBadgeText}>
-                {connectionMode === 'cluster' ? '🌐 CLUSTER' : '📱 OFFLINE'}
+                {connectionMode === 'cluster' ? '🌐 SERVER' : '📱 OFFLINE'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1450,6 +1650,18 @@ export default function App() {
             <Text style={[styles.harnessBtnText, { color: '#38bdf8', fontWeight: 'bold' }]}>
               {isRefreshing ? '⏳ Refreshing...' : '🔄 Refresh App'}
             </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.harnessBtn, { backgroundColor: '#1e293b', borderColor: '#6366f1', borderWidth: 1 }]}
+            onPress={handleOpenModelHub}
+          >
+            <Text style={[styles.harnessBtnText, { color: '#a5b4fc', fontWeight: 'bold' }]}>🤗 Models / HF</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.harnessBtn, { backgroundColor: '#1e293b', borderColor: '#38bdf8', borderWidth: 1 }]}
+            onPress={() => setServerModalVisible(true)}
+          >
+            <Text style={[styles.harnessBtnText, { color: '#38bdf8' }]}>🌐 Server URL</Text>
           </TouchableOpacity>
           {connectionMode === 'cluster' && (
             <TouchableOpacity
@@ -1485,13 +1697,19 @@ export default function App() {
           >
             <Text style={styles.harnessBtnText}>📝 Tuning</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.harnessBtn, { backgroundColor: '#1e293b', borderColor: '#475569', borderWidth: 1 }]}
-            onPress={() => setEdgeSettingsVisible(true)}
-          >
-            <Text style={styles.harnessBtnText}>⚙️ Engine</Text>
-          </TouchableOpacity>
         </ScrollView>
+
+        {/* Offline Reconnect Banner */}
+        {!isConnected && connectionMode === 'cluster' && (
+          <TouchableOpacity
+            style={[styles.offlineBanner, { backgroundColor: '#7f1d1d', marginVertical: 4, borderRadius: 6 }]}
+            onPress={() => setServerModalVisible(true)}
+          >
+            <Text style={styles.offlineBannerText}>
+              ⚠️ WebSocket Disconnected ({sanitizeWsUrl(wsUrl)}) • Tap to Configure Server / Ping
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Model Tabs */}
         {connectionMode === 'cluster' ? (
@@ -1527,6 +1745,17 @@ export default function App() {
               </Text>
               <Text style={[styles.modelTabSub, selectedModel === 'frontier' && styles.modelTabSubActive]}>
                 Bigserv :8085
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modelTab, { backgroundColor: '#1e293b' }]}
+              onPress={handleOpenModelHub}
+            >
+              <Text style={[styles.modelTabTitle, { color: '#38bdf8' }]}>
+                🤗 Hub / HF
+              </Text>
+              <Text style={styles.modelTabSub}>
+                Model Studio
               </Text>
             </TouchableOpacity>
           </View>
@@ -1572,98 +1801,100 @@ export default function App() {
         </TouchableOpacity>
       )}
 
-      {/* Chat Messages */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.messageContainer}
-        contentContainerStyle={styles.messageContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleGlobalRefresh}
-            colors={['#38bdf8']}
-            tintColor="#38bdf8"
-          />
-        }
-        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-      >
-        {messages.length === 0 && (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>StoneSage Mobile AI Harness</Text>
-            <Text style={styles.emptySubtitle}>
-              • Coordinator: Ornith-1.5-9B-OBLITERATED Q8_0 (RX 6750 XT 12GB){'\n'}
-              • Worker: Ornith-1.5-9B Q4_K_M Edge (RX 6600 XT 8GB){'\n'}
-              • Offline Edge: Native Snapdragon 8 Elite On-Device Loader{'\n'}
-              • Full 24/7 Question → Scaffold → Rollout Self-Improvement
-            </Text>
-          </View>
-        )}
-
-        {messages.map((msg) => (
-          <View
-            key={msg.id}
-            style={[
-              styles.messageBubble,
-              msg.role === 'user' ? styles.userBubble : msg.role === 'system' ? styles.systemBubble : styles.assistantBubble
-            ]}
-          >
-            {/* Assistant Header & Performance Badge */}
-            {msg.role === 'assistant' && (
-              <View style={styles.assistantMeta}>
-                <Text style={styles.modelBadge}>
-                  {msg.model === 'coordinator'
-                    ? 'Ornith-9B Q8_0'
-                    : msg.model === 'worker'
-                    ? 'Ornith-9B Q4_K_M'
-                    : msg.model === 'on_device'
-                    ? 'Snapdragon Edge (Local)'
-                    : 'Frontier'}
-                </Text>
-                {msg.tokens_per_sec ? (
-                  <Text style={styles.telemetryBadge}>
-                    {msg.tokens_per_sec} t/s • {msg.elapsed_ms}ms • {msg.tokens} tokens
-                  </Text>
-                ) : msg.isStreaming ? (
-                  <View style={styles.streamingBadge}>
-                    <ActivityIndicator size="small" color="#38bdf8" />
-                    <Text style={styles.streamingText}>Thinking & Streaming...</Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-
-            {/* Collapsible Chain-of-Thought (Reasoning) Drawer */}
-            {!!msg.thought && (
-              <View style={styles.thoughtDrawer}>
-                <TouchableOpacity
-                  style={styles.thoughtHeader}
-                  onPress={() => toggleThought(msg.id)}
-                >
-                  <Text style={styles.thoughtTitle}>
-                    {expandedThoughts[msg.id] ? '▼ Reasoning Trace' : '▶ Reasoning Trace'} ({msg.thought.length} chars)
-                  </Text>
-                </TouchableOpacity>
-                {expandedThoughts[msg.id] && (
-                  <View style={styles.thoughtContentBox}>
-                    <Text style={styles.thoughtText}>{msg.thought}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Main Content */}
-            <Text style={[styles.messageText, msg.role === 'system' && styles.systemText]}>
-              {msg.content}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* Input Box & Abort Control */}
+      {/* Chat Messages & Keyboard Avoidance */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 25}
       >
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.messageContainer}
+          contentContainerStyle={styles.messageContent}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleGlobalRefresh}
+              colors={['#38bdf8']}
+              tintColor="#38bdf8"
+            />
+          }
+          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+        >
+          {messages.length === 0 && (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyTitle}>StoneSage Mobile AI Harness</Text>
+              <Text style={styles.emptySubtitle}>
+                • Coordinator: Ornith-1.5-9B-OBLITERATED Q8_0 (RX 6750 XT 12GB){'\n'}
+                • Worker: Ornith-1.5-9B Q4_K_M Edge (RX 6600 XT 8GB){'\n'}
+                • Offline Edge: Native Snapdragon 8 Elite On-Device Loader{'\n'}
+                • Full 24/7 Question → Scaffold → Rollout Self-Improvement
+              </Text>
+            </View>
+          )}
+
+          {messages.map((msg) => (
+            <View
+              key={msg.id}
+              style={[
+                styles.messageBubble,
+                msg.role === 'user' ? styles.userBubble : msg.role === 'system' ? styles.systemBubble : styles.assistantBubble
+              ]}
+            >
+              {/* Assistant Header & Performance Badge */}
+              {msg.role === 'assistant' && (
+                <View style={styles.assistantMeta}>
+                  <Text style={styles.modelBadge}>
+                    {msg.model === 'coordinator'
+                      ? 'Ornith-9B Q8_0'
+                      : msg.model === 'worker'
+                      ? 'Ornith-9B Q4_K_M'
+                      : msg.model === 'on_device'
+                      ? 'Snapdragon Edge (Local)'
+                      : 'Frontier'}
+                  </Text>
+                  {msg.tokens_per_sec ? (
+                    <Text style={styles.telemetryBadge}>
+                      {msg.tokens_per_sec} t/s • {msg.elapsed_ms}ms • {msg.tokens} tokens
+                    </Text>
+                  ) : msg.isStreaming ? (
+                    <View style={styles.streamingBadge}>
+                      <ActivityIndicator size="small" color="#38bdf8" />
+                      <Text style={styles.streamingText}>Thinking & Streaming...</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Collapsible Chain-of-Thought (Reasoning) Drawer */}
+              {!!msg.thought && (
+                <View style={styles.thoughtDrawer}>
+                  <TouchableOpacity
+                    style={styles.thoughtHeader}
+                    onPress={() => toggleThought(msg.id)}
+                  >
+                    <Text style={styles.thoughtTitle}>
+                      {expandedThoughts[msg.id] ? '▼ Reasoning Trace' : '▶ Reasoning Trace'} ({msg.thought.length} chars)
+                    </Text>
+                  </TouchableOpacity>
+                  {expandedThoughts[msg.id] && (
+                    <View style={styles.thoughtContentBox}>
+                      <Text style={styles.thoughtText}>{msg.thought}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Main Content */}
+              <Text style={[styles.messageText, msg.role === 'system' && styles.systemText]}>
+                {msg.content}
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* Input Box & Abort Control */}
         <View style={styles.inputContainer}>
           {currentStreamingId ? (
             <TouchableOpacity style={styles.abortButton} onPress={abortGeneration}>
@@ -1754,7 +1985,7 @@ export default function App() {
                 style={[styles.textInput, { height: 42, marginBottom: 10 }]}
                 value={tempWsUrl}
                 onChangeText={setTempWsUrl}
-                placeholder="ws://127.0.0.1:8086"
+                placeholder="ws://192.168.1.167:8086"
                 placeholderTextColor="#64748b"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -1766,7 +1997,7 @@ export default function App() {
                 style={[styles.textInput, { height: 42, marginBottom: 10 }]}
                 value={tempHttpUrl}
                 onChangeText={setTempHttpUrl}
-                placeholder="http://127.0.0.1:8080"
+                placeholder="http://192.168.1.167:8080"
                 placeholderTextColor="#64748b"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -1907,6 +2138,7 @@ export default function App() {
                 ) : (
                   clusterModels.map((m, idx) => {
                     const isActive = activeClusterModel && activeClusterModel.toLowerCase().includes(m.name?.toLowerCase());
+                    const isProtectedOrnith = m.name?.toLowerCase().includes('ornith');
                     return (
                       <View
                         key={idx}
@@ -1923,23 +2155,42 @@ export default function App() {
                         }}
                       >
                         <View style={{ flex: 1, marginRight: 8 }}>
-                          <Text style={{ fontSize: 11, color: '#f8fafc', fontWeight: 'bold' }} numberOfLines={1}>
-                            {m.name}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            {isProtectedOrnith && <Text style={{ fontSize: 10 }}>🔒</Text>}
+                            <Text style={{ fontSize: 11, color: '#f8fafc', fontWeight: 'bold' }} numberOfLines={1}>
+                              {m.name}
+                            </Text>
+                          </View>
                           <Text style={{ fontSize: 9, color: '#94a3b8' }}>Size: {m.size || 'Unknown'}</Text>
                         </View>
-                        <TouchableOpacity
-                          style={[
-                            styles.harnessBtn,
-                            isActive ? { backgroundColor: '#10b981' } : { backgroundColor: '#0284c7' }
-                          ]}
-                          onPress={() => handleActivateClusterModel(m.name)}
-                          disabled={isActive || isSwitchingModel}
-                        >
-                          <Text style={styles.harnessBtnText}>
-                            {isActive ? '✓ ACTIVE' : 'ACTIVATE'}
-                          </Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <TouchableOpacity
+                            style={[
+                              styles.harnessBtn,
+                              isActive ? { backgroundColor: '#10b981' } : { backgroundColor: '#0284c7' }
+                            ]}
+                            onPress={() => handleActivateClusterModel(m.name)}
+                            disabled={isActive || isSwitchingModel}
+                          >
+                            <Text style={styles.harnessBtnText}>
+                              {isActive ? '✓ ACTIVE' : 'ACTIVATE'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {isProtectedOrnith ? (
+                            <View style={[styles.harnessBtn, { backgroundColor: '#334155', paddingHorizontal: 6 }]}>
+                              <Text style={{ fontSize: 10, color: '#94a3b8', fontWeight: 'bold' }}>LOCKED</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[styles.harnessBtn, { backgroundColor: '#7f1d1d', paddingHorizontal: 8 }]}
+                              onPress={() => handleDeleteClusterModel(m.name, m.size)}
+                              disabled={isActive || isDeletingModel}
+                            >
+                              <Text style={{ fontSize: 10, color: '#fca5a5', fontWeight: 'bold' }}>🗑️ Delete</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
                       </View>
                     );
                   })
@@ -2751,13 +3002,26 @@ export default function App() {
                 <Text style={styles.modalTitle}>📡 Live Stream & Agent Monitor</Text>
               </View>
               <TouchableOpacity
-                onPress={() => {
-                  if (wsRef.current) {
-                    wsRef.current.send(JSON.stringify({ type: 'get_live_stream' }));
-                  }
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  borderRadius: 4,
+                  backgroundColor: isSyncingFeed ? '#1e293b' : 'transparent'
                 }}
+                onPress={handleSyncFeed}
+                disabled={isSyncingFeed}
               >
-                <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: 'bold' }}>🔄 Sync Feed</Text>
+                {isSyncingFeed ? (
+                  <ActivityIndicator size="small" color="#38bdf8" />
+                ) : (
+                  <Text style={{ fontSize: 13 }}>🔄</Text>
+                )}
+                <Text style={{ color: '#38bdf8', fontSize: 12, fontWeight: 'bold' }}>
+                  {isSyncingFeed ? 'Syncing...' : 'Sync Feed'}
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -2769,24 +3033,24 @@ export default function App() {
                 </Text>
               </Text>
               <Text style={{ color: '#94a3b8', fontSize: 11 }}>
-                Cycles: <Text style={{ color: '#38bdf8', fontWeight: 'bold' }}>{thinkingStatus?.total_cycles ?? 0}</Text>
+                Cycles: <Text style={{ color: '#ffffff', fontWeight: 'bold' }}>{thinkingStatus?.total_cycles || 0}</Text>
               </Text>
               <Text style={{ color: '#94a3b8', fontSize: 11 }}>
-                Agents: <Text style={{ color: '#a7f3d0', fontWeight: 'bold' }}>{activeAgents.length}</Text>
+                Tokens: <Text style={{ color: '#ffffff', fontWeight: 'bold' }}>{thinkingStatus?.total_tokens ? `${Math.round(thinkingStatus.total_tokens / 1000)}k` : '0'}</Text>
               </Text>
               <Text style={{ color: '#94a3b8', fontSize: 11 }}>
-                🌙 Rumination: <Text style={{ color: (ruminationStatus?.queue_size ?? 0) > 0 ? '#f59e0b' : '#94a3b8', fontWeight: 'bold' }}>{ruminationStatus?.queue_size ?? 0}</Text>
+                Agents: <Text style={{ color: '#a78bfa', fontWeight: 'bold' }}>{activeAgents.length}</Text>
               </Text>
             </View>
 
-            {/* Segmented Tab Switcher */}
-            <View style={[styles.modelToggleGroup, { marginBottom: 8 }]}>
+            {/* Monitor Navigation Tabs */}
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
               <TouchableOpacity
                 style={[styles.modelTab, liveMonitorTab === 'stream' && styles.modelTabActive]}
                 onPress={() => setLiveMonitorTab('stream')}
               >
                 <Text style={[styles.modelTabTitle, liveMonitorTab === 'stream' && styles.modelTabTitleActive]}>
-                  📡 Stream of Thought
+                  ⚡ Stream of Thought
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -2794,7 +3058,7 @@ export default function App() {
                 onPress={() => setLiveMonitorTab('agents')}
               >
                 <Text style={[styles.modelTabTitle, liveMonitorTab === 'agents' && styles.modelTabTitleActive]}>
-                  🤖 Active Agents ({activeAgents.length})
+                  🤖 Subagents ({activeAgents.length})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -2823,7 +3087,17 @@ export default function App() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView style={{ flex: 1, backgroundColor: '#090d16', borderRadius: 8, padding: 8 }}>
+                <ScrollView
+                  style={{ flex: 1, backgroundColor: '#090d16', borderRadius: 8, padding: 8 }}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={isSyncingFeed}
+                      onRefresh={handleSyncFeed}
+                      colors={['#38bdf8']}
+                      tintColor="#38bdf8"
+                    />
+                  }
+                >
                   {liveEvents.length === 0 ? (
                     <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>
                       Listening to cluster stream... No recent events logged yet. Tap 'Trigger Live Cycle' or wait for the 24/7 background loop.
@@ -2874,7 +3148,17 @@ export default function App() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView style={{ flex: 1 }}>
+                <ScrollView
+                  style={{ flex: 1 }}
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={isSyncingFeed}
+                      onRefresh={handleSyncFeed}
+                      colors={['#38bdf8']}
+                      tintColor="#38bdf8"
+                    />
+                  }
+                >
                   {activeAgents.length === 0 ? (
                     <Text style={{ color: '#64748b', fontSize: 11, fontStyle: 'italic', textAlign: 'center', marginTop: 24 }}>
                       No persistent subagents currently commissioned in HiveMind.
@@ -3298,7 +3582,12 @@ export default function App() {
                 : 'Fine-tune the blended digital person’s name, role, mission, and system prompt before commissioning.'}
             </Text>
 
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true}>
+            <ScrollView
+              style={{ flex: 1 }}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
               {/* STEP 1: Partner Selection & Guiding Intent */}
               {reproduceStep === 'select' && (
                 <>
@@ -3333,16 +3622,18 @@ export default function App() {
                         .filter((a) => a.agent_id !== reproduceParentA?.agent_id)
                         .map((ag) => {
                           const isSelected = reproduceParentBId === ag.agent_id;
+                          const eligibility = isEligiblePartner(reproduceParentA, ag);
                           return (
                             <TouchableOpacity
                               key={ag.agent_id}
+                              activeOpacity={0.7}
                               style={[
                                 styles.modalCodeBox,
                                 {
                                   padding: 10,
                                   marginVertical: 2,
                                   backgroundColor: isSelected ? '#1e1b4b' : '#090d16',
-                                  borderColor: isSelected ? '#818cf8' : '#334155',
+                                  borderColor: isSelected ? '#818cf8' : eligibility.eligible ? '#334155' : '#7f1d1d',
                                   borderWidth: isSelected ? 2 : 1
                                 }
                               ]}
@@ -3355,10 +3646,17 @@ export default function App() {
                                     {ag.name} (Gen {ag.lineage?.generation || 1})
                                   </Text>
                                 </View>
-                                <View style={[styles.agentStatusBadge, { backgroundColor: isSelected ? '#3730a3' : '#1e293b' }]}>
-                                  <Text style={{ color: isSelected ? '#c7d2fe' : '#94a3b8', fontSize: 10 }}>
-                                    {ag.model_preference?.toUpperCase()}
-                                  </Text>
+                                <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+                                  {!eligibility.eligible && (
+                                    <View style={[styles.agentStatusBadge, { backgroundColor: '#450a0a' }]}>
+                                      <Text style={{ color: '#fca5a5', fontSize: 9 }}>MATED / SIBLING</Text>
+                                    </View>
+                                  )}
+                                  <View style={[styles.agentStatusBadge, { backgroundColor: isSelected ? '#3730a3' : '#1e293b' }]}>
+                                    <Text style={{ color: isSelected ? '#c7d2fe' : '#94a3b8', fontSize: 10 }}>
+                                      {ag.model_preference?.toUpperCase()}
+                                    </Text>
+                                  </View>
                                 </View>
                               </View>
                               <Text style={{ color: isSelected ? '#a5b4fc' : '#94a3b8', fontSize: 11, marginTop: 3 }}>
@@ -3578,7 +3876,7 @@ export default function App() {
             {/* Modal Cancel Footer */}
             <TouchableOpacity
               style={[styles.modalButton, { backgroundColor: '#334155', marginTop: 8, alignItems: 'center' }]}
-              onPress={() => setReproduceModalVisible(false)}
+              onPress={handleCloseReproduction}
             >
               <Text style={styles.modalButtonText}>Cancel</Text>
             </TouchableOpacity>

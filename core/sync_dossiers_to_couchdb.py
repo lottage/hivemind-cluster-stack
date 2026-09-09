@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Direct 24/7 CouchDB Sync Connector for Obsidian Knowledge Vault & Mobile Android
-Interacts directly with CouchDB on LXC 116 (127.0.0.1:5984) using native
+Interacts directly with CouchDB on LXC 116 (192.168.1.230:5984) using native
 LiveSync Rabin-Karp chunking and AES-256-GCM encryption.
 """
 
@@ -13,7 +13,7 @@ import json
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CLI_DIR = os.path.join(SCRIPT_DIR, "obsidian-vault-cli")
-VAULT_DIR = r"C:\Users\operator\OneDrive\Documents\obsidian\Autonomous Thinking"
+VAULT_DIR = r"C:\Users\johna\OneDrive\Documents\obsidian\Autonomous Thinking"
 EXPLORATIONS_DIR = os.path.join(VAULT_DIR, "Explorations")
 
 def get_existing_couch_files() -> set:
@@ -52,6 +52,35 @@ def sync_to_couchdb(verbose: bool = True) -> dict:
         for p in glob.glob(os.path.join(EXPLORATIONS_DIR, "*.md")):
             rel = f"Autonomous Thinking/Explorations/{os.path.basename(p)}"
             files_to_sync.append((rel, p))
+
+    # Assembly Hall notable moments
+    assembly_dir = os.path.join(VAULT_DIR, "Assembly Hall")
+    os.makedirs(assembly_dir, exist_ok=True)
+    # Pull any moments from VM 102
+    try:
+        remote_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", "ls /opt/cluster-bridge/assembly_moments/*.md 2>/dev/null"]
+        res = subprocess.run(remote_cmd, capture_output=True, text=True, timeout=5)
+        if res.returncode == 0 and res.stdout.strip():
+            for rpath in res.stdout.strip().splitlines():
+                rpath = rpath.strip()
+                if rpath:
+                    fname = os.path.basename(rpath)
+                    lpath = os.path.join(assembly_dir, fname)
+                    if not os.path.exists(lpath):
+                        cat_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", f"cat '{rpath}'"]
+                        cres = subprocess.run(cat_cmd, capture_output=True, text=True, timeout=5)
+                        if cres.returncode == 0:
+                            with open(lpath, "w", encoding="utf-8") as lf:
+                                lf.write(cres.stdout)
+                            if verbose:
+                                print(f"[CouchSync] Downloaded notable moment: {fname}")
+    except Exception as e:
+        if verbose:
+            print(f"[CouchSync] Warning fetching moments from VM 102: {e}")
+
+    for p in glob.glob(os.path.join(assembly_dir, "*.md")):
+        rel = f"Autonomous Thinking/Assembly Hall/{os.path.basename(p)}"
+        files_to_sync.append((rel, p))
 
     missing = [(rel, path) for rel, path in files_to_sync if rel not in existing]
     if verbose:

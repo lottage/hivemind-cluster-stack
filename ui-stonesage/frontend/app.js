@@ -68,7 +68,7 @@ const state = {
     activeCategory: 'all',
     searchQuery: '',
     activeAssetIndex: 0,
-    url: 'http://127.0.0.1:9000',
+    url: 'http://192.168.1.238:9000',
     isWebMode: false
   },
 
@@ -157,18 +157,29 @@ function initHeaderClock() {
   const update = () => {
     if (clock) {
       const now = new Date();
-      clock.textContent = `[TIME: ${now.toLocaleTimeString([], { hour12: false })}]`;
+      clock.textContent = `[TIME: ${now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false })} EST]`;
     }
   };
   update();
   setInterval(update, 1000);
 }
 
+function formatEasternTime(dateOrTimestamp) {
+  if (!dateOrTimestamp) return '';
+  try {
+    const d = new Date(dateOrTimestamp);
+    if (isNaN(d.getTime())) return String(dateOrTimestamp);
+    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) + ' EST';
+  } catch (e) {
+    return String(dateOrTimestamp);
+  }
+}
+
 function initLanIpCopy() {
   const badge = document.getElementById('lan-ip-badge');
   if (badge) {
     badge.addEventListener('click', () => {
-      const text = 'http://127.0.0.1:8080';
+      const text = 'http://192.168.1.132:8080';
       if (navigator.clipboard) {
         navigator.clipboard.writeText(text);
         const orig = badge.textContent;
@@ -198,7 +209,7 @@ function initNavigation() {
       const addrInput = document.getElementById('win95-address-input');
       if (addrInput) {
         const route = btn.dataset.view ? btn.dataset.view.replace('view-', '') : 'launchpad';
-        addrInput.value = `127.0.0.1:8080/${route}.htm`;
+        addrInput.value = `192.168.1.132:8080/${route}.htm`;
       }
 
       const viewId = btn.dataset.view;
@@ -944,13 +955,13 @@ Overall Status: ${c.all_online ? 'OPTIMAL (5/5 Services Active)' : 'DEGRADED'}\n
       if (data.ok && data.nodes) {
         const n = data.nodes;
         logToTerminal(`\n=== PROXMOX VE FLEET TELEMETRY ===
-Node pve (127.0.0.1):
+Node pve (192.168.1.229):
   CPU:    ${n.pve?.cpu_pct?.toFixed(1) || 0}%
   RAM:    ${n.pve?.memory_pct?.toFixed(1) || 0}% (${n.pve?.memory_used_gb || 0} / ${n.pve?.memory_total_gb || 0} GB)
   DISK:   ${n.pve?.disk_pct?.toFixed(1) || 0}% (${n.pve?.disk_used_gb || 0} / ${n.pve?.disk_total_gb || 0} GB)
   Kernel: ${n.pve?.kernel || 'Unknown'}
 
-Node bigserv (127.0.0.1):
+Node bigserv (192.168.1.82):
   CPU:    ${n.bigserv?.cpu_pct?.toFixed(1) || 0}%
   RAM:    ${n.bigserv?.memory_pct?.toFixed(1) || 0}% (${n.bigserv?.memory_used_gb || 0} / ${n.bigserv?.memory_total_gb || 0} GB)
   DISK:   ${n.bigserv?.disk_pct?.toFixed(1) || 0}% (${n.bigserv?.disk_used_gb || 0} / ${n.bigserv?.disk_total_gb || 0} GB)
@@ -1047,7 +1058,7 @@ Node bigserv (127.0.0.1):
 - Disk Size: ${data.disk_size_mb || 0} MB (active: ${data.active_size_mb || 0} MB)
 - UpdateSeq: ${data.update_seq || 'N/A'}\n`);
       } else {
-        logToTerminal(`[COUCHDB OFFLINE] ${data.error || 'LXC 116 unreachable at 127.0.0.1:5984'}`, 'alert');
+        logToTerminal(`[COUCHDB OFFLINE] ${data.error || 'LXC 116 unreachable at 192.168.1.230:5984'}`, 'alert');
       }
     } catch (e) {
       logToTerminal(`[COUCHDB ERROR] ${e.message}`, 'alert');
@@ -1105,7 +1116,7 @@ Node bigserv (127.0.0.1):
 
   // 13. ha-status / ha-summary
   if (cmdLower === 'ha-status' || cmdLower === 'ha-summary') {
-    logToTerminal('[QUERYING HOME ASSISTANT (127.0.0.1:8123)...]');
+    logToTerminal('[QUERYING HOME ASSISTANT (192.168.1.82:8123)...]');
     try {
       const res = await fetch('/api/ha/dashboard');
       const data = await res.json();
@@ -1115,7 +1126,7 @@ Node bigserv (127.0.0.1):
 - Google Nest Thermostat: ${nest.current || '?'}°F (Target: ${nest.target || '?'}°F, Mode: ${(nest.hvac_mode || 'off').toUpperCase()})
 - Lights Online:          ${(data.lights || []).length} active fixtures
 - Switches & Plugs:       ${(data.switches || []).length} registered entities
-- Home Assistant Status:  CONNECTED (http://127.0.0.1:8123)\n`);
+- Home Assistant Status:  CONNECTED (http://192.168.1.82:8123)\n`);
       } else {
         logToTerminal(`[HA STATUS ERROR] ${data.error || 'Failed to query HA'}`, 'alert');
       }
@@ -1362,9 +1373,37 @@ Node bigserv (127.0.0.1):
     return;
   }
 
+  // 21b. delete-agent / rm-agent
+  if (cmdLower.startsWith('delete-agent') || cmdLower.startsWith('rm-agent') || cmdLower.startsWith('delete_agent')) {
+    const parts = cmd.trim().split(/\s+/);
+    const agentId = parts[1];
+    if (!agentId) {
+      logToTerminal('Usage: delete-agent <agent_id>', 'alert');
+      return;
+    }
+    logToTerminal(`[PURGING AGENT ${agentId} FROM REGISTRY...]`);
+    try {
+      const res = await fetch('/api/agents/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        logToTerminal(`[SUCCESS] Subagent '${agentId}' removed from active registry and disk.`, 'bright');
+        logToTerminal(`[NOTE] All learned memories and invariants remain preserved in Qdrant.`, 'dim');
+      } else {
+        logToTerminal(`[ERROR] ${data.error || 'Failed to delete agent'}`, 'alert');
+      }
+    } catch (e) {
+      logToTerminal(`[DELETE AGENT ERROR] ${e.message}`, 'alert');
+    }
+    return;
+  }
+
   // 22. pwd / Get-Location
   if (cmdLower === 'pwd' || cmdLower === 'get-location') {
-    logToTerminal(`Path: C:\\Users\\operator\\OneDrive\\Documents\\.ai${state.terminal.currentDir ? '\\' + state.terminal.currentDir.replace(/\//g, '\\') : ''}`);
+    logToTerminal(`Path: C:\\Users\\johna\\OneDrive\\Documents\\.ai${state.terminal.currentDir ? '\\' + state.terminal.currentDir.replace(/\//g, '\\') : ''}`);
     return;
   }
 
@@ -1410,6 +1449,60 @@ function logToTerminal(text, type = 'normal') {
   out.scrollTop = out.scrollHeight;
 }
 
+async function loadHarnessCapabilities() {
+  try {
+    const res = await fetch('/api/harness/capabilities');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // 1. Populate #ai-active-model
+    const aiModelSel = document.getElementById('ai-active-model');
+    if (aiModelSel) {
+      const cMeta = data.active_coordinator?.meta;
+      const wMeta = data.active_worker?.meta;
+      const cLabel = cMeta
+        ? `[COORD: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || 'Q8'} (${Math.round((cMeta.n_ctx || 8192) / 1024)}k ctx)]`
+        : '[14B COORD :8001 (RX 6750 XT)]';
+      const wLabel = wMeta
+        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || 'Q4'} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
+        : '[3B WORKER :8002 (RX 6600 XT - 80+ t/s)]';
+
+      aiModelSel.innerHTML = `
+        <option value="coordinator" selected>${cLabel}</option>
+        <option value="worker">${wLabel}</option>
+        <option value="openai">[FRONTIER: GPT-4o]</option>
+        <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
+        <option value="gemini">[FRONTIER: Gemini 2.5 Pro]</option>
+      `;
+    }
+
+    // 2. Populate #subagent-model-quick
+    const subSel = document.getElementById('subagent-model-quick');
+    if (subSel) {
+      const cMeta = data.active_coordinator?.meta;
+      const wMeta = data.active_worker?.meta;
+      const cLabel = cMeta ? `[${(cMeta.n_params / 1e9).toFixed(1)}B COORDINATOR :8001]` : '[14B COORDINATOR :8001 (RX 6750 XT)]';
+      const wLabel = wMeta ? `[${(wMeta.n_params / 1e9).toFixed(1)}B WORKER :8002 (80+ tok/s)]` : '[3B WORKER :8002 (80+ tok/s)]';
+
+      subSel.innerHTML = `
+        <option value="worker" selected>${wLabel}</option>
+        <option value="coordinator">${cLabel}</option>
+      `;
+    }
+
+    // 3. Populate #local-model-select if present
+    const localModelSel = document.getElementById('local-model-select');
+    if (localModelSel && data.installed_models && data.installed_models.length > 0) {
+      localModelSel.innerHTML = data.installed_models.map(m => {
+        const lockIcon = m.is_locked ? '🔒 ' : '';
+        return `<option value="${m.filename}">${lockIcon}${m.filename} (${m.size})</option>`;
+      }).join('');
+    }
+  } catch (err) {
+    console.warn('Could not load harness capabilities:', err);
+  }
+}
+
 /* ==========================================================================
    6. AI Cognitive Cockpit (3-Tier Hardware Hierarchy & Frontier)
    ========================================================================== */
@@ -1422,6 +1515,9 @@ function initAiHarness() {
   const ragSelect = document.getElementById('rag-collection-select');
   const clearBtn = document.getElementById('ai-clear-session-btn');
   const subagentBtn = document.getElementById('subagent-dispatch-quick-btn');
+
+  // Dynamically poll cluster capabilities from llama.cpp (:8001, :8002) and /opt/models/
+  loadHarnessCapabilities();
 
   if (modelSelect) {
     modelSelect.addEventListener('change', (e) => {
@@ -3867,7 +3963,7 @@ function initSettings() {
           enabled: true,
           psid: document.getElementById('set-gemini-psid').value.trim(),
           psidts: document.getElementById('set-gemini-psidts').value.trim(),
-          endpoint: 'http://127.0.0.1:8087'
+          endpoint: 'http://192.168.1.167:8087'
         },
         task_routing: {
           autonomous_ideation: document.getElementById('route-ideation').value,

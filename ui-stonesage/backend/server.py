@@ -20,6 +20,19 @@ if hasattr(sys.stderr, 'reconfigure'):
 import json
 import time
 from datetime import datetime, timezone
+try:
+    from zoneinfo import ZoneInfo
+    EASTERN_TZ = ZoneInfo("America/New_York")
+except Exception:
+    import datetime as dt
+    EASTERN_TZ = dt.timezone(dt.timedelta(hours=-5))
+
+def get_eastern_time_str() -> str:
+    try:
+        return datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p EST")
+    except Exception:
+        return time.strftime("%H:%M:%S")
+
 import mimetypes
 import http.server
 import ssl
@@ -85,7 +98,7 @@ def save_config(cfg: Dict[str, Any]):
 config = load_config()
 proxmox = ProxmoxClient(config.get("proxmox", {}))
 hass = HomeAssistantClient(
-    config.get("homeassistant", {}).get("url", "http://127.0.0.1:8123"),
+    config.get("homeassistant", {}).get("url", "http://192.168.1.82:8123"),
     config.get("homeassistant", {}).get("token", "")
 )
 vault = ObsidianVault(os.path.join(ROOT_DIR, config.get("obsidian", {}).get("vault_path", "vault_backup")))
@@ -250,7 +263,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             vault_p = config.get("obsidian", {}).get("user_vault_path") or config.get("obsidian", {}).get("vault_path")
             candidates = [
                 os.path.join(vault_p, "Current Status.md") if vault_p else "",
-                r"C:\Users\operator\OneDrive\Documents\obsidian\Current Status.md",
+                r"C:\Users\johna\OneDrive\Documents\obsidian\Current Status.md",
                 "/opt/stonesage/vault_backup/Current Status.md",
                 "vault_backup/Current Status.md"
             ]
@@ -275,7 +288,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/notes":
             couch_notes = couchdb.list_notes()
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian")
             local_notes = []
             if user_vault and os.path.exists(user_vault):
                 for root, dirs, files in os.walk(user_vault):
@@ -336,7 +349,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/obsidian/note":
             rel_path = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
-            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian")
+            user_vault = config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian")
             if user_vault and os.path.exists(user_vault):
                 norm_rel = os.path.normpath(rel_path).lstrip("\\/")
                 full_path = os.path.join(user_vault, norm_rel)
@@ -398,7 +411,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/knowledge/status":
-            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\operator\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
+            kb_dir = os.path.join(config.get("obsidian", {}).get("user_vault_path", r"C:\Users\johna\OneDrive\Documents\obsidian"), "LocalLlmHub", "rag")
             file_count = 0
             if os.path.exists(kb_dir):
                 for _, _, files in os.walk(kb_dir):
@@ -635,9 +648,85 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
+        elif path == "/api/harness/capabilities":
+            try:
+                # 1. Query live coordinator models from :8001/v1/models
+                coord_info = {"id": "coordinator", "status": "unknown"}
+                try:
+                    req_c = urllib.request.Request("http://192.168.1.105:8001/v1/models", headers={"User-Agent": "Aevum-Server"})
+                    with urllib.request.urlopen(req_c, timeout=2.5) as resp_c:
+                        c_data = json.loads(resp_c.read().decode("utf-8"))
+                        if c_data.get("data"):
+                            coord_info = c_data["data"][0]
+                            coord_info["status"] = "online"
+                except Exception as ex_c:
+                    coord_info["status"] = f"offline ({str(ex_c)})"
+
+                # 2. Query live worker models from :8002/v1/models
+                worker_info = {"id": "worker", "status": "unknown"}
+                try:
+                    req_w = urllib.request.Request("http://192.168.1.105:8002/v1/models", headers={"User-Agent": "Aevum-Server"})
+                    with urllib.request.urlopen(req_w, timeout=2.5) as resp_w:
+                        w_data = json.loads(resp_w.read().decode("utf-8"))
+                        if w_data.get("data"):
+                            worker_info = w_data["data"][0]
+                            worker_info["status"] = "online"
+                except Exception as ex_w:
+                    worker_info["status"] = f"offline ({str(ex_w)})"
+
+                # 3. Retrieve installed models list from disk or SSH
+                installed_models = []
+                try:
+                    full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                                 "ls -lh /opt/models/*.gguf"]
+                    res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=5)
+                    if res2.returncode == 0 and res2.stdout:
+                        for line in res2.stdout.strip().split("\n"):
+                            parts = line.split()
+                            if len(parts) >= 9:
+                                fn = parts[8].replace("/opt/models/", "")
+                                installed_models.append({
+                                    "filename": fn,
+                                    "size": parts[4],
+                                    "is_locked": "ornith" in fn.lower()
+                                })
+                except Exception:
+                    pass
+
+                if not installed_models:
+                    installed_models = [
+                        {"filename": "Ornith-1.5-9B-OBLITERATED.Q8_0.gguf", "size": "9.8G", "is_locked": True},
+                        {"filename": "Ornith-1.5-9B-Q4_K_M.gguf", "size": "5.8G", "is_locked": True}
+                    ]
+
+                available_harnesses = [
+                    {"id": "aevum", "name": "Aevum Native Cockpit", "description": "Duplex WebSocket RAG Harness with real-time streaming"},
+                    {"id": "hermes", "name": "Hermes Agentic Loop", "description": "ReAct tool loop with autonomous step dispatch"},
+                    {"id": "openwebui", "name": "OpenWebUI (LXC 119)", "description": "Community chat interface on :8080"}
+                ]
+
+                available_backends = [
+                    {"id": "cluster_lan", "name": "Dual-GPU Vulkan Cluster (192.168.1.105)", "description": "RX 6750 XT (12GB) + RX 6600 XT (8GB)"},
+                    {"id": "tailscale_vip", "name": "Tailscale Mesh VIP", "description": "Encrypted remote WireGuard mesh"},
+                    {"id": "local_edge", "name": "On-Device Snapdragon NPU", "description": "Mobile local inference"}
+                ]
+
+                self.send_json({
+                    "ok": True,
+                    "timezone": "America/New_York (EST)",
+                    "active_coordinator": coord_info,
+                    "active_worker": worker_info,
+                    "installed_models": installed_models,
+                    "available_harnesses": available_harnesses,
+                    "available_backends": available_backends
+                })
+            except Exception as ex:
+                self.send_json({"ok": False, "error": str(ex)}, 500)
+            return
+
         elif path == "/api/cluster/models":
             try:
-                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
                             "grep -E -- '--model|-c ' /etc/systemd/system/llama-coordinator.service"]
                 res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=10)
                 active_model = "Unknown"
@@ -649,7 +738,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         if "-c " in line:
                             active_ctx = line.split("-c ")[-1].strip().split()[0]
 
-                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
                              "ls -lh /opt/models/*.gguf && df -h /opt/models | tail -n 1"]
                 res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=10)
                 models = []
@@ -686,7 +775,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(ex)}, 500)
         elif path == "/api/hivemind/status":
             cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
             try:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "autonomous_thinking_status"}}
                 req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -702,7 +791,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/hivemind/vision_log":
             cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
             limit = int(urllib.parse.parse_qs(parsed.query).get("limit", [150])[0])
             try:
                 payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_home_vision_log", "arguments": {"limit_lines": limit}}}
@@ -769,7 +858,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 "gemini_web": {
                     "enabled": cfg.get("gemini_web", {}).get("enabled", True),
                     "configured": bool(cfg.get("gemini_web", {}).get("psid")),
-                    "endpoint": cfg.get("gemini_web", {}).get("endpoint", "http://127.0.0.1:8087")
+                    "endpoint": cfg.get("gemini_web", {}).get("endpoint", "http://192.168.1.167:8087")
                 }
             })
             return
@@ -834,7 +923,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 is_valid = False
                 bridge_msg = "Saved locally"
                 try:
-                    f_url = "http://127.0.0.1:8087/api/cookies"
+                    f_url = "http://192.168.1.167:8087/api/cookies"
                     req = urllib.request.Request(
                         f_url,
                         data=json.dumps({"psid": psid, "psidts": psidts}).encode("utf-8"),
@@ -854,7 +943,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/vigilance":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
                 try:
                     payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "trigger_home_vigilance_sweep"}}
                     req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
@@ -868,7 +957,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/cycle":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
                 domain = body.get("domain")
                 prompt = body.get("prompt")
                 args = {}
@@ -887,7 +976,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path == "/api/hivemind/toggle":
                 cfg = load_config()
-                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://127.0.0.1:8765")
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
                 action = body.get("action", "start")
                 t_name = "start_autonomous_thinking" if action == "start" else "stop_autonomous_thinking"
                 t_args = {"interval_seconds": body.get("interval_seconds", 120)} if action == "start" else {}
@@ -1041,6 +1130,35 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
 
+            elif path == "/api/cluster/delete-model":
+                model = body.get("model", "").strip()
+                safe_filename = os.path.basename(model)
+                if not safe_filename or not safe_filename.endswith(".gguf"):
+                    self.send_json({"ok": False, "error": "Invalid model filename. Must be a .gguf file."}, 400)
+                    return
+                if "ornith" in safe_filename.lower():
+                    self.send_json({"ok": False, "error": "Protected model: Ornith models are permanently locked and cannot be deleted."}, 403)
+                    return
+                try:
+                    # Check active models
+                    chk_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                               "grep -E -- '--model' /etc/systemd/system/llama-*.service"]
+                    chk_res = subprocess.run(chk_cmd, capture_output=True, text=True, timeout=10)
+                    if chk_res.returncode == 0 and safe_filename in chk_res.stdout:
+                        self.send_json({"ok": False, "error": f"Cannot delete '{safe_filename}' because it is currently loaded in an active service. Switch models first."}, 400)
+                        return
+
+                    del_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "user@192.168.1.105",
+                               f"rm -f /opt/models/{safe_filename}"]
+                    del_res = subprocess.run(del_cmd, capture_output=True, text=True, timeout=15)
+                    if del_res.returncode == 0:
+                        self.send_json({"ok": True, "deleted": safe_filename})
+                    else:
+                        self.send_json({"ok": False, "error": del_res.stderr or "Failed to delete file on cluster."}, 500)
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
             elif path == "/api/cluster/calibrate-model":
                 discover_py = os.path.join(WORKSPACE_ROOT, ".agents", "skills", "model-parameter-discoverer", "discover_parameters.py")
                 model_name = body.get("model_name", "Current-Model")
@@ -1140,13 +1258,34 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                                     pass
                         subagent_registry[subagent_id]["status"] = "completed"
                         subagent_registry[subagent_id]["output"] = "".join(chunks)
-                        subagent_registry[subagent_id]["finished_at"] = time.strftime("%H:%M:%S")
+                        subagent_registry[subagent_id]["finished_at"] = get_eastern_time_str()
                     except Exception as e:
                         subagent_registry[subagent_id]["status"] = "error"
                         subagent_registry[subagent_id]["output"] = str(e)
 
                 threading.Thread(target=run_subagent_task, daemon=True).start()
                 self.send_json({"ok": True, "subagent_id": subagent_id, "role": role, "status": "running"})
+                return
+
+            elif path in ("/api/agents/delete", "/api/subagents/delete"):
+                agent_id = body.get("agent_id", "").strip()
+                if not agent_id:
+                    self.send_json({"ok": False, "error": "Missing agent_id"}, 400)
+                    return
+                # Also remove from local registry if present
+                if agent_id in subagent_registry:
+                    del subagent_registry[agent_id]
+                # Call cluster MCP delete_active_agent
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "delete_active_agent", "arguments": {"agent_id": agent_id}}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        self.send_json({"ok": True, "result": res})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
 
             elif path == "/api/files/upload":
@@ -1987,16 +2126,16 @@ if __name__ == "__main__":
             print(f"    To force restart, run start.bat which will automatically free the port.")
             sys.exit(1)
         raise
-    lan_ip = config.get("server", {}).get("lan_ip", "127.0.0.1")
+    lan_ip = config.get("server", {}).get("lan_ip", "192.168.1.132")
     print("=" * 68)
     print("  [ STONESAGE COGNITIVE TERMINAL WORKSTATION v3.0 ]")
     print(f"  Local Browser:     http://localhost:{port} (or http://127.0.0.1:{port})")
     print(f"  LAN Workstation:   http://{lan_ip}:{port}")
-    print(f"  Cluster Nodes:     pve (127.0.0.1) & bigserv (127.0.0.1)")
+    print(f"  Cluster Nodes:     pve (192.168.1.229) & bigserv (192.168.1.82)")
     print(f"  Dual-GPU Cluster:  14B Coord (:8001/Vulkan0) & 3B Worker (:8002/Vulkan1)")
     print(f"  RAG Proxy (HA):    http://{lan_ip}:{port}/api/ai/coordinator/v1")
-    print(f"  Qdrant Memory:     127.0.0.1:6333 (User Obsidian Ingested)")
-    print(f"  Home Assistant:    http://127.0.0.1:8123")
+    print(f"  Qdrant Memory:     192.168.1.112:6333 (User Obsidian Ingested)")
+    print(f"  Home Assistant:    http://192.168.1.82:8123")
     print("=" * 68)
     print("=" * 65)
 
