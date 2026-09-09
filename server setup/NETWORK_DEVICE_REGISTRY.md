@@ -33,6 +33,7 @@ Static DHCP reservations, hardware MAC addresses, service endpoints, and device 
 | `docker` | LXC 105 | `192.168.1.204` | `BC-24-11-85-2C-F2` | `:9443` | Docker & Portainer Container Host |
 | `obsidian-live-sync` | LXC 116 | `192.168.1.230` | `BC-24-11-4C-50-5E` | `:5984` | CouchDB Self-Hosted Obsidian LiveSync Server |
 | `stonesage` | LXC 120 | `192.168.1.167` | `BC-24-11-40-F0-69` | `:8080` | StoneSage 24/7 Command Cockpit & Automation Server |
+| `voice-services` | LXC 121 | `192.168.1.121` | `BC-24-11-32-6E-DB` | `:8200` (STT), `:8300` (TTS), `:10300` (Wyoming STT), `:10200` (Wyoming TTS) | Local Voice Stack: Faster Whisper + Kokoro ONNX + Wyoming Protocol |
 | `bhyve-bh1g2` | VM | `192.168.1.87` | `44-67-55-2F-0A-22` | — | FreeBSD / TrueNAS Storage Subsystem |
 
 ---

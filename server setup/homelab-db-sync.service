@@ -1,0 +1,11 @@
+[Unit]
+Description=Homelab Qdrant Vector Memory to Obsidian Sync
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/stonesage/backend
+ExecStart=/usr/bin/python3 -u sync_db_to_obsidian.py
+StandardOutput=journal
+StandardError=journal

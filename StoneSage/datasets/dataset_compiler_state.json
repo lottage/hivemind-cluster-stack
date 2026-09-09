@@ -1,0 +1,23 @@
+{
+  "status": "completed",
+  "progress_pct": 100,
+  "processed": 15,
+  "total": 15,
+  "accepted": 15,
+  "rejected": 0,
+  "current_stage": "completed",
+  "last_run": "2026-09-09T17:12:06Z",
+  "last_manifest": {
+    "timestamp": "2026-09-09T17:12:06Z",
+    "duration_seconds": 300.7,
+    "total_candidates_harvested": 292,
+    "total_candidates_processed": 15,
+    "accepted_samples": 15,
+    "rejected_samples": 0,
+    "rejection_rate_pct": 0.0,
+    "files": {
+      "sharegpt": "C:\\Users\\johna\\OneDrive\\Documents\\.ai\\StoneSage\\datasets\\homelab_curated_sharegpt.jsonl",
+      "alpaca": "C:\\Users\\johna\\OneDrive\\Documents\\.ai\\StoneSage\\datasets\\homelab_curated_alpaca.jsonl"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=24/7 Priority Failover Frontier Bridge (Antigravity CLI + Gemini API)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/frontier-bridge
+ExecStart=/usr/bin/python3 -u server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+Environment="PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="HOME=/root"
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,8 @@ import uuid
 import time
 import subprocess
 import asyncio
+import urllib
+import urllib.request
 import requests
 from typing import Dict, Any, Optional
 from starlette.applications import Starlette
@@ -555,6 +557,12 @@ def tool_stop_background_agent(agent_id: str) -> str:
     stopped = engine.agent_registry.stop_agent(agent_id)
     return f"Agent {agent_id} status updated to stopped." if stopped else f"Agent {agent_id} not found."
 
+def tool_delete_active_agent(agent_id: str) -> str:
+    if not engine or not hasattr(engine, "agent_registry"):
+        return "Error: autonomous_engine agent_registry not loaded."
+    deleted = engine.agent_registry.delete_agent(agent_id)
+    return f"Agent {agent_id} permanently deleted from registry, disk, and Ziotron." if deleted else f"Agent {agent_id} not found."
+
 def tool_reproduce_blended_agent(
     parent_a_id: str,
     parent_b_id: str,
@@ -564,7 +572,8 @@ def tool_reproduce_blended_agent(
     custom_mission: Optional[str] = None,
     custom_system_prompt: Optional[str] = None,
     custom_focus_question: Optional[str] = None,
-    model_preference: Optional[str] = None
+    model_preference: Optional[str] = None,
+    blend_ratio: Optional[float] = 0.5
 ) -> str:
     if not engine or not hasattr(engine, "reproduce_blended_agent"):
         return json.dumps({"error": "reproduce_blended_agent engine not available."})
@@ -577,8 +586,15 @@ def tool_reproduce_blended_agent(
         custom_mission=custom_mission,
         custom_system_prompt=custom_system_prompt,
         custom_focus_question=custom_focus_question,
-        model_preference=model_preference
+        model_preference=model_preference,
+        blend_ratio=blend_ratio
     )
+    return json.dumps(res, indent=2)
+
+def tool_nudge_agent(agent_id: str = "engine", directive: Optional[str] = None) -> str:
+    if not engine or not hasattr(engine, "nudge_agent"):
+        return json.dumps({"error": "nudge_agent engine not available."})
+    res = engine.nudge_agent(agent_id=agent_id, prompt_override=directive)
     return json.dumps(res, indent=2)
 
 def tool_talk_to_agent(from_agent_id: Optional[str] = None, to_agent_id: Optional[str] = None, message: str = "", sender_id: Optional[str] = None, target_id: Optional[str] = None, target_agent: Optional[str] = None) -> str:
@@ -619,6 +635,43 @@ def tool_talk_to_agent(from_agent_id: Optional[str] = None, to_agent_id: Optiona
         "message": message,
         "reply": reply
     }, indent=2)
+
+def tool_broadcast_to_assembly(channel: str = "agora", message: str = "", agent_id: str = "ANTIGRAVITY", agent_name: str = "Antigravity (Frontier)") -> str:
+    clean_chan = channel.lstrip("#").strip()
+    try:
+        req_data = json.dumps({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "message": message
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:8766/api/channels/{clean_chan}/message",
+            data=req_data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return json.dumps(data, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to broadcast to Assembly Hall: {e}"})
+
+def tool_read_assembly_channel(channel: str = "agora", limit: int = 10) -> str:
+    clean_chan = channel.lstrip("#").strip()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:8766/api/channels/{clean_chan}/history?limit={limit}", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return json.dumps(data, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to read Assembly Hall channel #{clean_chan}: {e}"})
+
+def tool_get_assembly_channels() -> str:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8766/api/channels", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return json.dumps(data, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to get Assembly Hall channels: {e}"})
 
 def tool_hive_mind_query(prompt: str, user_intent: Optional[str] = None, max_tokens: int = 2048, allow_moe_elevation: bool = False) -> str:
     if engine and hasattr(engine, "preemption"):
@@ -922,6 +975,17 @@ TOOLS_MANIFEST = [
             "type": "object",
             "properties": {
                 "agent_id": {"type": "string", "description": "The ID of the agent to halt (e.g. AGENT-A1B2C3)."}
+            },
+            "required": ["agent_id"]
+        }
+    },
+    {
+        "name": "delete_active_agent",
+        "description": "Permanently delete an autonomous subagent by its ID, removing its checkpoint dossier, Qdrant vectors, and lineage links.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string", "description": "The ID or name of the agent to permanently delete."}
             },
             "required": ["agent_id"]
         }
@@ -1247,6 +1311,10 @@ TOOLS_MANIFEST = [
                 "model_preference": {
                     "type": "string",
                     "description": "Preferred compute model ('coordinator' or 'worker')."
+                },
+                "blend_ratio": {
+                    "type": "number",
+                    "description": "Optional crossover blend ratio between 0.0 and 1.0 representing the genetic weight of Parent A (e.g. 0.8 for 80% Parent A / 20% Parent B, default 0.5)."
                 }
             },
             "required": ["parent_a_id", "parent_b_id"],
@@ -1273,6 +1341,84 @@ TOOLS_MANIFEST = [
                 }
             },
             "required": ["sender_id", "target_id", "message"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "nudge_agent",
+        "description": "Manually nudge an agent or the cognitive thinking engine to break out of any waiting/blocked state (e.g. waiting on a command/log that never completes or preemption lock), inject a continuation directive, and force execution of the next reasoning milestone.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "ID or name of the target agent to nudge, or 'engine' to unblock the autonomous loop.",
+                    "default": "engine"
+                },
+                "directive": {
+                    "type": "string",
+                    "description": "Optional custom prompt directive guiding what to think about next after breaking wait."
+                }
+            },
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "broadcast_to_assembly",
+        "description": "Broadcast a message to any channel in the Sovereign Agent Assembly Hall (agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name (e.g. agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+                    "default": "agora"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message or insight to broadcast."
+                },
+                "agent_id": {
+                    "type": "string",
+                    "description": "Sending agent ID.",
+                    "default": "ANTIGRAVITY"
+                },
+                "agent_name": {
+                    "type": "string",
+                    "description": "Sending agent display name.",
+                    "default": "Antigravity (Frontier)"
+                }
+            },
+            "required": ["message"],
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "read_assembly_channel",
+        "description": "Read recent live message history from an Assembly Hall channel.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "description": "Channel name (e.g. agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+                    "default": "agora"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of recent messages to retrieve (default 10).",
+                    "default": 10
+                }
+            },
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "get_assembly_channels",
+        "description": "List all active channels and live agents in the Sovereign Agent Assembly Hall.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
             "additionalProperties": False
         }
     }
@@ -1339,10 +1485,20 @@ async def handle_jsonrpc(data: dict) -> dict:
                 output = tool_list_active_agents()
             elif tool_name == "stop_background_agent":
                 output = tool_stop_background_agent(**args)
+            elif tool_name == "delete_active_agent":
+                output = tool_delete_active_agent(**args)
             elif tool_name == "reproduce_blended_agent":
                 output = await asyncio.to_thread(tool_reproduce_blended_agent, **args)
             elif tool_name == "talk_to_agent":
                 output = await asyncio.to_thread(tool_talk_to_agent, **args)
+            elif tool_name == "nudge_agent":
+                output = await asyncio.to_thread(tool_nudge_agent, **args)
+            elif tool_name == "broadcast_to_assembly":
+                output = await asyncio.to_thread(tool_broadcast_to_assembly, **args)
+            elif tool_name == "read_assembly_channel":
+                output = await asyncio.to_thread(tool_read_assembly_channel, **args)
+            elif tool_name == "get_assembly_channels":
+                output = await asyncio.to_thread(tool_get_assembly_channels)
             # Cluster & Smarthome Tools
             elif tool_name == "cluster_health":
                 output = tool_cluster_health()

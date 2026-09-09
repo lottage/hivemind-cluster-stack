@@ -20,8 +20,8 @@ $CandidateRemoteDirs = @()
 if ($RemoteDir -ne "") {
     $CandidateRemoteDirs += $RemoteDir
 }
-$CandidateRemoteDirs += "/home/austin/cluster-bridge/thinking_archive"
 $CandidateRemoteDirs += "/opt/cluster-bridge/thinking_archive"
+$CandidateRemoteDirs += "/home/austin/cluster-bridge/thinking_archive"
 $CandidateRemoteDirs = $CandidateRemoteDirs | Select-Object -Unique
 
 $TempDir = Join-Path $env:TEMP "thinking_sync_$(Get-Random)"
@@ -64,6 +64,10 @@ try {
             )
             [System.IO.File]::WriteAllText($destPath, $rewritten, [System.Text.Encoding]::UTF8)
             Write-Host "  Updated master synthesis: $($file.Name)" -ForegroundColor Cyan
+        } elseif ($file.Name -like "*HOME*VISION*LOG*.md" -or $file.Name -eq "HOME_AND_VISION_ACTIVITY_LOG.md") {
+            $destPath = Join-Path $ObsidianVaultDir "Home & Vision Activity Log.md"
+            Copy-Item -Path $file.FullName -Destination $destPath -Force
+            Write-Host "  Updated Home & Vision Activity Log: Home & Vision Activity Log.md" -ForegroundColor Green
         } else {
             $destPath = Join-Path $ExplorationsDir $file.Name
             $content = Get-Content -Path $file.FullName -Raw -Encoding UTF8

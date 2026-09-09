@@ -3,15 +3,17 @@
     "host": "0.0.0.0",
     "port": 8080,
     "lan_ip": "192.168.1.132",
-    "theme": "crt_green"
+    "theme": "win95"
   },
   "cluster": {
     "coordinator_url": "http://192.168.1.105:8001/v1",
     "worker_url": "http://192.168.1.105:8002/v1",
     "embedder_url": "http://192.168.1.105:8003/v1",
     "mcp_url": "http://192.168.1.105:8765",
+    "vision_url": "http://192.168.1.105:8004/v1",
     "qdrant_url": "http://192.168.1.112:6333",
-    "default_model": "pve-coordinator"
+    "default_model": "hermes",
+    "default_context": 16384
   },
   "homeassistant": {
     "url": "http://192.168.1.82:8123",
@@ -58,6 +60,20 @@
     "api_key": "",
     "demo_fallback": true
   },
+  "gemini_web": {
+    "enabled": false,
+    "psid": "g.a000CQndO5qLr4R86WSv6mhKvwJ0sUvRh1c77aP3YqoFpQJDq7pfqL-3O3jz5Uji_9_acfbZlQACgYKAVwSARQSFQHGX2Mirbcj1ZZzG7482bQD_TDm2hoVAUF8yKrqQbt5ZHWMdINvTlxzEg6D0076",
+    "psidts": "sidts-CjEBXMw41R1opgLTQur_gf2HEuMprLB7Pvfxra-wIvFpmwRlzuySz5XehyPG34ZgNy_6EAA",
+    "endpoint": "http://192.168.1.167:8087"
+  },
+  "task_routing": {
+    "interactive_chat": "hermes",
+    "autonomous_ideation": "local_worker",
+    "autonomous_solving": "hermes",
+    "frontier_audit": "frontier_agy",
+    "sleep_rumination": "moe_35b",
+    "subagent_default": "local_worker"
+  },
   "external_providers": {
     "openrouter": {
       "enabled": false,
@@ -99,32 +115,52 @@
       ]
     }
   },
+  "harness_settings": {
+    "default_harness": "hermes",
+    "hermes": {
+      "name": "Hermes 3 Agentic Loop",
+      "model_target": "moe",
+      "model_file": "/opt/models/ornith-1.5-35b-moe.gguf",
+      "context_window": 16384,
+      "max_iterations": 10,
+      "temperature": 0.70,
+      "min_p": 0.06,
+      "presence_penalty": 0.25,
+      "timeout_sec": 60,
+      "system_prompt_mode": "agentic",
+      "tool_call_retries": 3,
+      "divergence_threshold": 0.85,
+      "reflection_enabled": true,
+      "device": "Vulkan0,Vulkan1 (Dual AMD GPU)",
+      "tensor_split": "12,8"
+    }
+  },
   "services": [
     {
       "id": "coordinator",
-      "name": "14B Coordinator (RX 6750 XT)",
+      "name": "Hermes 3 Agentic (Ornith-1.5-35B MoE 16k)",
       "category": "ai",
       "node": "pve",
       "vmid": "102",
       "url": "http://192.168.1.105:8001/v1/models",
       "display_url": "http://192.168.1.105:8001",
-      "description": "24/7 Primary Unrestricted Coding & Architecture Model",
+      "description": "24/7 Primary Uncensored MoE Reasoning, Coding & Hermes Agentic Harness (Dual RX 6750XT + 6600XT - 16k Ctx)",
       "icon": "brain"
     },
     {
       "id": "worker",
-      "name": "3B Fast Worker (RX 6600 XT)",
+      "name": "Ornith-1.5-9B Q4 Worker (:8002)",
       "category": "ai",
       "node": "pve",
       "vmid": "102",
       "url": "http://192.168.1.105:8002/v1/models",
       "display_url": "http://192.168.1.105:8002",
-      "description": "80+ tok/s Utility, Linter, Test & NLP Dispatcher",
+      "description": "Fast Divergent Ideation, Utility, Linter & NLP Dispatcher (Q4_K_M)",
       "icon": "zap"
     },
     {
       "id": "embedder",
-      "name": "BGE-Large Embedder (RX 6600 XT)",
+      "name": "BGE-Large Embedder (:8003)",
       "category": "ai",
       "node": "pve",
       "vmid": "102",
@@ -132,6 +168,17 @@
       "display_url": "http://192.168.1.105:8003",
       "description": "Continuous 1024-dim Vector Ingestion Engine",
       "icon": "database"
+    },
+    {
+      "id": "vision",
+      "name": "Gemma-4 Vision Provider (CPU/VLM)",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://192.168.1.105:8004/v1/models",
+      "display_url": "http://192.168.1.105:8004",
+      "description": "24/7 LLM Vision & Camera Perception Engine (:8004)",
+      "icon": "eye"
     },
     {
       "id": "qdrant",
@@ -165,6 +212,28 @@
       "display_url": "http://192.168.1.108:8080",
       "description": "ChatGPT-Style Multi-Model Web Interface (192.168.1.108:8080)",
       "icon": "message-square"
+    },
+    {
+      "id": "kokoro_tts",
+      "name": "Kokoro Neural TTS",
+      "category": "ai",
+      "node": "bigserv",
+      "vmid": "121",
+      "url": "http://192.168.1.121:8300/web/",
+      "display_url": "http://192.168.1.121:8300/web/",
+      "description": "OpenAI-Compatible Local TTS: 68 Natural Voices, 82M ONNX Model",
+      "icon": "volume-2"
+    },
+    {
+      "id": "faster_whisper",
+      "name": "Faster Whisper STT",
+      "category": "ai",
+      "node": "bigserv",
+      "vmid": "121",
+      "url": "http://192.168.1.121:8200/health",
+      "display_url": "http://192.168.1.121:8200",
+      "description": "OpenAI-Compatible Local STT: CTranslate2 Whisper Base.en",
+      "icon": "mic"
     },
     {
       "id": "homeassistant",
@@ -216,9 +285,9 @@
       "category": "infra",
       "node": "bigserv",
       "vmid": "101",
-      "url": "http://192.168.1.7:3000",
-      "display_url": "http://192.168.1.82:3000",
-      "description": "Network-Wide DNS Sinkhole & Privacy",
+      "url": "http://192.168.1.194",
+      "display_url": "http://192.168.1.194",
+      "description": "Network-Wide DNS Sinkhole & Privacy (192.168.1.194)",
       "icon": "shield",
       "emoji": "\ud83d\udee1\ufe0f"
     },
@@ -541,11 +610,11 @@
       "notes": "Dev Workstation"
     },
     {
-      "name": "network-device-7",
-      "ip": "192.168.1.7",
+      "name": "adguard",
+      "ip": "192.168.1.194",
       "mac": "BC-24-11-C3-5F-AE",
-      "category": "network",
-      "notes": "Switch / Bridge"
+      "category": "infra",
+      "notes": "LXC 101 - AdGuard Home DNS Sinkhole (Port 80/53)"
     },
     {
       "name": "network-device-217",
@@ -573,5 +642,11 @@
     "openai_api_key": "",
     "anthropic_api_key": "",
     "gemini_api_key": ""
+  },
+  "sampling": {
+    "temperature": 0.68,
+    "min_p": 0.06,
+    "presence_penalty": 0.25,
+    "repeat_penalty": 1.12
   }
 }

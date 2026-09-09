@@ -8,7 +8,7 @@ const state = {
   services: [],
   category: 'all',
   isEditMode: false,
-  theme: localStorage.getItem('stonesage_theme') || 'crt-green',
+  theme: localStorage.getItem('stonesage_theme') || 'win95',
   
   // Terminal Host Shell
   terminal: {
@@ -33,7 +33,7 @@ const state = {
 
   // AI Cognitive Harness
   ai: {
-    activeModel: 'coordinator', // 'coordinator' (14B), 'worker' (3B), 'openai', 'anthropic', 'gemini'
+    activeModel: 'hermes', // 'hermes' (Ornith-1.5-35B MoE 16k), 'coordinator' (:8001), 'worker' (3B), 'openai', 'anthropic', 'gemini'
     ragEnabled: true,
     ragCollection: 'companion_profile',
     isGenerating: false,
@@ -157,11 +157,22 @@ function initHeaderClock() {
   const update = () => {
     if (clock) {
       const now = new Date();
-      clock.textContent = `[TIME: ${now.toLocaleTimeString([], { hour12: false })}]`;
+      clock.textContent = `[TIME: ${now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false })} EST]`;
     }
   };
   update();
   setInterval(update, 1000);
+}
+
+function formatEasternTime(dateOrTimestamp) {
+  if (!dateOrTimestamp) return '';
+  try {
+    const d = new Date(dateOrTimestamp);
+    if (isNaN(d.getTime())) return String(dateOrTimestamp);
+    return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) + ' EST';
+  } catch (e) {
+    return String(dateOrTimestamp);
+  }
 }
 
 function initLanIpCopy() {
@@ -195,6 +206,12 @@ function initNavigation() {
       const targetView = document.getElementById(btn.dataset.view);
       if (targetView) targetView.classList.add('active');
 
+      const addrInput = document.getElementById('win95-address-input');
+      if (addrInput) {
+        const route = btn.dataset.view ? btn.dataset.view.replace('view-', '') : 'launchpad';
+        addrInput.value = `192.168.1.132:8080/${route}.htm`;
+      }
+
       const viewId = btn.dataset.view;
       if (viewId !== 'view-proxmox') stopProxmoxPolling();
 
@@ -202,10 +219,12 @@ function initNavigation() {
       if (viewId === 'view-launchpad') fetchServices();
       if (viewId === 'view-workstation') { fetchWorkspaceTree(); fetchGitStatus(); }
       if (viewId === 'view-ai') { fetchStmStatus(); fetchKnowledgeBaseStatus(); }
+      if (viewId === 'view-hivemind') { loadHiveMindStatus(); loadHiveMindVisionLog(); }
       if (viewId === 'view-ha') fetchHaDashboard();
       if (viewId === 'view-obsidian') { fetchObsidianNotes(); fetchBrainSyncStatus(); fetchCouchDbStatus(); }
       if (viewId === 'view-proxmox') { fetchProxmoxData(); startProxmoxPolling(); }
       if (viewId === 'view-canvas') initLiveCanvas();
+      if (viewId === 'view-harness') switchHarnessStudio(currentHarnessId);
       if (viewId === 'view-immich') fetchImmichData();
       if (viewId === 'view-memory') fetchMemoryTelemetry();
     });
@@ -214,19 +233,21 @@ function initNavigation() {
 
 function initGlobalShortcuts() {
   window.addEventListener('keydown', (e) => {
-    // Function keys F1 - F9
-    if (e.key.startsWith('F') && e.key.length === 2) {
+    // Function keys F1 - F11
+    if (e.key.startsWith('F') && e.key.length >= 2) {
       const num = parseInt(e.key.slice(1), 10);
       const viewMap = {
         1: 'view-launchpad',
         2: 'view-workstation',
         3: 'view-ai',
-        4: 'view-ha',
-        5: 'view-obsidian',
-        6: 'view-proxmox',
-        7: 'view-canvas',
-        8: 'view-immich',
-        9: 'view-memory'
+        4: 'view-hivemind',
+        5: 'view-ha',
+        6: 'view-obsidian',
+        7: 'view-proxmox',
+        8: 'view-canvas',
+        9: 'view-harness',
+        10: 'view-immich',
+        11: 'view-memory'
       };
       if (viewMap[num]) {
         e.preventDefault();
@@ -251,7 +272,11 @@ function initGlobalShortcuts() {
    ========================================================================== */
 function initWorkstation() {
   const refreshTreeBtn = document.getElementById('refresh-tree-btn');
-  if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', fetchWorkspaceTree);
+  if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', async () => {
+    refreshTreeBtn.textContent = '⏳';
+    await fetchWorkspaceTree();
+    refreshTreeBtn.textContent = '🔄';
+  });
 
   const saveBtn = document.getElementById('workstation-save-btn');
   if (saveBtn) saveBtn.addEventListener('click', saveWorkstationFile);
@@ -266,7 +291,12 @@ function initWorkstation() {
   if (diffToggleBtn) diffToggleBtn.addEventListener('click', toggleWorkstationDiff);
 
   const gitRefreshBtn = document.getElementById('workstation-git-refresh-btn');
-  if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', fetchGitStatus);
+  if (gitRefreshBtn) gitRefreshBtn.addEventListener('click', async () => {
+    const orig = gitRefreshBtn.textContent;
+    gitRefreshBtn.textContent = '[⏳ SYNCING...]';
+    await fetchGitStatus();
+    gitRefreshBtn.textContent = orig;
+  });
 
   const gitCommitBtn = document.getElementById('git-commit-btn');
   if (gitCommitBtn) gitCommitBtn.addEventListener('click', commitWorkstationGit);
@@ -903,9 +933,9 @@ async function execTerminalCommand(cmd) {
       if (data.ok && data.cluster) {
         const c = data.cluster;
         logToTerminal(`\n=== PVE CLUSTER HEALTH STATUS ===
-- Coordinator 14B (:8001): ${c.coordinator?.online ? 'ONLINE' : 'OFFLINE'} (${c.coordinator?.latency_ms || '?'}ms) [RX 6750 XT 12GB]
-- Worker 3B       (:8002): ${c.worker?.online ? 'ONLINE' : 'OFFLINE'} (${c.worker?.latency_ms || '?'}ms) [RX 6600 XT 8GB]
-- Embedder BGE    (:8003): ${c.embedder?.online ? 'ONLINE' : 'OFFLINE'} (${c.embedder?.latency_ms || '?'}ms) [RX 6600 XT 8GB]
+- Coordinator (:8001): ${c.coordinator?.online ? 'ONLINE' : 'OFFLINE'} (${c.coordinator?.latency_ms || '?'}ms) [Primary Accelerator]
+- Worker      (:8002): ${c.worker?.online ? 'ONLINE' : 'OFFLINE'} (${c.worker?.latency_ms || '?'}ms) [Worker Accelerator]
+- Embedder    (:8003): ${c.embedder?.online ? 'ONLINE' : 'OFFLINE'} (${c.embedder?.latency_ms || '?'}ms) [Vector Engine]
 - Qdrant Vector   (:6333): ${c.qdrant?.online ? 'ONLINE' : 'OFFLINE'} (${c.qdrant?.latency_ms || '?'}ms) [LXC 117]
 - MCP Bridge      (:8765): ${c.mcp?.online ? 'ONLINE' : 'OFFLINE'} (${c.mcp?.latency_ms || '?'}ms) [VM 102 ubu]
 Overall Status: ${c.all_online ? 'OPTIMAL (5/5 Services Active)' : 'DEGRADED'}\n`);
@@ -1345,6 +1375,57 @@ Node bigserv (192.168.1.82):
     return;
   }
 
+  // 21b. delete-agent / rm-agent
+  if (cmdLower.startsWith('delete-agent') || cmdLower.startsWith('rm-agent') || cmdLower.startsWith('delete_agent')) {
+    const parts = cmd.trim().split(/\s+/);
+    const agentId = parts[1];
+    if (!agentId) {
+      logToTerminal('Usage: delete-agent <agent_id>', 'alert');
+      return;
+    }
+    logToTerminal(`[PURGING AGENT ${agentId} FROM REGISTRY...]`);
+    try {
+      const res = await fetch('/api/agents/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        logToTerminal(`[SUCCESS] Subagent '${agentId}' removed from active registry and disk.`, 'bright');
+        logToTerminal(`[NOTE] All learned memories and invariants remain preserved in Qdrant.`, 'dim');
+      } else {
+        logToTerminal(`[ERROR] ${data.error || 'Failed to delete agent'}`, 'alert');
+      }
+    } catch (e) {
+      logToTerminal(`[DELETE AGENT ERROR] ${e.message}`, 'alert');
+    }
+    return;
+  }
+
+  // 21c. nudge-agent / nudge-loop / nudge
+  if (cmdLower.startsWith('nudge')) {
+    const parts = cmd.trim().split(/\s+/);
+    const target = parts[1] || 'engine';
+    logToTerminal(`[SENDING REASONING NUDGE TO ${target.toUpperCase()}...]`);
+    try {
+      const res = await fetch('/api/agent/nudge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: target })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        logToTerminal(`[SUCCESS] Nudge applied to ${target}. Breakout directive injected; execution resumed.`, 'bright');
+      } else {
+        logToTerminal(`[ERROR] ${data.error || 'Failed to nudge agent'}`, 'alert');
+      }
+    } catch (e) {
+      logToTerminal(`[NUDGE ERROR] ${e.message}`, 'alert');
+    }
+    return;
+  }
+
   // 22. pwd / Get-Location
   if (cmdLower === 'pwd' || cmdLower === 'get-location') {
     logToTerminal(`Path: C:\\Users\\johna\\OneDrive\\Documents\\.ai${state.terminal.currentDir ? '\\' + state.terminal.currentDir.replace(/\//g, '\\') : ''}`);
@@ -1393,6 +1474,61 @@ function logToTerminal(text, type = 'normal') {
   out.scrollTop = out.scrollHeight;
 }
 
+async function loadHarnessCapabilities() {
+  try {
+    const res = await fetch('/api/harness/capabilities');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // 1. Populate #ai-active-model
+    const aiModelSel = document.getElementById('ai-active-model');
+    if (aiModelSel) {
+      const cMeta = data.active_coordinator?.meta;
+      const wMeta = data.active_worker?.meta;
+      const cLabel = cMeta
+        ? `[HERMES: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || 'MoE'} (${Math.round((cMeta.n_ctx || 16384) / 1024)}k ctx)]`
+        : '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]';
+      const wLabel = wMeta
+        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || 'Q4'} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
+        : '[WORKER :8002 (80+ t/s)]';
+
+      aiModelSel.innerHTML = `
+        <option value="hermes" selected>${cLabel}</option>
+        <option value="coordinator">[PRIMARY COORDINATOR :8001]</option>
+        <option value="worker">${wLabel}</option>
+        <option value="openai">[FRONTIER: GPT-4o]</option>
+        <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
+        <option value="gemini">[FRONTIER: Gemini 2.5 Pro]</option>
+      `;
+    }
+
+    // 2. Populate #subagent-model-quick
+    const subSel = document.getElementById('subagent-model-quick');
+    if (subSel) {
+      const cMeta = data.active_coordinator?.meta;
+      const wMeta = data.active_worker?.meta;
+      const cLabel = cMeta ? `[${(cMeta.n_params / 1e9).toFixed(1)}B COORDINATOR :8001]` : '[COORDINATOR :8001 (Primary)]';
+      const wLabel = wMeta ? `[${(wMeta.n_params / 1e9).toFixed(1)}B WORKER :8002 (80+ tok/s)]` : '[WORKER :8002 (80+ tok/s)]';
+
+      subSel.innerHTML = `
+        <option value="worker" selected>${wLabel}</option>
+        <option value="coordinator">${cLabel}</option>
+      `;
+    }
+
+    // 3. Populate #local-model-select if present
+    const localModelSel = document.getElementById('local-model-select');
+    if (localModelSel && data.installed_models && data.installed_models.length > 0) {
+      localModelSel.innerHTML = data.installed_models.map(m => {
+        const lockIcon = m.is_locked ? '🔒 ' : '';
+        return `<option value="${m.filename}">${lockIcon}${m.filename} (${m.size})</option>`;
+      }).join('');
+    }
+  } catch (err) {
+    console.warn('Could not load harness capabilities:', err);
+  }
+}
+
 /* ==========================================================================
    6. AI Cognitive Cockpit (3-Tier Hardware Hierarchy & Frontier)
    ========================================================================== */
@@ -1405,6 +1541,9 @@ function initAiHarness() {
   const ragSelect = document.getElementById('rag-collection-select');
   const clearBtn = document.getElementById('ai-clear-session-btn');
   const subagentBtn = document.getElementById('subagent-dispatch-quick-btn');
+
+  // Dynamically poll cluster capabilities from llama.cpp (:8001, :8002) and /opt/models/
+  loadHarnessCapabilities();
 
   if (modelSelect) {
     modelSelect.addEventListener('change', (e) => {
@@ -1507,9 +1646,11 @@ async function submitChatPrompt() {
   const msgBlock = document.createElement('div');
   msgBlock.className = 'chat-msg assistant';
   
-  const roleTitle = state.ai.activeModel === 'coordinator' 
-    ? '[14B COORDINATOR :8001]' 
-    : (state.ai.activeModel === 'worker' ? '[3B WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`);
+  const roleTitle = state.ai.activeModel === 'hermes'
+    ? '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]'
+    : (state.ai.activeModel === 'coordinator' 
+      ? '[14B/35B COORDINATOR :8001]' 
+      : (state.ai.activeModel === 'worker' ? '[3B WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`));
 
   msgBlock.innerHTML = `
     <div class="chat-msg-header">
@@ -1582,6 +1723,7 @@ async function submitChatPrompt() {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullResponse = '';
+    let reasoningBuffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -1592,10 +1734,20 @@ async function submitChatPrompt() {
         if (line.startsWith('data: ') && line !== 'data: [DONE]') {
           try {
             const parsed = JSON.parse(line.slice(6));
-            const delta = parsed.choices?.[0]?.delta?.content || '';
-            fullResponse += delta;
+            const delta = parsed.choices?.[0]?.delta || {};
+            if (delta.reasoning_content) {
+              reasoningBuffer += delta.reasoning_content;
+            }
+            if (delta.content) {
+              fullResponse += delta.content;
+            }
             if (bodyElem) {
-              bodyElem.innerHTML = escapeHtml(fullResponse).replace(/\n/g, '<br>');
+              let html = '';
+              if (reasoningBuffer) {
+                html += `<details class="reasoning-trace" open style="background: rgba(0,0,0,0.25); border: 1px dashed var(--term-border); padding: 6px; margin-bottom: 8px; font-size: 0.85em; color: var(--term-text-muted);"><summary style="cursor: pointer; color: var(--term-warn); font-weight: bold;">[🧠 HERMES AGENTIC REASONING TRACE]</summary><div style="margin-top: 4px; white-space: pre-wrap; font-family: monospace;">${escapeHtml(reasoningBuffer)}</div></details>`;
+              }
+              html += escapeHtml(fullResponse).replace(/\n/g, '<br>');
+              bodyElem.innerHTML = html;
               if (stream) stream.scrollTop = stream.scrollHeight;
             }
           } catch (pe) {}
@@ -1645,7 +1797,8 @@ window.switchAiCockpitTab = function(tab) {
     chat: { btn: 'ai-tab-chat', pane: 'ai-view-chat-pane' },
     planner: { btn: 'ai-tab-planner', pane: 'ai-view-planner-pane' },
     stm: { btn: 'ai-tab-stm', pane: 'ai-view-stm-pane' },
-    kb: { btn: 'ai-tab-kb', pane: 'ai-view-kb-pane' }
+    kb: { btn: 'ai-tab-kb', pane: 'ai-view-kb-pane' },
+    models: { btn: 'ai-tab-models', pane: 'ai-view-models-pane' }
   };
 
   Object.values(tabs).forEach(t => {
@@ -1663,6 +1816,7 @@ window.switchAiCockpitTab = function(tab) {
 
   if (tab === 'stm') fetchStmStatus();
   if (tab === 'kb') fetchKnowledgeBaseStatus();
+  if (tab === 'models') fetchClusterModels();
 };
 
 window.generatePlanFromGoal = async function() {
@@ -1975,7 +2129,12 @@ window.syncKnowledgeBase = async function() {
    ========================================================================== */
 function initHomeAssistant() {
   const refreshBtn = document.getElementById('refresh-ha-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchHaDashboard);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    await fetchHaDashboard();
+    refreshBtn.textContent = orig;
+  });
 
   const slider = document.getElementById('temp-slider');
   const tempDown = document.getElementById('temp-down-btn');
@@ -2056,21 +2215,29 @@ async function fetchHaDashboard() {
     const data = await res.json();
     if (data.ok) {
       if (data.climate && data.climate.length > 0) {
-        const t = data.climate[0];
+        const t = data.climate.find(c => c.entity_id === 'climate.nest_thermostat') || data.climate[0];
         state.thermostat.entity_id = t.entity_id;
-        state.thermostat.current = Math.round(t.current_temperature || 71);
-        state.thermostat.target = Math.round(t.temperature || 72);
-        state.thermostat.mode = t.state || 'heat';
+        state.thermostat.current = Math.round(t.attributes?.current_temperature || t.current_temperature || 72);
+        state.thermostat.target = Math.round(t.attributes?.temperature || t.temperature || 71);
+        state.thermostat.mode = t.state || 'cool';
 
         const curElem = document.getElementById('thermostat-current-temp');
         const tarElem = document.getElementById('thermostat-target-temp');
         const stateElem = document.getElementById('thermostat-hvac-state');
+        const eidElem = document.getElementById('thermostat-entity-id');
+        const humElem = document.getElementById('thermostat-humidity');
         const slider = document.getElementById('temp-slider');
 
         if (curElem) curElem.textContent = state.thermostat.current;
         if (tarElem) tarElem.textContent = state.thermostat.target;
         if (stateElem) stateElem.textContent = `[${state.thermostat.mode.toUpperCase()} ACTIVE]`;
+        if (eidElem) eidElem.textContent = state.thermostat.entity_id;
+        if (humElem && t.attributes?.current_humidity) humElem.textContent = `${t.attributes.current_humidity}%`;
         if (slider) slider.value = state.thermostat.target;
+
+        document.querySelectorAll('.thermostat-modes-row button').forEach(b => {
+          b.classList.toggle('active', b.dataset.hvacMode === state.thermostat.mode);
+        });
       }
 
       // Cache entities in state
@@ -2083,6 +2250,132 @@ async function fetchHaDashboard() {
     console.warn('Failed to fetch Home Assistant states:', err);
   }
 }
+
+let cctvMode = 'stream';
+let cctvRefreshTimer = null;
+
+window.triggerVirtualSwitch = async function(entityId) {
+  try {
+    logToTerminal(`[HA] Triggering scene helper: ${entityId}...`);
+    const res = await fetch('/api/ha/service', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: 'input_boolean',
+        service: 'turn_on',
+        service_data: { entity_id: entityId }
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      logToTerminal(`[HA] Successfully executed routine for ${entityId}`, 'success');
+      setTimeout(fetchHaDashboard, 1500);
+    } else {
+      logToTerminal(`[HA Error] ${data.error}`, 'alert');
+    }
+  } catch (err) {
+    logToTerminal(`[HA Exception] ${err.message}`, 'alert');
+  }
+};
+
+window.moveCameraPreset = async function(presetName) {
+  try {
+    logToTerminal(`[CCTV] Moving Kitchen/Living Room camera to preset: ${presetName}...`);
+    await fetch('/api/ha/service', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: 'select',
+        service: 'select_option',
+        service_data: {
+          entity_id: 'select.kitchen_kitchen_living_room_hd_direct_move_to_preset',
+          option: presetName
+        }
+      })
+    });
+    logToTerminal(`[CCTV] Pan/Tilt preset dispatched: ${presetName}`, 'success');
+  } catch (e) {
+    logToTerminal(`[CCTV Error] ${e.message}`, 'alert');
+  }
+};
+
+window.moveDrivewayPreset = async function(presetName) {
+  try {
+    logToTerminal(`[CCTV] Moving Driveway camera to preset: ${presetName}...`);
+    await fetch('/api/ha/service', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: 'select',
+        service: 'select_option',
+        service_data: {
+          entity_id: 'select.driveway_front_door_hd_stream_direct_move_to_preset',
+          option: presetName
+        }
+      })
+    });
+    logToTerminal(`[CCTV] Driveway preset dispatched: ${presetName}`, 'success');
+  } catch (e) {
+    logToTerminal(`[CCTV Error] ${e.message}`, 'alert');
+  }
+};
+
+window.toggleCameraPrivacy = async function() {
+  try {
+    await fetch('/api/ha/service', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: 'switch',
+        service: 'toggle',
+        service_data: { entity_id: 'switch.kitchen_living_room_privacy' }
+      })
+    });
+    logToTerminal('[CCTV] Toggled indoor privacy mode.', 'success');
+  } catch (e) {
+    logToTerminal(`[CCTV Error] ${e.message}`, 'alert');
+  }
+};
+
+window.switchCctvMode = function(mode) {
+  cctvMode = mode;
+  document.getElementById('cctv-mode-stream')?.classList.toggle('active', mode === 'stream');
+  document.getElementById('cctv-mode-snapshot')?.classList.toggle('active', mode === 'snapshot');
+  
+  if (cctvRefreshTimer) {
+    clearInterval(cctvRefreshTimer);
+    cctvRefreshTimer = null;
+  }
+
+  const cam1 = document.getElementById('cam1-feed');
+  const cam2 = document.getElementById('cam2-feed');
+  const t = Date.now();
+
+  if (mode === 'stream') {
+    if (cam1) cam1.src = `/api/hass/camera_stream?entity_id=camera.kitchen_living_room_hd_stream&_t=${t}`;
+    if (cam2) cam2.src = `/api/hass/camera_stream?entity_id=camera.driveway_front_door_hd_stream_direct&_t=${t}`;
+  } else {
+    function refreshSnaps() {
+      const ts = Date.now();
+      if (cam1) cam1.src = `/api/hass/camera_snapshot?entity_id=camera.kitchen_living_room_hd_stream&_t=${ts}`;
+      if (cam2) cam2.src = `/api/hass/camera_snapshot?entity_id=camera.driveway_front_door_hd_stream_direct&_t=${ts}`;
+    }
+    refreshSnaps();
+    cctvRefreshTimer = setInterval(refreshSnaps, 3000);
+  }
+};
+
+window.refreshCctvFeeds = function() {
+  window.switchCctvMode(cctvMode);
+};
+
+window.onCctvError = function(camId) {
+  const feed = document.getElementById(`${camId}-feed`);
+  if (feed && !feed.src.includes('camera_snapshot')) {
+    const eid = camId === 'cam1' ? 'camera.kitchen_living_room_hd_stream' : 'camera.driveway_front_door_hd_stream_direct';
+    feed.src = `/api/hass/camera_snapshot?entity_id=${eid}&_t=${Date.now()}`;
+  }
+};
 
 async function setHassThermostatTemp(targetTemp) {
   try {
@@ -2344,9 +2637,11 @@ function initObsidianBrain() {
 
   if (syncBtn) syncBtn.addEventListener('click', syncObsidianToQdrant);
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => {
-      fetchObsidianNotes();
-      fetchBrainSyncStatus();
+    refreshBtn.addEventListener('click', async () => {
+      const orig = refreshBtn.textContent;
+      refreshBtn.textContent = '[⏳ REFRESHING...]';
+      await Promise.all([fetchObsidianNotes(), fetchBrainSyncStatus()]);
+      refreshBtn.textContent = orig;
     });
   }
 
@@ -2537,7 +2832,12 @@ function stopProxmoxPolling() {
 
 function initProxmox() {
   const refreshBtn = document.getElementById('refresh-proxmox-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchProxmoxData);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ PROBING...]';
+    await fetchProxmoxData();
+    refreshBtn.textContent = orig;
+  });
 
   const rebootConfirm = document.getElementById('confirm-reboot-btn');
   const rebootCancel = document.getElementById('cancel-reboot-btn');
@@ -3160,7 +3460,12 @@ function initImmichDashboard() {
     });
   }
 
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchImmichData);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    await fetchImmichData();
+    refreshBtn.textContent = orig;
+  });
   if (openExt) openExt.addEventListener('click', () => window.open(state.immich.url, '_blank'));
 
   if (uploadBtn && fileInput) {
@@ -3398,7 +3703,12 @@ function initServiceLauncher() {
   });
 
   const refreshBtn = document.getElementById('refresh-services-btn');
-  if (refreshBtn) refreshBtn.addEventListener('click', fetchServices);
+  if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+    const orig = refreshBtn.textContent;
+    refreshBtn.textContent = '[⏳ PINGING...]';
+    await fetchServices();
+    refreshBtn.textContent = orig;
+  });
 
   const toggleEditBtn = document.getElementById('toggle-edit-services-btn');
   if (toggleEditBtn) {
@@ -3564,6 +3874,72 @@ function initSettings() {
   const closeBtn = document.getElementById('close-settings-dialog');
   const cancelBtn = document.getElementById('cancel-settings-btn');
   const saveBtn = document.getElementById('save-settings-btn');
+  const testGeminiBtn = document.getElementById('test-gemini-web-btn');
+  const geminiBadge = document.getElementById('gemini-web-status-badge');
+
+  // Preset buttons
+  const pZeroBtn = document.getElementById('preset-zero-token-btn');
+  const pFrontierBtn = document.getElementById('preset-frontier-btn');
+  const pLocalBtn = document.getElementById('preset-local-btn');
+
+  if (pZeroBtn) {
+    pZeroBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'local_coordinator';
+      document.getElementById('route-audit').value = 'gemini_web';
+      document.getElementById('route-rumination').value = 'moe_35b';
+      document.getElementById('route-chat').value = 'local_coordinator';
+    });
+  }
+  if (pFrontierBtn) {
+    pFrontierBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'gemini_web';
+      document.getElementById('route-audit').value = 'frontier_agy';
+      document.getElementById('route-rumination').value = 'gemini_web';
+      document.getElementById('route-chat').value = 'gemini_web';
+    });
+  }
+  if (pLocalBtn) {
+    pLocalBtn.addEventListener('click', () => {
+      document.getElementById('route-ideation').value = 'local_worker';
+      document.getElementById('route-solving').value = 'local_coordinator';
+      document.getElementById('route-audit').value = 'local_coordinator';
+      document.getElementById('route-rumination').value = 'moe_35b';
+      document.getElementById('route-chat').value = 'local_coordinator';
+    });
+  }
+
+  if (testGeminiBtn) {
+    testGeminiBtn.addEventListener('click', async () => {
+      const psid = document.getElementById('set-gemini-psid').value.trim();
+      const psidts = document.getElementById('set-gemini-psidts').value.trim();
+      if (!psid) {
+        alert('Please paste your __Secure-1PSID cookie first.');
+        return;
+      }
+      geminiBadge.textContent = '[TESTING SESSION...]';
+      geminiBadge.style.color = 'var(--term-warn)';
+      try {
+        const res = await fetch('/api/gemini_web/configure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ psid, psidts })
+        });
+        const d = await res.json();
+        if (d.ok) {
+          geminiBadge.textContent = '[ONLINE: GEMINI ADVANCED ($0 COST)]';
+          geminiBadge.style.color = '#00aa00';
+        } else {
+          geminiBadge.textContent = `[FAILED: ${d.error || d.message || 'Check cookies'}]`;
+          geminiBadge.style.color = 'var(--term-alert)';
+        }
+      } catch (err) {
+        geminiBadge.textContent = `[ERROR: ${err.message}]`;
+        geminiBadge.style.color = 'var(--term-alert)';
+      }
+    });
+  }
 
   if (openBtn && dialog) {
     openBtn.addEventListener('click', async () => {
@@ -3579,6 +3955,27 @@ function initSettings() {
           document.getElementById('set-openai-key').value = cfg.external_providers?.openai?.api_key || '';
           document.getElementById('set-anthropic-key').value = cfg.external_providers?.anthropic?.api_key || '';
           document.getElementById('set-gemini-key').value = cfg.external_providers?.gemini?.api_key || '';
+
+          // Gemini Web session cookies
+          document.getElementById('set-gemini-psid').value = cfg.gemini_web?.psid || '';
+          document.getElementById('set-gemini-psidts').value = cfg.gemini_web?.psidts || '';
+          if (geminiBadge) {
+            if (cfg.gemini_web?.psid) {
+              geminiBadge.textContent = '[COOKIES CONFIGURED]';
+              geminiBadge.style.color = '#00aa00';
+            } else {
+              geminiBadge.textContent = '[NO COOKIES]';
+              geminiBadge.style.color = 'var(--term-text-muted)';
+            }
+          }
+
+          // Task Routing
+          const tr = cfg.task_routing || {};
+          if (tr.autonomous_ideation) document.getElementById('route-ideation').value = tr.autonomous_ideation;
+          if (tr.autonomous_solving) document.getElementById('route-solving').value = tr.autonomous_solving;
+          if (tr.frontier_audit) document.getElementById('route-audit').value = tr.frontier_audit;
+          if (tr.sleep_rumination) document.getElementById('route-rumination').value = tr.sleep_rumination;
+          if (tr.interactive_chat) document.getElementById('route-chat').value = tr.interactive_chat;
         }
       } catch (e) {}
     });
@@ -3600,6 +3997,20 @@ function initSettings() {
           openai: { api_key: document.getElementById('set-openai-key').value.trim() },
           anthropic: { api_key: document.getElementById('set-anthropic-key').value.trim() },
           gemini: { api_key: document.getElementById('set-gemini-key').value.trim() }
+        },
+        gemini_web: {
+          enabled: true,
+          psid: document.getElementById('set-gemini-psid').value.trim(),
+          psidts: document.getElementById('set-gemini-psidts').value.trim(),
+          endpoint: 'http://192.168.1.167:8087'
+        },
+        task_routing: {
+          autonomous_ideation: document.getElementById('route-ideation').value,
+          autonomous_solving: document.getElementById('route-solving').value,
+          frontier_audit: document.getElementById('route-audit').value,
+          sleep_rumination: document.getElementById('route-rumination').value,
+          interactive_chat: document.getElementById('route-chat').value,
+          subagent_default: 'local_worker'
         }
       };
       try {
@@ -3609,7 +4020,7 @@ function initSettings() {
           body: JSON.stringify(payload)
         });
         dialog.close();
-        alert('Configuration saved.');
+        alert('Configuration & Task Allocation Matrix saved successfully.');
       } catch (e) {
         alert(`Save error: ${e.message}`);
       }
@@ -3654,3 +4065,1120 @@ function escapeHtml(str) {
 function timeNow() {
   return new Date().toLocaleTimeString([], { hour12: false });
 }
+
+/* ==========================================================================
+   15. Model Finder, Switcher & Parameter Discovery Integration
+   ========================================================================== */
+window.fetchClusterModels = async function() {
+  const activeName = document.getElementById('active-model-name');
+  const activeCtx = document.getElementById('active-model-context');
+  const activeStatus = document.getElementById('active-model-status');
+  const modelSelect = document.getElementById('local-model-select');
+  const diskSpace = document.getElementById('model-disk-space');
+  const calibCii = document.getElementById('calib-stat-cii');
+  const calibThroughput = document.getElementById('calib-stat-throughput');
+  const calibProfile = document.getElementById('calib-stat-profile');
+  const calibHall = document.getElementById('calib-stat-hallucination');
+  const calibBadge = document.getElementById('calib-params-badge');
+
+  if (activeName) activeName.textContent = 'Probing :8001...';
+
+  try {
+    const res = await fetch('/api/cluster/models');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Failed fetching models');
+
+    if (activeName) activeName.textContent = data.active_model || 'Unknown';
+    if (activeCtx) activeCtx.textContent = (data.active_context || '8192') + ' tokens';
+    if (activeStatus) activeStatus.textContent = 'ONLINE';
+    if (diskSpace && data.disk) diskSpace.textContent = 'Storage: ' + data.disk.split(/\s+/).slice(-2).join(' ');
+
+    if (modelSelect && data.models) {
+      modelSelect.innerHTML = '';
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = `${m.name} (${m.size})`;
+        if (m.name === data.active_model) {
+          opt.selected = true;
+          opt.textContent += ' [ACTIVE]';
+        }
+        modelSelect.appendChild(opt);
+      });
+    }
+
+    if (data.calibration && data.calibration.profile) {
+      const c = data.calibration;
+      if (calibCii) calibCii.textContent = (c.cii || c.avg_score || '--') + ' / 10.0';
+      if (calibThroughput) calibThroughput.textContent = (c.avg_tok_per_sec || '--') + ' tok/s';
+      if (calibProfile) calibProfile.textContent = c.profile.name || '--';
+      if (calibHall) {
+        calibHall.textContent = c.hallucination_detected ? '❌ Hallucination Alert' : '✅ 0 Hallucinations';
+        calibHall.style.color = c.hallucination_detected ? 'var(--term-alert)' : 'var(--term-text-bright)';
+      }
+      if (calibBadge && c.profile) {
+        calibBadge.textContent = `Optimal Hyperparameters: temp=${c.profile.temperature} | min_p=${c.profile.min_p} | presence_penalty=${c.profile.presence_penalty} | repeat_penalty=${c.profile.repeat_penalty} | max_tokens=${c.profile.max_tokens}`;
+      }
+    }
+  } catch (err) {
+    if (activeName) activeName.textContent = 'Offline / Error';
+    if (activeStatus) activeStatus.textContent = 'UNREACHABLE';
+    logModelConsole(`[ERR] Failed fetching cluster models: ${err.message}`);
+  }
+};
+
+window.quickSwitchModel = async function(preset) {
+  const presets = {
+    'ornith-9b-q5': {
+      hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
+      file: 'deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf',
+      context: 16384,
+      name: 'Ornith 9B (Q5_K_M 16k)'
+    },
+    'ornith-9b-q4': {
+      hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
+      file: 'deepreinforce-ai_Ornith-1.0-9B-Q4_K_M.gguf',
+      context: 16384,
+      name: 'Ornith 9B (Q4_K_M 16k)'
+    },
+    'qwen-14b': {
+      model: 'qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf',
+      context: 8192,
+      name: 'Qwen 2.5 Coder 14B'
+    }
+  };
+
+  const p = presets[preset];
+  if (!p) return;
+
+  if (!confirm(`Switch cluster coordinator (:8001) to ${p.name}? This will configure systemd, restart the daemon, and run parameter calibration.`)) {
+    return;
+  }
+
+  logModelConsole(`[INIT] Queuing switch to ${p.name}...`);
+  logModelConsole(`[*] Preparing payload and autotune harness...`);
+
+  try {
+    const res = await fetch('/api/cluster/switch-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...p,
+        auto_tune: true
+      })
+    });
+    const data = await res.json();
+    logModelConsole(data.output || (data.ok ? '[OK] Model switched successfully!' : `[ERR] ${data.error}`));
+    fetchClusterModels();
+  } catch (err) {
+    logModelConsole(`[ERR] Request failed: ${err.message}`);
+  }
+};
+
+window.executeModelSwitch = async function() {
+  const modelSelect = document.getElementById('local-model-select');
+  const ctxSelect = document.getElementById('switch-context-select');
+  const autotuneChk = document.getElementById('switch-autotune-chk');
+  if (!modelSelect || !modelSelect.value) {
+    alert('Please select a model file first.');
+    return;
+  }
+
+  const model = modelSelect.value;
+  const context = parseInt(ctxSelect ? ctxSelect.value : '16384', 10);
+  const autoTune = autotuneChk ? autotuneChk.checked : true;
+
+  logModelConsole(`[INIT] Switching to local model ${model} (context: ${context} tokens, auto_tune: ${autoTune})...`);
+
+  try {
+    const res = await fetch('/api/cluster/switch-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, context, auto_tune: autoTune })
+    });
+    const data = await res.json();
+    logModelConsole(data.output || (data.ok ? '[OK] Switch completed.' : `[ERR] ${data.error}`));
+    fetchClusterModels();
+  } catch (err) {
+    logModelConsole(`[ERR] Switch failed: ${err.message}`);
+  }
+};
+
+window.executeHfDownloadSwitch = async function() {
+  const repoIn = document.getElementById('hf-repo-input');
+  const fileIn = document.getElementById('hf-file-input');
+  const ctxSelect = document.getElementById('switch-context-select');
+  const autotuneChk = document.getElementById('switch-autotune-chk');
+
+  const hf = repoIn ? repoIn.value.trim() : '';
+  const file = fileIn ? fileIn.value.trim() : '';
+  if (!hf || !file) {
+    alert('Please enter both HuggingFace Repo and GGUF Filename.');
+    return;
+  }
+
+  const context = parseInt(ctxSelect ? ctxSelect.value : '16384', 10);
+  const autoTune = autotuneChk ? autotuneChk.checked : true;
+
+  logModelConsole(`[INIT] Downloading ${file} from ${hf} and deploying to :8001...`);
+  logModelConsole(`[*] This may take 2-4 minutes depending on model size...`);
+
+  try {
+    const res = await fetch('/api/cluster/switch-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hf, file, context, auto_tune: autoTune })
+    });
+    const data = await res.json();
+    logModelConsole(data.output || (data.ok ? '[OK] HF Model deployed and calibrated!' : `[ERR] ${data.error}`));
+    fetchClusterModels();
+  } catch (err) {
+    logModelConsole(`[ERR] HF Download failed: ${err.message}`);
+  }
+};
+
+window.rollbackClusterModel = async function() {
+  if (!confirm('Revert coordinator (:8001) to the previous backup model configuration?')) return;
+  logModelConsole('[INIT] Reverting to previous stable backup configuration...');
+  try {
+    const res = await fetch('/api/cluster/rollback-model', { method: 'POST' });
+    const data = await res.json();
+    logModelConsole(data.output || (data.ok ? '[OK] Rollback complete!' : `[ERR] ${data.error}`));
+    fetchClusterModels();
+  } catch (err) {
+    logModelConsole(`[ERR] Rollback request failed: ${err.message}`);
+  }
+};
+
+window.runParameterDiscoveryNow = async function() {
+  const activeName = document.getElementById('active-model-name');
+  const modelName = activeName ? activeName.textContent : 'Current-Coordinator';
+
+  logModelConsole(`[INIT] Running 4-pillar parameter discovery battery on ${modelName}...`);
+  logModelConsole(`[*] Testing Conversationality, SPSC Ring Buffer (Logic), Radical Geometry (Math), and Deceptive Probes...`);
+
+  try {
+    const res = await fetch('/api/cluster/calibrate-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_name: modelName })
+    });
+    const data = await res.json();
+    logModelConsole(data.output || (data.ok ? '[OK] Parameter discovery complete!' : `[ERR] ${data.error}`));
+    fetchClusterModels();
+  } catch (err) {
+    logModelConsole(`[ERR] Calibration failed: ${err.message}`);
+  }
+};
+
+function logModelConsole(msg) {
+  const c = document.getElementById('model-switch-console');
+  if (!c) return;
+  const timeStr = new Date().toLocaleTimeString();
+  c.textContent += `\n[${timeStr}] ${msg}`;
+  c.scrollTop = c.scrollHeight;
+}
+
+/* ==========================================================================
+   24/7 Hive-Mind & Home Vision Vigilance HUD
+   ========================================================================== */
+window.loadHiveMindStatus = async function(manual = false) {
+  const refreshBtn = document.getElementById('btn-refresh-hivemind');
+  if (manual && refreshBtn) {
+    refreshBtn.textContent = '[⏳ REFRESHING...]';
+    refreshBtn.disabled = true;
+  }
+  try {
+    const res = await fetch('/api/hivemind/status');
+    const data = await res.json();
+    if (data.ok && data.status) {
+      const s = data.status;
+      const isRunning = s.is_running;
+      
+      const p = s.preemption || {};
+      const preemptBadge = document.getElementById('hivemind-preemption-badge');
+      if (preemptBadge) {
+        if (p.is_preempted) {
+          preemptBadge.style.display = 'inline-block';
+          preemptBadge.textContent = `[⏸️ USER PREEMPTION: ${p.cooldown_remaining_sec || 60}s]`;
+          preemptBadge.title = p.reason || 'User activity detected';
+        } else {
+          preemptBadge.style.display = 'none';
+        }
+      }
+
+      const badge = document.getElementById('hivemind-running-badge');
+      if (badge) {
+        if (p.is_preempted) {
+          badge.textContent = '[YIELDING GPU]';
+          badge.style.color = '#cc8800';
+        } else {
+          badge.textContent = isRunning ? '[ACTIVE - 24/7 LOOPING]' : '[STOPPED / IDLE]';
+          badge.style.color = isRunning ? '#008800' : '#888888';
+        }
+      }
+
+      const toggleBtn = document.getElementById('btn-toggle-hivemind');
+      if (toggleBtn) {
+        toggleBtn.textContent = isRunning ? '[⏸ STOP 24/7 LOOP]' : '[▶ START 24/7 LOOP]';
+      }
+
+      const elState = document.getElementById('hm-stat-state');
+      if (elState) {
+        if (p.is_preempted) {
+          elState.textContent = `PREEMPTED (COOLDOWN ${p.cooldown_remaining_sec || 0}s)`;
+          elState.style.color = '#cc8800';
+        } else {
+          elState.textContent = isRunning ? 'RUNNING (24/7)' : 'STOPPED';
+          elState.style.color = 'var(--term-text-bright)';
+        }
+      }
+
+      const elMission = document.getElementById('hm-stat-mission');
+      if (elMission) elMission.textContent = s.last_mission_type || s.current_focus_domain || 'Curiosity';
+
+      const elCycles = document.getElementById('hm-stat-cycles');
+      if (elCycles) elCycles.textContent = s.total_cycles !== undefined ? s.total_cycles : '--';
+
+      const elTokens = document.getElementById('hm-stat-tokens');
+      if (elTokens) elTokens.textContent = s.total_tokens_generated ? s.total_tokens_generated.toLocaleString() : '--';
+
+      const elLastTime = document.getElementById('hm-stat-last-time');
+      if (elLastTime) {
+        if (s.last_cycle_timestamp) {
+          const d = new Date(s.last_cycle_timestamp);
+          elLastTime.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        } else {
+          elLastTime.textContent = 'None yet';
+        }
+      }
+
+      const elInterval = document.getElementById('hm-stat-interval');
+      if (elInterval) elInterval.textContent = `${s.interval_seconds || 120}s`;
+
+      const elVigTime = document.getElementById('hm-vigilance-time');
+      if (elVigTime && s.last_home_check_timestamp) {
+        const vd = new Date(s.last_home_check_timestamp * 1000);
+        elVigTime.textContent = `Last Check: ${vd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+    }
+  } catch (err) {
+    console.error('Error loading Hive-Mind status:', err);
+  } finally {
+    if (manual && refreshBtn) {
+      refreshBtn.textContent = '[🔄 REFRESH]';
+      refreshBtn.disabled = false;
+    }
+  }
+  loadHiveMindVisionLog();
+};
+
+window.loadHiveMindVisionLog = async function() {
+  const box = document.getElementById('hivemind-vision-log-box');
+  if (!box) return;
+  try {
+    const res = await fetch('/api/hivemind/vision_log?limit=150');
+    const data = await res.json();
+    if (data.ok && data.log) {
+      box.textContent = data.log;
+      box.scrollTop = box.scrollHeight;
+      parseVigilanceQuickStats(data.log);
+    } else {
+      box.textContent = 'No vigilance log entries yet.';
+    }
+  } catch (err) {
+    box.textContent = 'Error fetching activity log: ' + err.message;
+  }
+};
+
+function parseVigilanceQuickStats(logText) {
+  if (!logText) return;
+  const lines = logText.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l.includes('- **Climate**:')) {
+      const clim = l.replace('- **Climate**:', '').trim();
+      const el = document.getElementById('hm-stat-climate');
+      if (el) el.textContent = clim;
+    }
+    if (l.includes('- **Verdict**:')) {
+      const verd = l.replace('- **Verdict**:', '').trim();
+      const el = document.getElementById('hm-stat-verdict');
+      if (el) {
+        el.textContent = verd;
+        el.style.color = verd.toLowerCase().includes('secure') || verd.toLowerCase().includes('nominal') ? '#008800' : '#cc6600';
+      }
+    }
+  }
+}
+
+window.triggerVigilanceSweepNow = async function() {
+  const btn = document.getElementById('btn-sweep-now');
+  if (btn) { btn.disabled = true; btn.textContent = '[⏳ SWEEPING SENSORS & VISION...]'; }
+  try {
+    const res = await fetch('/api/hivemind/vigilance', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await res.json();
+    if (data.ok) {
+      await loadHiveMindStatus(true);
+    } else {
+      alert('Vigilance Sweep Error: ' + (data.error || 'Unknown'));
+    }
+  } catch (err) {
+    alert('Vigilance Sweep Failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '[👁️ VIGILANCE AUDIT NOW]'; }
+  }
+};
+
+window.triggerHiveMindCycleNow = async function() {
+  const btn = document.getElementById('btn-cycle-now');
+  if (btn) { btn.disabled = true; btn.textContent = '[⚡ EXPLORING CYCLE...]'; }
+  try {
+    const res = await fetch('/api/hivemind/cycle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const data = await res.json();
+    if (data.ok) {
+      await loadHiveMindStatus(true);
+    } else {
+      alert('Cycle Error: ' + (data.error || 'Unknown'));
+    }
+  } catch (err) {
+    alert('Cycle Failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '[⚡ THINKING CYCLE NOW]'; }
+  }
+};
+
+window.toggleHiveMindLoop = async function() {
+  const btn = document.getElementById('btn-toggle-hivemind');
+  const isCurrentlyActive = btn && btn.textContent.includes('STOP');
+  const action = isCurrentlyActive ? 'stop' : 'start';
+  try {
+    const res = await fetch('/api/hivemind/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, interval_seconds: 120 })
+    });
+    const data = await res.json();
+    await loadHiveMindStatus(true);
+  } catch (err) {
+    alert('Toggle Failed: ' + err.message);
+  }
+};
+
+window.copyVisionLogToClipboard = function() {
+  const box = document.getElementById('hivemind-vision-log-box');
+  if (!box) return;
+  navigator.clipboard.writeText(box.textContent).then(() => {
+    alert('Home & Vision Activity Log copied to clipboard!');
+  });
+};
+
+window.nudgeHiveMindNow = async function() {
+  const btn = document.getElementById('btn-nudge-hivemind');
+  if (btn) { btn.disabled = true; btn.textContent = '[⏳ NUDGING...]'; }
+  try {
+    const res = await fetch('/api/agent/nudge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: 'engine' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadHiveMindStatus(true);
+      alert('Cognitive Engine Nudged: Preemption/wait cleared and new exploration cycle triggered.');
+    } else {
+      alert('Nudge Error: ' + (data.error || 'Unknown'));
+    }
+  } catch (err) {
+    alert('Nudge Failed: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '[⚡ NUDGE / UNBLOCK]'; }
+  }
+};
+
+// ==========================================
+// AEVUM APK DOWNLOAD MODAL (FIREFOX FIX)
+// ==========================================
+window.openApkDownloadModal = function() {
+  const dialog = document.getElementById('apk-download-dialog');
+  if (!dialog) return;
+  const baseUrl = `${window.location.protocol}//${window.location.host}`;
+  const urlInput = document.getElementById('apk-direct-url');
+  if (urlInput) {
+    urlInput.value = `${baseUrl}/aevum.apk`;
+  }
+  const aevumLink = dialog.querySelector('a[href*="aevum.apk"]');
+  if (aevumLink) {
+    aevumLink.href = `${baseUrl}/aevum.apk`;
+  }
+  const stonesageLink = dialog.querySelector('a[href*="stonesage.apk"]');
+  if (stonesageLink) {
+    stonesageLink.href = `${baseUrl}/stonesage.apk`;
+  }
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  } else {
+    dialog.style.display = 'block';
+  }
+};
+
+// ==========================================
+// HARNESS PARAMETER STUDIO & DAEMON CONTROL
+// ==========================================
+let currentHarnessId = 'hermes';
+let currentHarnessData = null;
+
+window.switchHarnessStudio = async function(harnessId) {
+  currentHarnessId = harnessId;
+  document.querySelectorAll('#view-harness .filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-harness') === harnessId);
+  });
+  await loadHarnessStudioData(harnessId);
+};
+
+window.refreshHarnessStudio = async function() {
+  await loadHarnessStudioData(currentHarnessId);
+};
+
+async function loadHarnessStudioData(harnessId) {
+  const container = document.getElementById('harness-form-container');
+  const titleEl = document.getElementById('harness-header-title');
+  const healthBadge = document.getElementById('harness-health-badge');
+  const modelEl = document.getElementById('harness-active-model');
+  const ctxEl = document.getElementById('harness-active-ctx');
+  const devEl = document.getElementById('harness-active-device');
+  const slotsEl = document.getElementById('harness-active-slots');
+
+  if (healthBadge) healthBadge.textContent = '[HEALTH: PROBING...]';
+  if (container) container.innerHTML = '<div style="padding: 1rem; color: var(--term-text-muted);">Fetching live harness telemetry and systemd service parameters...</div>';
+
+  try {
+    const res = await fetch(`/api/harness/parameters?harness=${encodeURIComponent(harnessId)}`);
+    const json = await res.json();
+    if (!json.ok || !json.data) {
+      if (container) container.innerHTML = `<div style="color: var(--term-alert); padding: 1rem;">Failed to load parameters: ${json.error || 'Unknown error'}</div>`;
+      return;
+    }
+    const d = json.data;
+    currentHarnessData = d;
+
+    if (titleEl) titleEl.textContent = `🎛️ ACTIVE HARNESS: ${d.name || harnessId.toUpperCase()}`;
+    if (modelEl) modelEl.textContent = d.model_alias || (d.server_params?.model ? d.server_params.model.split('/').pop() : 'Standard Stack');
+    if (ctxEl) ctxEl.textContent = d.server_params?.n_ctx ? `${d.server_params.n_ctx} tokens` : (d.server_params?.context_window ? `${d.server_params.context_window} tokens` : 'Default');
+    if (devEl) devEl.textContent = d.device || d.server_params?.device || d.role || '--';
+    if (slotsEl) slotsEl.textContent = d.server_params?.parallel ? `${d.server_params.parallel} slots` : (harnessId.includes('llama') ? '4 slots' : '1 session');
+    if (healthBadge) healthBadge.textContent = '[HEALTH: ONLINE]';
+
+    renderHarnessForm(harnessId, d);
+    updateHarnessPreview();
+  } catch (err) {
+    if (healthBadge) healthBadge.textContent = '[HEALTH: ERROR]';
+    if (container) container.innerHTML = `<div style="color: var(--term-alert); padding: 1rem;">Error connecting to harness API: ${err.message}</div>`;
+  }
+}
+
+function renderHarnessForm(harnessId, data) {
+  const container = document.getElementById('harness-form-container');
+  if (!container) return;
+
+  const sp = data.server_params || {};
+  const sam = data.sampling_params || {};
+  const opt = data.options || {};
+
+  if (harnessId.startsWith('llama_')) {
+    container.innerHTML = `
+      <!-- 1. Server Architecture & Acceleration (llama-server flags) -->
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+          ⚙️ [SERVER ARCHITECTURE &amp; HARDWARE ALLOCATION (systemd / llama-server)]
+        </legend>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+          
+          <!-- Context Window (-c) -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Context Window (<code>-c / --ctx-size</code>)</span>
+              <span id="label-val-n_ctx" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_ctx || 8192}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" style="flex: 1;" oninput="syncParam('n_ctx', this.value)">
+              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control" style="width: 85px;" oninput="syncParam('n_ctx', this.value, true)">
+            </div>
+            <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 4096)">4k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 8192)">8k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 12288)">12k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 16384)">16k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 32768)">32k</button>
+            </div>
+          </div>
+
+          <!-- GPU Layers (-ngl) -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>GPU Offload Layers (<code>-ngl / --gpu-layers</code>)</span>
+              <span id="label-val-n_gpu_layers" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_gpu_layers || 99}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="number" min="0" max="999" value="${sp.n_gpu_layers || 99}" id="param-n_gpu_layers" class="form-control" style="flex: 1;" oninput="syncDirect()">
+              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=99; syncDirect();">Max (99)</button>
+              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=0; syncDirect();">CPU (0)</button>
+            </div>
+          </div>
+
+          <!-- Flash Attention (--flash-attn) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Flash Attention (<code>--flash-attn</code>)</label>
+            <select id="param-flash_attn" class="form-control" onchange="syncDirect()">
+              <option value="on" ${sp.flash_attn === 'on' ? 'selected' : ''}>on (Mandatory for RX Vulkan)</option>
+              <option value="off" ${sp.flash_attn === 'off' ? 'selected' : ''}>off</option>
+              <option value="auto" ${sp.flash_attn === 'auto' ? 'selected' : ''}>auto</option>
+            </select>
+          </div>
+
+          <!-- KV Cache K (-ctk) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">KV Cache Type K (<code>-ctk</code>)</label>
+            <select id="param-cache_type_k" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_k === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- KV Cache V (-ctv) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">KV Cache Type V (<code>-ctv</code>)</label>
+            <select id="param-cache_type_v" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_v === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Logical Batch (-b) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Batch Size (<code>-b / --batch-size</code>)</label>
+            <input type="number" min="128" max="8192" step="128" value="${sp.batch_size || 2048}" id="param-batch_size" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Micro-Batch (-ub) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Micro-Batch Size (<code>-ub / --ubatch-size</code>)</label>
+            <input type="number" min="64" max="4096" step="64" value="${sp.ubatch_size || 512}" id="param-ubatch_size" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Threads (-t) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Threads (<code>-t / --threads</code>)</label>
+            <input type="number" min="1" max="32" value="${sp.threads || 8}" id="param-threads" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Parallel Slots (-np) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Parallel Request Slots (<code>-np / --parallel</code>)</label>
+            <input type="number" min="1" max="16" value="${sp.parallel || 4}" id="param-parallel" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Compute Device (--device) -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Compute Device (<code>--device</code>)</label>
+            <select id="param-device" class="form-control" onchange="syncDirect()">
+              ${(opt.devices || ['Vulkan0', 'Vulkan1', 'CUDA0', 'CPU']).map(dev => `<option value="${dev}" ${(sp.device || data.device) === dev ? 'selected' : ''}>${dev}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Defrag Threshold -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Defrag Threshold (<code>--defrag-thold</code>)</label>
+            <input type="number" min="0.0" max="1.0" step="0.05" value="${sp.defrag_thold !== undefined ? sp.defrag_thold : 0.1}" id="param-defrag_thold" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Flags Row -->
+          <div class="form-group" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem;">
+            <label><input type="checkbox" id="param-mlock" ${sp.mlock ? 'checked' : ''} onchange="syncDirect()"> <code>--mlock</code> (Lock in RAM)</label>
+            <label><input type="checkbox" id="param-no_mmap" ${sp.no_mmap ? 'checked' : ''} onchange="syncDirect()"> <code>--no-mmap</code> (No memory map)</label>
+            <label><input type="checkbox" id="param-cont_batching" ${sp.cont_batching ? 'checked' : ''} onchange="syncDirect()"> <code>--cont-batching</code></label>
+          </div>
+
+        </div>
+      </fieldset>
+
+      <!-- 2. Sampling & Generation Texture Controls -->
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+          🎯 [SAMPLING, TEXTURE &amp; GENERATION PARAMETERS (/props &amp; client overrides)]
+        </legend>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+          
+          <!-- Temperature -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Temperature</span>
+              <span id="label-val-temperature" style="color: var(--term-text-bright); font-family: monospace;">${sam.temperature || 0.70}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature-range" class="form-control" style="flex: 1;" oninput="syncParam('temperature', this.value)">
+              <input type="number" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature" class="form-control" style="width: 75px;" oninput="syncParam('temperature', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Min-P (Homelab Texture Invariant) -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Min-P (Invariant: 0.05 - 0.08)</span>
+              <span id="label-val-min_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.min_p || 0.06}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p-range" class="form-control" style="flex: 1;" oninput="syncParam('min_p', this.value)">
+              <input type="number" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p" class="form-control" style="width: 75px;" oninput="syncParam('min_p', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Top-P -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Top-P</span>
+              <span id="label-val-top_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.top_p || 0.95}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p-range" class="form-control" style="flex: 1;" oninput="syncParam('top_p', this.value)">
+              <input type="number" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p" class="form-control" style="width: 75px;" oninput="syncParam('top_p', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Top-K -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Top-K</label>
+            <input type="number" min="0" max="500" value="${sam.top_k || 40}" id="param-top_k" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Presence Penalty -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Presence Penalty</span>
+              <span id="label-val-presence_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.presence_penalty || 0.20}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('presence_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty" class="form-control" style="width: 75px;" oninput="syncParam('presence_penalty', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Frequency Penalty -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Frequency Penalty</span>
+              <span id="label-val-frequency_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.frequency_penalty || 0.00}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('frequency_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty" class="form-control" style="width: 75px;" oninput="syncParam('frequency_penalty', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Repeat Penalty -->
+          <div class="form-group">
+            <label style="font-weight: bold; display: flex; justify-content: space-between;">
+              <span>Repeat Penalty</span>
+              <span id="label-val-repeat_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.repeat_penalty || 1.00}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <input type="range" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('repeat_penalty', this.value)">
+              <input type="number" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty" class="form-control" style="width: 75px;" oninput="syncParam('repeat_penalty', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Repeat Last N -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Repeat Last N</label>
+            <input type="number" min="0" max="512" value="${sam.repeat_last_n || 64}" id="param-repeat_last_n" class="form-control" oninput="syncDirect()">
+          </div>
+
+          <!-- Mirostat Mode -->
+          <div class="form-group">
+            <label style="font-weight: bold;">Mirostat Mode</label>
+            <select id="param-mirostat" class="form-control" onchange="syncDirect()">
+              <option value="0" ${sam.mirostat === 0 ? 'selected' : ''}>0 (Disabled)</option>
+              <option value="1" ${sam.mirostat === 1 ? 'selected' : ''}>1 (Mirostat 1.0)</option>
+              <option value="2" ${sam.mirostat === 2 ? 'selected' : ''}>2 (Mirostat 2.0)</option>
+            </select>
+          </div>
+
+        </div>
+      </fieldset>
+
+      <!-- 3. Direct Custom CLI Flags (Any llama-server argument from GitHub README) -->
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+          ⌨️ [CUSTOM CLI ARGUMENTS (Direct llama-server flags)]
+        </legend>
+        <p style="font-size: 0.78rem; color: var(--term-text-muted); margin-bottom: 0.4rem;">
+          Type ANY custom flags directly from the <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" style="color: #0000ee;">llama.cpp server README</a> (e.g. <code>--rope-freq-base 1000000 --split-mode layer</code>).
+        </p>
+        <input type="text" class="form-control" id="param-custom_flags" value="${sp.custom_flags || ''}" placeholder="--rope-freq-base 1000000 --verbose-prompt 0" oninput="syncDirect()" style="font-family: monospace;">
+      </fieldset>
+    `;
+  } else {
+    // Non-llama harnesses (Hermes, Snapdragon, OpenWebUI)
+    container.innerHTML = `
+      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
+        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+          ⚙️ [${(data.name || harnessId).toUpperCase()} PARAMETERS]
+        </legend>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+          ${Object.entries(sp).map(([k, v]) => {
+            if (typeof v === 'boolean') {
+              return `
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="checkbox" id="param-${k}" ${v ? 'checked' : ''} onchange="syncDirect()">
+                  <label for="param-${k}" style="font-weight: bold;">${k}</label>
+                </div>
+              `;
+            } else if (opt[k] && Array.isArray(opt[k])) {
+              return `
+                <div class="form-group">
+                  <label style="font-weight: bold;">${k}</label>
+                  <select id="param-${k}" class="form-control" onchange="syncDirect()">
+                    ${opt[k].map(item => `<option value="${item}" ${item === v ? 'selected' : ''}>${item}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            } else if (typeof v === 'number') {
+              return `
+                <div class="form-group">
+                  <label style="font-weight: bold;">${k}</label>
+                  <input type="number" step="${Number.isInteger(v) ? '1' : '0.05'}" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
+                </div>
+              `;
+            } else {
+              return `
+                <div class="form-group">
+                  <label style="font-weight: bold;">${k}</label>
+                  <input type="text" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
+                </div>
+              `;
+            }
+          }).join('')}
+        </div>
+      </fieldset>
+    `;
+  }
+}
+
+window.syncParam = function(key, val, fromInput = false) {
+  const lbl = document.getElementById(`label-val-${key}`);
+  if (lbl) lbl.textContent = val;
+  const rng = document.getElementById(`param-${key}-range`);
+  const num = document.getElementById(`param-${key}`);
+  if (rng && !fromInput) rng.value = val;
+  if (num && fromInput) num.value = val;
+  if (rng && fromInput) rng.value = val;
+  if (num && !fromInput) num.value = val;
+  syncDirect();
+};
+
+window.syncDirect = function() {
+  updateHarnessPreview();
+};
+
+function collectHarnessParams() {
+  const params = {};
+  if (!currentHarnessData) return params;
+
+  const sp = currentHarnessData.server_params || {};
+  const sam = currentHarnessData.sampling_params || {};
+
+  const keys = new Set([...Object.keys(sp), ...Object.keys(sam)]);
+  if (currentHarnessId.startsWith('llama_')) {
+    ['n_ctx', 'n_gpu_layers', 'flash_attn', 'cache_type_k', 'cache_type_v', 'batch_size', 'ubatch_size',
+     'threads', 'parallel', 'device', 'defrag_thold', 'mlock', 'no_mmap', 'cont_batching', 'custom_flags',
+     'temperature', 'min_p', 'top_p', 'top_k', 'presence_penalty', 'frequency_penalty', 'repeat_penalty',
+     'repeat_last_n', 'mirostat'].forEach(k => keys.add(k));
+  }
+
+  keys.forEach(k => {
+    const el = document.getElementById(`param-${k}`);
+    if (el) {
+      if (el.type === 'checkbox') {
+        params[k] = el.checked;
+      } else if (el.type === 'number') {
+        params[k] = el.value.includes('.') ? parseFloat(el.value) : parseInt(el.value, 10);
+      } else {
+        params[k] = el.value;
+      }
+    }
+  });
+
+  return params;
+}
+
+function updateHarnessPreview() {
+  const params = collectHarnessParams();
+  const jsonPreview = document.getElementById('harness-json-preview');
+  const execPreview = document.getElementById('harness-exec-preview');
+
+  if (jsonPreview) {
+    jsonPreview.textContent = JSON.stringify(params, null, 2);
+  }
+
+  if (execPreview) {
+    if (currentHarnessId.startsWith('llama_')) {
+      const port = currentHarnessId.includes('worker') ? 8002 : 8001;
+      const alias = currentHarnessId.includes('worker') ? 'worker' : 'coordinator';
+      const model = currentHarnessData?.server_params?.model || (port === 8001 ? '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf' : '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf');
+      const dev = params.device || (port === 8001 ? 'Vulkan0' : 'Vulkan1');
+      const parts = [
+        `/usr/local/bin/llama-server`,
+        `--model ${model}`,
+        `--host 0.0.0.0`,
+        `--port ${port}`,
+        `--device ${dev}`,
+        `-ngl ${params.n_gpu_layers || 99}`,
+        `-c ${params.n_ctx || 8192}`,
+        `--flash-attn ${params.flash_attn || 'on'}`,
+        `-ctk ${params.cache_type_k || 'q4_0'}`,
+        `-ctv ${params.cache_type_v || 'q4_0'}`,
+        `--alias ${alias}`,
+        `--metrics`
+      ];
+      if (params.batch_size) parts.push(`-b ${params.batch_size}`);
+      if (params.ubatch_size) parts.push(`-ub ${params.ubatch_size}`);
+      if (params.threads) parts.push(`-t ${params.threads}`);
+      if (params.parallel) parts.push(`-np ${params.parallel}`);
+      if (params.defrag_thold !== undefined) parts.push(`--defrag-thold ${params.defrag_thold}`);
+      if (params.mlock) parts.push(`--mlock`);
+      if (params.no_mmap) parts.push(`--no-mmap`);
+      if (params.cont_batching) parts.push(`--cont-batching`);
+      if (params.custom_flags) parts.push(params.custom_flags.trim());
+
+      execPreview.textContent = parts.join(' \\\n  ');
+    } else {
+      execPreview.textContent = `[Harness ${currentHarnessId} runs via managed in-process pipeline - see JSON payload]`;
+    }
+  }
+}
+
+window.applyHarnessStudio = async function() {
+  const btn = document.getElementById('apply-harness-btn');
+  const params = collectHarnessParams();
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '[⏳ APPLYING & PROBING HEALTH...]';
+  }
+
+  try {
+    const res = await fetch('/api/harness/apply_parameters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        harness: currentHarnessId,
+        parameters: params
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      alert(`✅ Parameters Applied Successfully:\n${data.message}`);
+      await refreshHarnessStudio();
+      if (typeof loadHarnessCapabilities === 'function') {
+        await loadHarnessCapabilities();
+      }
+    } else {
+      alert(`⚠️ Parameter Application Failed:\n${data.error || data.message || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`❌ Request Error: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '[💾 APPLY TO CLUSTER DAEMON]';
+    }
+  }
+};
+
+window.resetHarnessStudioDefaults = function() {
+  if (!confirm('Reset all parameters to cluster hardware recommended defaults?')) return;
+  if (currentHarnessId === 'llama_coordinator') {
+    syncParam('n_ctx', 8192);
+    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
+    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
+    if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
+    if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan0';
+    syncParam('temperature', 0.70);
+    syncParam('min_p', 0.06);
+    syncParam('top_p', 0.95);
+    if (document.getElementById('param-top_k')) document.getElementById('param-top_k').value = 40;
+    syncParam('presence_penalty', 0.20);
+    syncParam('repeat_penalty', 1.00);
+  } else if (currentHarnessId === 'llama_worker') {
+    syncParam('n_ctx', 8192);
+    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
+    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
+    if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
+    if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan1';
+    syncParam('temperature', 0.65);
+    syncParam('min_p', 0.06);
+    syncParam('top_p', 0.95);
+    if (document.getElementById('param-top_k')) document.getElementById('param-top_k').value = 40;
+    syncParam('presence_penalty', 0.20);
+    syncParam('repeat_penalty', 1.00);
+  }
+  syncDirect();
+};
+
+// --- Training Dataset Compiler & Highest-Tier Curator ---
+let datasetPollingInterval = null;
+
+window.refreshDatasetStatus = async function() {
+  try {
+    const res = await fetch('/api/dataset/status');
+    const raw = await res.json();
+    const data = raw.status || raw;
+    
+    const badge = document.getElementById('dataset-curator-badge');
+    const modelSpan = document.getElementById('dataset-curator-model');
+    const progressText = document.getElementById('dataset-progress-text');
+    const statsSummary = document.getElementById('dataset-stats-summary');
+    const progressBar = document.getElementById('dataset-progress-bar');
+    const timestampSpan = document.getElementById('dataset-last-timestamp');
+    const btnCompile = document.getElementById('btn-compile-dataset');
+    const btnStop = document.getElementById('btn-stop-dataset');
+
+    if (btnStop) {
+      btnStop.style.display = data.is_running ? 'inline-block' : 'none';
+    }
+
+    if (badge) {
+      if (data.is_running) {
+        badge.textContent = '[⏳ CURATING IN BACKGROUND...]';
+        badge.style.color = '#ffaa00';
+        if (btnCompile) btnCompile.disabled = true;
+      } else if (data.status === 'completed') {
+        badge.textContent = '[✅ COMPILED & READY]';
+        badge.style.color = 'var(--term-online)';
+        if (btnCompile) btnCompile.disabled = false;
+      } else if (data.status === 'stopped') {
+        badge.textContent = '[⏹ STOPPED]';
+        badge.style.color = '#ffaa00';
+        if (btnCompile) btnCompile.disabled = false;
+      } else if (data.status === 'error') {
+        badge.textContent = '[⚠️ ERROR: CHECK LOGS]';
+        badge.style.color = 'var(--term-alert)';
+        if (btnCompile) btnCompile.disabled = false;
+      } else {
+        badge.textContent = '[IDLE]';
+        badge.style.color = 'var(--term-dim)';
+        if (btnCompile) btnCompile.disabled = false;
+      }
+    }
+
+    if (data.model_used && modelSpan) {
+      modelSpan.textContent = data.model_used;
+    }
+
+    if (progressText) {
+      progressText.textContent = `Progress: ${data.processed} / ${data.total || data.processed} (${(data.progress_pct || 0).toFixed(1)}%)`;
+    }
+
+    if (progressBar) {
+      progressBar.style.width = `${Math.min(100, Math.max(0, data.progress_pct || 0))}%`;
+    }
+
+    if (statsSummary) {
+      const rb = data.rejection_breakdown || {};
+      statsSummary.textContent = `Accepted: ${data.accepted} | Rejected: ${data.rejected} (AST: ${rb.ast_syntax_error || 0}, Ungrounded: ${rb.ungrounded_network || 0}, Low Score: ${rb.low_model_score || 0})`;
+    }
+
+    if (timestampSpan && data.last_manifest && data.last_manifest.timestamp) {
+      const ts = new Date(data.last_manifest.timestamp).toLocaleString();
+      const pairsCount = data.last_manifest.accepted_samples || data.last_manifest.accepted_pairs || 0;
+      timestampSpan.textContent = `Last build: ${ts} (${pairsCount} pairs, Score: ${data.last_manifest.avg_curator_score || '8.5+'})`;
+    }
+
+    // Poll automatically while compilation is running
+    if (data.is_running && !datasetPollingInterval) {
+      datasetPollingInterval = setInterval(window.refreshDatasetStatus, 4000);
+    } else if (!data.is_running && datasetPollingInterval) {
+      clearInterval(datasetPollingInterval);
+      datasetPollingInterval = null;
+    }
+  } catch (err) {
+    console.error('Failed to fetch dataset status:', err);
+  }
+};
+
+window.startDatasetCompilation = async function() {
+  const limitSelect = document.getElementById('dataset-sample-limit');
+  const limitVal = limitSelect ? parseInt(limitSelect.value, 10) : 50;
+
+  const btnCompile = document.getElementById('btn-compile-dataset');
+  if (btnCompile) {
+    btnCompile.disabled = true;
+    btnCompile.textContent = '[⏳ DISPATCHING...]';
+  }
+
+  try {
+    const res = await fetch('/api/dataset/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: limitVal })
+    });
+    const result = await res.json();
+    if (result.status === 'already_running') {
+      alert('A curation cycle is already running on the cluster in the background.');
+    } else {
+      console.log('Dataset curation cycle triggered:', result);
+    }
+  } catch (err) {
+    alert('Failed to trigger dataset compilation: ' + err.message);
+  } finally {
+    if (btnCompile) {
+      btnCompile.textContent = '[🚀 COMPILE & CURATE DATASET]';
+    }
+    setTimeout(window.refreshDatasetStatus, 1000);
+  }
+};
+
+window.stopDatasetCompilation = async function() {
+  const btnStop = document.getElementById('btn-stop-dataset');
+  if (btnStop) {
+    btnStop.disabled = true;
+    btnStop.textContent = '[⏳ STOPPING...]';
+  }
+
+  try {
+    const res = await fetch('/api/dataset/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const result = await res.json();
+    console.log('Dataset compilation stop result:', result);
+  } catch (err) {
+    alert('Failed to send stop request: ' + err.message);
+  } finally {
+    if (btnStop) {
+      btnStop.disabled = false;
+      btnStop.textContent = '[⏹ STOP]';
+    }
+    setTimeout(window.refreshDatasetStatus, 1000);
+  }
+};
+
+// Auto-initialize Harness Studio & Dataset status when clicking the F9 tab
+document.addEventListener('DOMContentLoaded', () => {
+  const harnessTabBtn = document.querySelector('.tab-btn[data-view="view-harness"]');
+  if (harnessTabBtn) {
+    harnessTabBtn.addEventListener('click', () => {
+      switchHarnessStudio(currentHarnessId);
+      refreshDatasetStatus();
+    });
+  }
+  // Also load initial dataset status on start
+  setTimeout(window.refreshDatasetStatus, 2000);
+});
+
+
+

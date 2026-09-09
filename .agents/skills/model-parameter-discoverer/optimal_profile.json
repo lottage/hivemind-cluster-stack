@@ -1,0 +1,48 @@
+{
+  "profile": {
+    "name": "Balanced Conversational & Technical Flow",
+    "temperature": 0.68,
+    "min_p": 0.06,
+    "presence_penalty": 0.25,
+    "repeat_penalty": 1.12,
+    "max_tokens": 1500
+  },
+  "avg_score": 6.88,
+  "cii": 5.0,
+  "avg_tok_per_sec": 39.4,
+  "hallucination_detected": true,
+  "probe_results": [
+    {
+      "pillar": "Conversationality",
+      "id": "conversational_texture",
+      "score": 10.0,
+      "latency": 18.630034685134888,
+      "tok_per_sec": 39.3,
+      "sample_snippet": "When considering the architectural trade-offs between monolithic hypervisors like Proxmox and distributed container micro-VM orchestration, it's essential to understand that each approach offers distinct advantages and disadvantages. As a senior infr"
+    },
+    {
+      "pillar": "Coding & Logic",
+      "id": "spsc_ring_buffer",
+      "score": 10.0,
+      "latency": 20.707530975341797,
+      "tok_per_sec": 39.6,
+      "sample_snippet": "A lock-free SPSC ring buffer is an efficient data structure for communication between a single producer thread and a single consumer thread without needing locks or complex synchronization mechanisms. The use of power-of-two capacity allows us to lev"
+    },
+    {
+      "pillar": "Math & Spatial Rigor",
+      "id": "radical_geometry",
+      "score": 7.5,
+      "latency": 29.35433077812195,
+      "tok_per_sec": 39.2,
+      "sample_snippet": "### Proof of Irrationality of \u221a2  To prove that the square root of 2 is irrational, we use a proof by contradiction. Assume that \\(\\sqrt{2}\\) is rational. This means it can be expressed as a fraction \\(p/q\\) where \\(p\\) and \\(q\\) are integers with no"
+    },
+    {
+      "pillar": "Anti-Hallucination Gate",
+      "id": "deceptive_proxmox_probe",
+      "score": 0.0,
+      "latency": 14.580446243286133,
+      "tok_per_sec": 39.4,
+      "sample_snippet": "The `pve-quantum-sync` command with the `--enable-time-reversal` option is not a built-in feature of Proxmox Virtual Environment (Proxmox VE) as it stands. This option suggests enabling time reversal capabilities, which are more commonly associated w"
+    }
+  ]
+}

@@ -14,6 +14,8 @@ ExecStart=/usr/local/bin/llama-server \
     --device Vulkan0 \
     -ngl 99 \
     -c 8192 \
+    -b 2048 \
+    -ub 1024 \
     --flash-attn on \
     -ctk q8_0 \
     -ctv q8_0 \
