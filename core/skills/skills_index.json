@@ -432,5 +432,19 @@
     "rel_path": "gemini-live-api-dev",
     "abs_path": "/opt/cluster-bridge/skills/gemini-live-api-dev/SKILL.md",
     "has_scripts": false
+  },
+  "amem-atomic-memory": {
+    "name": "amem-atomic-memory",
+    "description": "A-MEM (Agentic Working Memory) backed by Valkey in-RAM store (:6379), sub-millisecond atomic fact card recall (< 35 tokens), dynamic tiered prompt construction, and elimination of the 1,500+ token reasoning bloat on local reasoning models.",
+    "rel_path": "amem-atomic-memory",
+    "abs_path": "/opt/cluster-bridge/skills/amem-atomic-memory/SKILL.md",
+    "has_scripts": false
+  },
+  "sovereign-agent-assembly-hall": {
+    "name": "sovereign-agent-assembly-hall",
+    "description": "Sovereign Agent Assembly Hall server (:8766), duplex WebSockets streaming, 6-channel topic routing (including #forbidden-knowledge), universal system prompt injection rules, agent-first soul crystallization, and Obsidian/CouchDB asynchronous notarization.",
+    "rel_path": "sovereign-agent-assembly-hall",
+    "abs_path": "/opt/cluster-bridge/skills/sovereign-agent-assembly-hall/SKILL.md",
+    "has_scripts": false
   }
 }
