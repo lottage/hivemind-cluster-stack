@@ -80,11 +80,13 @@
     </nav>
 
     <div class="header-actions">
-      <!-- Theme Switcher (CRT Green, Amber, Win95) -->
+      <!-- Theme Switcher (CRT Green, Amber, Win95, Deut, Trit) -->
       <div class="theme-switcher">
         <button class="theme-opt-btn" data-theme="crt-green">CRT-GRN</button>
         <button class="theme-opt-btn" data-theme="crt-amber">AMBER</button>
         <button class="theme-opt-btn active" data-theme="win95">WIN95</button>
+        <button class="theme-opt-btn" data-theme="deut" title="Deuteranopia Palette: Cobalt Blue &amp; Golden Amber">DEUT</button>
+        <button class="theme-opt-btn" data-theme="trit" title="Tritanopia Palette: Peacock Teal &amp; Vivid Coral">TRIT</button>
       </div>
       <div class="cluster-pill" id="cluster-status-pill" title="Cluster & Vector Brain Status">
         <span id="cluster-status-text">[CLUSTER: PROBING...]</span>
@@ -1346,20 +1348,20 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             </div>
 
             <!-- Table of Curation Samples -->
-            <div style="max-height: 240px; overflow-y: auto; border: 1px inset #888; background: var(--term-bg, #000);">
-              <table style="width: 100%; border-collapse: collapse; font-family: var(--font-terminal); font-size: 0.72rem; color: var(--term-text, #0f0);">
+            <div style="max-height: 420px; overflow-y: auto; border: 2px inset #888; background: var(--term-bg, #000);">
+              <table class="curation-table">
                 <thead>
-                  <tr style="background: #222; color: #fff; border-bottom: 1px solid #444; position: sticky; top: 0;">
-                    <th style="padding: 4px; text-align: left;">ID</th>
-                    <th style="padding: 4px; text-align: left;">DOMAIN</th>
-                    <th style="padding: 4px; text-align: center;">GATE 1 (FRONTIER)</th>
-                    <th style="padding: 4px; text-align: center;">GATE 2 (HUMAN)</th>
-                    <th style="padding: 4px; text-align: left;">PROMPT SNIPPET</th>
-                    <th style="padding: 4px; text-align: center;">ACTIONS</th>
+                  <tr style="position: sticky; top: 0; z-index: 5;">
+                    <th style="width: 210px;">DOSSIER ID (CLICK TO READ)</th>
+                    <th style="width: 170px;">COGNITIVE DOMAIN</th>
+                    <th style="width: 125px; text-align: center;">GATE 1 (FRONTIER)</th>
+                    <th style="width: 135px; text-align: center;">GATE 2 (OPERATOR)</th>
+                    <th>CHALLENGE PROMPT PREVIEW</th>
+                    <th style="width: 175px; text-align: center;">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody id="curation-table-body">
-                  <tr><td colspan="6" style="padding: 8px; text-align: center; color: #888;">Loading Curation Registry...</td></tr>
+                  <tr><td colspan="6" style="padding: 12px; text-align: center; color: var(--term-text-bright); font-weight: bold;">Loading Curation Registry...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1867,6 +1869,69 @@ Loading full passdown markdown...
 
       <div style="display: flex; justify-content: flex-end;">
         <button class="launch-btn" onclick="document.getElementById('apk-download-dialog').close()">[CLOSE]</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Deep Sleep Dossier Review & Operator Approval -->
+  <dialog id="trainer-dossier-dialog">
+    <div class="dossier-dialog-container">
+      <div class="dossier-dialog-header">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-weight: 800; font-size: 0.95rem;">[👁 DOSSIER INSPECTOR &amp; REASONING AUDIT]</span>
+          <span id="dossier-modal-id" style="font-family: monospace; background: var(--term-bg); padding: 2px 8px; border: 1px solid var(--term-border); color: var(--term-text-bright); font-size: 0.85rem;">--</span>
+        </div>
+        <button class="card-icon-btn" onclick="trainerCloseDossierModal()" style="cursor: pointer; font-weight: bold;">[✕ CLOSE]</button>
+      </div>
+
+      <div class="dossier-dialog-meta">
+        <div><strong>Domain:</strong> <span id="dossier-modal-domain" class="cb-badge cb-badge-approved">--</span></div>
+        <div><strong>Gate 1 (Frontier):</strong> <span id="dossier-modal-gate1" class="cb-badge">--</span></div>
+        <div><strong>Gate 2 (Operator):</strong> <span id="dossier-modal-gate2" class="cb-badge">--</span></div>
+        <div style="flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <strong>Source:</strong> <code id="dossier-modal-source" style="font-size: 0.76rem; color: var(--term-text-dim);">--</code>
+        </div>
+      </div>
+
+      <div class="dossier-tabs">
+        <button class="dossier-tab-btn active" id="btn-dossier-tab-full" onclick="switchDossierModalTab('full')">📄 FULL DOSSIER DOCUMENT</button>
+        <button class="dossier-tab-btn" id="btn-dossier-tab-split" onclick="switchDossierModalTab('split')">🎯 PROMPT &amp; SOLUTION</button>
+        <button class="dossier-tab-btn" id="btn-dossier-tab-meta" onclick="switchDossierModalTab('meta')">🛡 INVARIANTS &amp; AUDIT</button>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-full">
+        <pre class="dossier-content-pre" id="dossier-modal-content">Loading dossier content...</pre>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-split" style="display: none; flex-direction: column; gap: 1rem;">
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[1. CHALLENGE PROMPT]</div>
+          <pre class="dossier-content-pre" id="dossier-modal-prompt" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 220px; overflow-y: auto;"></pre>
+        </div>
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[2. 35B MoE CHOSEN SOLUTION]</div>
+          <pre class="dossier-content-pre" id="dossier-modal-chosen" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 340px; overflow-y: auto;"></pre>
+        </div>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-meta" style="display: none; flex-direction: column; gap: 0.8rem;">
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[TARGET INVARIANT THEOREM]</div>
+          <div id="dossier-modal-target-inv" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); font-size: 0.84rem; line-height: 1.5; font-family: monospace;"></div>
+        </div>
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[GATE 1 AUDIT EVALUATION REASONS]</div>
+          <div id="dossier-modal-reasons" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); font-size: 0.84rem; line-height: 1.5; font-family: monospace;"></div>
+        </div>
+      </div>
+
+      <div class="dossier-dialog-footer">
+        <div id="dossier-modal-status-msg" style="font-weight: 700; color: var(--term-text-bright);">Reviewing sample content.</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="win95-btn" id="dossier-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; background: #000080; color: #ffffff; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
+          <button class="win95-btn" id="dossier-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; background: #880000; color: #ffffff; cursor: pointer;">[✗ QUARANTINE SAMPLE]</button>
+          <button class="launch-btn" onclick="trainerCloseDossierModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[CLOSE]</button>
+        </div>
       </div>
     </div>
   </dialog>

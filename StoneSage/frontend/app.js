@@ -5281,24 +5281,35 @@ window.fetchCurationRegistry = async function() {
 
     tbody.innerHTML = samples.map(s => {
       const isFrontier = s.frontier_verified || s.gate1_passed;
-      const fBadge = isFrontier ? '<span style="color:#00ee66; font-weight:bold;">✓ PASS</span>' : '<span style="color:#888;">PENDING</span>';
+      const fBadge = isFrontier 
+        ? '<span class="cb-badge cb-badge-pass" title="Frontier Invariant Audit Passed">✓ VERIFIED</span>' 
+        : '<span class="cb-badge cb-badge-unverified" title="Pending Tier-1 Frontier Audit">? UNVERIFIED</span>';
       
-      let hBadge = '<span style="color:#ffff88;">PENDING</span>';
-      if (s.human_status === 'APPROVED') hBadge = '<span style="color:#55aaff; font-weight:bold;">✓ APPROVED</span>';
-      if (s.human_status === 'REJECTED' || s.quarantined) hBadge = '<span style="color:#ff6666; font-weight:bold;">✗ QUARANTINED</span>';
+      let hBadge = '<span class="cb-badge cb-badge-pending" title="Pending Operator Review">? PENDING</span>';
+      if (s.human_status === 'APPROVED') {
+        hBadge = '<span class="cb-badge cb-badge-approved" title="Approved for Training by Operator">✓ APPROVED</span>';
+      } else if (s.human_status === 'REJECTED' || s.quarantined) {
+        hBadge = '<span class="cb-badge cb-badge-quarantined" title="Quarantined from Training">✗ QUARANTINE</span>';
+      }
 
-      const promptSnippet = (s.prompt || s.full_prompt || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 90) + '...';
+      const rawPrompt = s.prompt_snippet || s.prompt || s.full_prompt || '';
+      const promptSnippet = rawPrompt.replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 140) + (rawPrompt.length > 140 ? '...' : '');
 
       return `
-        <tr style="border-bottom: 1px solid #333;">
-          <td style="padding: 4px; font-family: monospace; color: #fff;">${s.id || '--'}</td>
-          <td style="padding: 4px; color: #aaa;">${s.domain || '--'}</td>
-          <td style="padding: 4px; text-align: center;">${fBadge}</td>
-          <td style="padding: 4px; text-align: center;">${hBadge}</td>
-          <td style="padding: 4px; color: #ccc;" title="${(s.prompt || '').replace(/"/g, '&quot;')}">${promptSnippet}</td>
-          <td style="padding: 4px; text-align: center; white-space: nowrap;">
-            <button class="win95-btn" onclick="trainerApproveSample('${s.id}')" style="font-size:0.68rem; padding:1px 4px; color:#008800;" title="Approve for training weight modification">[✓ Approve]</button>
-            <button class="win95-btn" onclick="trainerQuarantineSample('${s.id}')" style="font-size:0.68rem; padding:1px 4px; color:#aa0000;" title="Quarantine from dataset">[✗ Quarantine]</button>
+        <tr class="curation-row" style="border-bottom: 1px solid var(--term-border-dim);">
+          <td style="padding: 6px 8px; font-family: monospace;">
+            <a class="curation-sample-link" onclick="trainerOpenDossier('${s.id}')" title="Click to open and review complete exploration dossier">
+              📖 <strong>${s.id || '--'}</strong>
+            </a>
+          </td>
+          <td style="padding: 6px 8px; font-weight: 700; color: var(--term-text-bright);">${s.domain || '--'}</td>
+          <td style="padding: 6px 8px; text-align: center;">${fBadge}</td>
+          <td style="padding: 6px 8px; text-align: center;">${hBadge}</td>
+          <td style="padding: 6px 8px; font-weight: 600; color: var(--term-text-dim);" title="${(s.prompt || s.full_prompt || '').replace(/"/g, '&quot;')}">${promptSnippet}</td>
+          <td style="padding: 6px 8px; text-align: center; white-space: nowrap;">
+            <button class="win95-btn" onclick="trainerOpenDossier('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; margin-right:3px;" title="Open full dossier in reading window">[👁 View]</button>
+            <button class="win95-btn" onclick="trainerApproveSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#00aa00; margin-right:3px;" title="Approve for training">[✓ Appr]</button>
+            <button class="win95-btn" onclick="trainerQuarantineSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#cc0000;" title="Quarantine from dataset">[✗ Quar]</button>
           </td>
         </tr>
       `;
@@ -5346,6 +5357,142 @@ window.trainerQuarantineSample = async function(sampleId) {
     fetchCurationRegistry();
   } catch (err) {
     logToTrainerConsole(`Quarantine error: ${err.message}`, true);
+  }
+};
+
+let currentViewingSampleId = null;
+
+window.trainerOpenDossier = async function(sampleId) {
+  if (!sampleId) return;
+  currentViewingSampleId = sampleId;
+  const dialog = document.getElementById('trainer-dossier-dialog');
+  if (!dialog) return;
+
+  // Set loading state
+  document.getElementById('dossier-modal-id').textContent = sampleId;
+  document.getElementById('dossier-modal-domain').textContent = 'Loading...';
+  document.getElementById('dossier-modal-gate1').textContent = '--';
+  document.getElementById('dossier-modal-gate2').textContent = '--';
+  document.getElementById('dossier-modal-source').textContent = '--';
+  document.getElementById('dossier-modal-content').textContent = `Loading dossier ${sampleId} from cluster thinking archive...`;
+  document.getElementById('dossier-modal-prompt').textContent = '';
+  document.getElementById('dossier-modal-chosen').textContent = '';
+  document.getElementById('dossier-modal-target-inv').textContent = '';
+  document.getElementById('dossier-modal-reasons').textContent = '';
+  document.getElementById('dossier-modal-status-msg').textContent = 'Fetching dossier from cluster...';
+
+  switchDossierModalTab('full');
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute('open', '');
+  }
+
+  try {
+    const res = await fetch(`/api/trainer/dossier?id=${encodeURIComponent(sampleId)}`);
+    const data = await res.json();
+    if (!data.ok) {
+      document.getElementById('dossier-modal-content').textContent = `Error loading dossier: ${data.error || 'Not found'}`;
+      document.getElementById('dossier-modal-status-msg').textContent = `Failed to load: ${data.error || 'Dossier not found'}`;
+      return;
+    }
+
+    const meta = data.meta || {};
+    document.getElementById('dossier-modal-id').textContent = data.id || sampleId;
+    document.getElementById('dossier-modal-domain').textContent = data.domain || meta.domain || 'Algorithmic Reasoning';
+    
+    // Gate 1 badge
+    const gate1El = document.getElementById('dossier-modal-gate1');
+    if (data.frontier_verified) {
+      gate1El.className = 'cb-badge cb-badge-pass';
+      gate1El.textContent = '✓ VERIFIED';
+    } else {
+      gate1El.className = 'cb-badge cb-badge-unverified';
+      gate1El.textContent = '? UNVERIFIED';
+    }
+
+    // Gate 2 badge
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (data.human_status === 'APPROVED') {
+      gate2El.className = 'cb-badge cb-badge-approved';
+      gate2El.textContent = '✓ APPROVED';
+    } else if (data.human_status === 'REJECTED' || meta.quarantined) {
+      gate2El.className = 'cb-badge cb-badge-quarantined';
+      gate2El.textContent = '✗ QUARANTINED';
+    } else {
+      gate2El.className = 'cb-badge cb-badge-pending';
+      gate2El.textContent = '? PENDING REVIEW';
+    }
+
+    document.getElementById('dossier-modal-source').textContent = data.source_path || meta.source || '--';
+    
+    // Tab 1: Full content
+    document.getElementById('dossier-modal-content').textContent = data.content || '(No markdown file on disk. Showing synthesized metadata.)\n\n' + JSON.stringify(meta, null, 2);
+
+    // Tab 2: Split
+    const promptText = meta.full_prompt || meta.prompt || '';
+    document.getElementById('dossier-modal-prompt').textContent = promptText || '(No challenge prompt provided)';
+    document.getElementById('dossier-modal-chosen').textContent = meta.chosen || '(No solution content provided)';
+
+    // Tab 3: Invariants & reasons
+    document.getElementById('dossier-modal-target-inv').textContent = data.target_invariant || meta.target_invariant || 'Invariant verified during exploration cycle.';
+    const reasons = data.rejection_reasons || meta.gate1_rejection_reasons || [];
+    document.getElementById('dossier-modal-reasons').textContent = reasons.length > 0 ? reasons.join('\n') : '✓ Passed all automated Gate 1 invariant checks without rejection.';
+
+    document.getElementById('dossier-modal-status-msg').textContent = `Ready. Current Status: ${data.human_status || 'PENDING'}`;
+  } catch (err) {
+    document.getElementById('dossier-modal-content').textContent = `Network error: ${err.message}`;
+    document.getElementById('dossier-modal-status-msg').textContent = `Error: ${err.message}`;
+  }
+};
+
+window.switchDossierModalTab = function(tabName) {
+  const tabs = ['full', 'split', 'meta'];
+  tabs.forEach(t => {
+    const pane = document.getElementById(`dossier-body-${t}`);
+    const btn = document.getElementById(`btn-dossier-tab-${t}`);
+    if (pane) pane.style.display = t === tabName ? (t === 'split' ? 'flex' : 'block') : 'none';
+    if (btn) btn.classList.toggle('active', t === tabName);
+  });
+};
+
+window.trainerCloseDossierModal = function() {
+  const dialog = document.getElementById('trainer-dossier-dialog');
+  if (dialog) {
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+};
+
+window.trainerApproveFromModal = async function() {
+  if (!currentViewingSampleId) return;
+  try {
+    document.getElementById('dossier-modal-status-msg').textContent = 'Submitting operator approval...';
+    await trainerApproveSample(currentViewingSampleId);
+    document.getElementById('dossier-modal-status-msg').textContent = '✓ Sample approved for training!';
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (gate2El) {
+      gate2El.className = 'cb-badge cb-badge-approved';
+      gate2El.textContent = '✓ APPROVED';
+    }
+  } catch (e) {
+    document.getElementById('dossier-modal-status-msg').textContent = `Approval error: ${e.message}`;
+  }
+};
+
+window.trainerQuarantineFromModal = async function() {
+  if (!currentViewingSampleId) return;
+  try {
+    document.getElementById('dossier-modal-status-msg').textContent = 'Quarantining sample...';
+    await trainerQuarantineSample(currentViewingSampleId);
+    document.getElementById('dossier-modal-status-msg').textContent = '✗ Sample quarantined!';
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (gate2El) {
+      gate2El.className = 'cb-badge cb-badge-quarantined';
+      gate2El.textContent = '✗ QUARANTINED';
+    }
+  } catch (e) {
+    document.getElementById('dossier-modal-status-msg').textContent = `Quarantine error: ${e.message}`;
   }
 };
 

@@ -15,14 +15,14 @@
   --term-border-bright: #00ff66;
   
   --term-text: #00ff66;
-  --term-text-bright: #55ff99;
-  --term-text-dim: #009944;
-  --term-text-muted: #00662d;
+  --term-text-bright: #77ffaa;
+  --term-text-dim: #33ff88;
+  --term-text-muted: #22cc66;
   --term-header-bg: #003314;
   
-  --term-alert: #ff3333;
-  --term-warn: #ffaa00;
-  --term-info: #00ccff;
+  --term-alert: #ff4444;
+  --term-warn: #ffbb00;
+  --term-info: #33d6ff;
   --term-active: #00ff66;
   
   --term-cursor: #00ff66;
@@ -44,9 +44,9 @@
   --term-border-bright: #ffb000;
   
   --term-text: #ffb000;
-  --term-text-bright: #ffd24d;
-  --term-text-dim: #cca020;
-  --term-text-muted: #805900;
+  --term-text-bright: #ffe066;
+  --term-text-dim: #ffc94d;
+  --term-text-muted: #e6a000;
   --term-header-bg: #402800;
   
   --term-alert: #ff4444;
@@ -90,6 +90,66 @@
   --font-terminal: 'MS Sans Serif', Tahoma, 'Segoe UI', Arial, sans-serif;
 }
 
+/* Theme 4: Deuteranopia-Compliant (Cobalt Blue, Golden Amber & Charcoal Slate) */
+[data-theme="deut"] {
+  --term-bg: #12151a;
+  --term-surface: #1b202a;
+  --term-surface-raised: #252e3c;
+  --term-border: #2b7de9;
+  --term-border-dim: #184c94;
+  --term-border-bright: #5fa4ff;
+  
+  --term-text: #ffffff;
+  --term-text-bright: #fbb829;
+  --term-text-dim: #e1e9f5;
+  --term-text-muted: #a3b8d1;
+  --term-header-bg: #1c2e47;
+  
+  --term-alert: #fbb829;
+  --term-warn: #fbb829;
+  --term-info: #2b7de9;
+  --term-active: #2b7de9;
+  
+  --term-cursor: #fbb829;
+  --term-btn-bg: #222a36;
+  --term-btn-hover: #313d4f;
+  --term-badge-bg: #1b2738;
+  --term-selection: #2b7de9;
+
+  --font-terminal: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+  font-weight: 700;
+}
+
+/* Theme 5: Tritanopia-Compliant (Peacock Teal, Vivid Coral & Soft Rose) */
+[data-theme="trit"] {
+  --term-bg: #0c171c;
+  --term-surface: #13242b;
+  --term-surface-raised: #1d353e;
+  --term-border: #009e9f;
+  --term-border-dim: #005c5d;
+  --term-border-bright: #26d6d8;
+  
+  --term-text: #ffffff;
+  --term-text-bright: #26d6d8;
+  --term-text-dim: #f6a5b8;
+  --term-text-muted: #95bdc7;
+  --term-header-bg: #103038;
+  
+  --term-alert: #d9383a;
+  --term-warn: #f6a5b8;
+  --term-info: #009e9f;
+  --term-active: #009e9f;
+  
+  --term-cursor: #009e9f;
+  --term-btn-bg: #182f38;
+  --term-btn-hover: #234450;
+  --term-badge-bg: #122b33;
+  --term-selection: #007a7c;
+
+  --font-terminal: 'Consolas', 'Lucida Console', 'Courier New', monospace;
+  font-weight: 700;
+}
+
 /* 2. Global Resets & Terminal Typography */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -102,6 +162,7 @@ body {
   color: var(--term-text);
   font-family: var(--font-terminal);
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.45;
   min-height: 100vh;
   display: flex;
@@ -125,10 +186,12 @@ body::after {
   z-index: 9999;
   background-size: 100% 2px, 3px 100%;
   pointer-events: none;
-  opacity: 0.65;
+  opacity: 0.15;
 }
 
-[data-theme="win95"] body::after {
+[data-theme="win95"] body::after,
+[data-theme="deut"] body::after,
+[data-theme="trit"] body::after {
   display: none !important;
 }
 
@@ -1919,6 +1982,196 @@ dialog::backdrop {
 
 [data-theme="win95"] a:hover {
   color: #cc0000;
+}
+
+/* 13. High-Legibility Curation Table & Dossier Review Modal */
+.curation-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-terminal);
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.curation-table th {
+  padding: 8px 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: left;
+  background-color: var(--term-header-bg);
+  color: var(--term-text-bright);
+  border-bottom: 2px solid var(--term-border);
+}
+
+.curation-table td {
+  padding: 8px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--term-border-dim);
+  font-weight: 700;
+}
+
+.curation-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.curation-row:hover {
+  background-color: var(--term-surface-raised) !important;
+}
+
+.curation-sample-link {
+  color: var(--term-text-bright);
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.curation-sample-link:hover {
+  color: var(--term-alert);
+}
+
+/* Colorblind-Safe Curation Badges */
+.cb-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-weight: 800;
+  font-size: 0.76rem;
+  letter-spacing: 0.03em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.cb-badge-pass {
+  background-color: #003314;
+  color: #55ff99;
+  border: 1px solid #00ee66;
+}
+
+.cb-badge-unverified {
+  background-color: #222222;
+  color: #cccccc;
+  border: 1px solid #666666;
+}
+
+.cb-badge-approved {
+  background-color: #0d274c;
+  color: #6bb3ff;
+  border: 1px solid #2b7de9;
+}
+
+.cb-badge-quarantined {
+  background-color: #401010;
+  color: #ff8888;
+  border: 1px solid #d9383a;
+}
+
+.cb-badge-pending {
+  background-color: #3b2c04;
+  color: #fcd34d;
+  border: 1px solid #fbb829;
+}
+
+/* Dossier Review Dialog */
+#trainer-dossier-dialog {
+  width: 94vw;
+  max-width: 1150px;
+  height: 88vh;
+  max-height: 860px;
+  padding: 0;
+  border: 3px solid var(--term-border);
+  background-color: var(--term-surface);
+  color: var(--term-text);
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.85);
+  font-family: var(--font-terminal);
+  font-weight: 600;
+}
+
+#trainer-dossier-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.dossier-dialog-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.dossier-dialog-header {
+  background-color: var(--term-header-bg);
+  color: var(--term-text-bright);
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid var(--term-border);
+}
+
+.dossier-dialog-meta {
+  background-color: var(--term-surface-raised);
+  padding: 8px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--term-border-dim);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.dossier-tabs {
+  display: flex;
+  background-color: var(--term-surface);
+  border-bottom: 1px solid var(--term-border);
+}
+
+.dossier-tab-btn {
+  padding: 7px 14px;
+  background: transparent;
+  color: var(--term-text-dim);
+  border: none;
+  border-right: 1px solid var(--term-border-dim);
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-terminal);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.dossier-tab-btn.active {
+  background-color: var(--term-surface-raised);
+  color: var(--term-text-bright);
+  border-bottom: 2px solid var(--term-border-bright);
+}
+
+.dossier-dialog-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+  background-color: var(--term-bg);
+}
+
+.dossier-content-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-terminal);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  color: var(--term-text);
+  font-weight: 600;
+}
+
+.dossier-dialog-footer {
+  background-color: var(--term-surface);
+  border-top: 2px solid var(--term-border);
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 

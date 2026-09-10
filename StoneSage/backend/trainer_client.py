@@ -150,8 +150,27 @@ class TrainerClient:
 
         try:
             reg = json.loads(rem["stdout"].strip())
-            samples = [v for v in reg.values() if isinstance(v, dict)]
-            
+            raw_samples = reg.get("samples", {})
+            samples_dict = {}
+            if isinstance(raw_samples, dict):
+                samples_dict = raw_samples
+            elif isinstance(raw_samples, list):
+                samples_dict = {s.get("id", f"sample_{i}"): s for i, s in enumerate(raw_samples) if isinstance(s, dict)}
+            else:
+                samples_dict = {k: v for k, v in reg.items() if isinstance(v, dict) and k != "summary"}
+
+            samples = []
+            for s_id, s_data in samples_dict.items():
+                if isinstance(s_data, dict):
+                    item = dict(s_data)
+                    item["id"] = s_id
+                    item["domain"] = item.get("domain") or "Algorithmic Reasoning"
+                    prompt_raw = item.get("prompt") or item.get("full_prompt") or ""
+                    clean_p = prompt_raw.replace("\n", " ").strip()
+                    item["prompt_snippet"] = clean_p[:180] + ("..." if len(clean_p) > 180 else "")
+                    item["target_invariant"] = item.get("target_invariant") or ""
+                    samples.append(item)
+
             total = len(samples)
             frontier_verified = sum(1 for s in samples if s.get("frontier_verified") or s.get("gate1_passed"))
             human_approved = sum(1 for s in samples if s.get("human_status") == "APPROVED")
@@ -182,6 +201,44 @@ class TrainerClient:
         except Exception as e:
             return {"ok": False, "error": f"Error parsing curation registry: {e}"}
 
+    def get_dossier(self, sample_id: str) -> Dict[str, Any]:
+        """Fetch full markdown content and metadata of a deep sleep dossier for human review."""
+        if not sample_id:
+            return {"ok": False, "error": "Sample ID is required."}
+
+        # 1. Fetch markdown content from thinking archive
+        cmd = f"cat /opt/cluster-bridge/thinking_archive/{sample_id}.md 2>/dev/null"
+        rem = self._run_remote_cmd(cmd, timeout=10)
+        content = rem.get("stdout", "").strip() if rem.get("ok") else ""
+
+        # 2. Fetch sample entry from curation_registry.json
+        cmd_reg = f"cat {self.remote_dir}/data/processed/curation_registry.json 2>/dev/null"
+        rem_reg = self._run_remote_cmd(cmd_reg, timeout=10)
+        meta = {}
+        if rem_reg.get("ok") and rem_reg.get("stdout"):
+            try:
+                reg_data = json.loads(rem_reg["stdout"])
+                target = reg_data.get("samples", reg_data)
+                meta = target.get(sample_id, {})
+            except Exception:
+                pass
+
+        if not content and not meta:
+            return {"ok": False, "error": f"Dossier {sample_id} not found."}
+
+        return {
+            "ok": True,
+            "id": sample_id,
+            "content": content,
+            "meta": meta,
+            "domain": meta.get("domain", "Unknown"),
+            "frontier_verified": bool(meta.get("frontier_verified") or meta.get("gate1_passed")),
+            "human_status": meta.get("human_status", "PENDING_REVIEW"),
+            "target_invariant": meta.get("target_invariant", ""),
+            "rejection_reasons": meta.get("gate1_rejection_reasons", []),
+            "source_path": meta.get("source", f"/opt/cluster-bridge/thinking_archive/{sample_id}.md")
+        }
+
     def review_curation(self, action: str, sample_id: Optional[str] = None, notes: str = "") -> Dict[str, Any]:
         """Approve or quarantine curation samples."""
         if action == "approve_all_frontier":
@@ -191,47 +248,40 @@ class TrainerClient:
             self._append_log(res.get("stdout", "") or res.get("stderr", ""))
             return {"ok": res.get("ok", False), "output": res.get("stdout", "")}
         
-        elif action == "approve_sample" and sample_id:
-            self._append_log(f"Approving sample {sample_id}...")
-            # Python snippet to update registry on remote
-            py_code = f"""
-import json
-p = '{self.remote_dir}/data/processed/curation_registry.json'
-with open(p, 'r') as f: reg = json.load(f)
-if '{sample_id}' in reg:
-    reg['{sample_id}']['human_status'] = 'APPROVED'
-    reg['{sample_id}']['admitted_to_training'] = True
-    reg['{sample_id}']['human_notes'] = '{notes or "Approved via StoneSage GUI"}'
-    with open(p, 'w') as f: json.dump(reg, f, indent=2)
-    print('APPROVED')
-else:
-    print('NOT_FOUND')
-"""
-            cmd = f"python3 -c \"{py_code.strip()}\""
-            res = self._run_remote_cmd(cmd, timeout=10)
-            self._append_log(f"Result: {res.get('stdout', '').strip()}")
-            return {"ok": "APPROVED" in res.get("stdout", ""), "output": res.get("stdout", "")}
+        elif action in ("approve_sample", "quarantine_sample") and sample_id:
+            status_val = "APPROVED" if action == "approve_sample" else "REJECTED"
+            admit_val = "True" if action == "approve_sample" else "False"
+            quar_val = "False" if action == "approve_sample" else "True"
+            default_note = "Approved via StoneSage GUI" if action == "approve_sample" else "Quarantined via StoneSage GUI"
+            note_val = notes or default_note
 
-        elif action == "quarantine_sample" and sample_id:
-            self._append_log(f"Quarantining sample {sample_id}...")
+            self._append_log(f"{'Approving' if action == 'approve_sample' else 'Quarantining'} sample {sample_id}...")
+            
             py_code = f"""
 import json
 p = '{self.remote_dir}/data/processed/curation_registry.json'
 with open(p, 'r') as f: reg = json.load(f)
-if '{sample_id}' in reg:
-    reg['{sample_id}']['human_status'] = 'REJECTED'
-    reg['{sample_id}']['admitted_to_training'] = False
-    reg['{sample_id}']['quarantined'] = True
-    reg['{sample_id}']['human_notes'] = '{notes or "Quarantined via StoneSage GUI"}'
+target = reg.get('samples', reg)
+if '{sample_id}' in target:
+    target['{sample_id}']['human_status'] = '{status_val}'
+    target['{sample_id}']['admitted_to_training'] = {admit_val}
+    target['{sample_id}']['quarantined'] = {quar_val}
+    target['{sample_id}']['human_notes'] = {json.dumps(note_val)}
+    if 'summary' in reg:
+        s_list = [v for v in target.values() if isinstance(v, dict)]
+        reg['summary']['human_approved'] = sum(1 for s in s_list if s.get('human_status') == 'APPROVED')
+        reg['summary']['human_rejected'] = sum(1 for s in s_list if s.get('human_status') == 'REJECTED' or s.get('quarantined'))
+        reg['summary']['pending_human_review'] = sum(1 for s in s_list if s.get('human_status') == 'PENDING_REVIEW')
+        reg['summary']['admitted_to_training'] = sum(1 for s in s_list if s.get('admitted_to_training'))
     with open(p, 'w') as f: json.dump(reg, f, indent=2)
-    print('QUARANTINED')
+    print('{status_val}')
 else:
     print('NOT_FOUND')
 """
             cmd = f"python3 -c \"{py_code.strip()}\""
             res = self._run_remote_cmd(cmd, timeout=10)
             self._append_log(f"Result: {res.get('stdout', '').strip()}")
-            return {"ok": "QUARANTINED" in res.get("stdout", ""), "output": res.get("stdout", "")}
+            return {"ok": status_val in res.get("stdout", ""), "output": res.get("stdout", "")}
 
         return {"ok": False, "error": f"Invalid curation action: {action}"}
 

@@ -820,6 +820,12 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(trainer_client.get_passdown())
             return
 
+        elif path == "/api/trainer/dossier":
+            query = urllib.parse.parse_qs(parsed.query)
+            sample_id = query.get("id", [""])[0]
+            self.send_json(trainer_client.get_dossier(sample_id=sample_id))
+            return
+
         elif path == "/api/config":
             self.send_json(load_config())
             return
