@@ -78,6 +78,7 @@ from obsidian_ingestor import ObsidianIngestor
 from couchdb_client import CouchDBClient
 from stm_engine import ShortTermMemoryEngine
 from dataset_compiler import DatasetCompiler
+from trainer_client import TrainerClient
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/javascript", ".js")
@@ -110,6 +111,7 @@ obsidian_ingestor = ObsidianIngestor(config)
 couchdb = CouchDBClient(config.get("couchdb", {}))
 stm = ShortTermMemoryEngine(config)
 dataset_compiler = DatasetCompiler(config)
+trainer_client = TrainerClient(config)
 
 def extract_tool_call(text: str):
     """Extract tool name and arguments from model content (supporting XML-style, markdown codeblocks, or raw JSON)."""
@@ -802,6 +804,21 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_json({"ok": False, "error": f"Dataset file {fname} not compiled yet."}, 404)
                 return
+
+        elif path == "/api/trainer/status":
+            self.send_json(trainer_client.get_status())
+            return
+
+        elif path == "/api/trainer/curation":
+            query = urllib.parse.parse_qs(parsed.query)
+            limit = int(query.get("limit", [100])[0])
+            filter_status = query.get("filter", [None])[0]
+            self.send_json(trainer_client.get_curation_registry(limit=limit, filter_status=filter_status))
+            return
+
+        elif path == "/api/trainer/passdown":
+            self.send_json(trainer_client.get_passdown())
+            return
 
         elif path == "/api/config":
             self.send_json(load_config())
@@ -1582,6 +1599,58 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/dataset/stop":
                 res = dataset_compiler.stop_compilation()
                 self.send_json(res)
+                return
+
+            elif path == "/api/trainer/ingest/sleep":
+                limit = int(body.get("limit", 50))
+                self.send_json(trainer_client.ingest_sleep_dossiers(limit=limit))
+                return
+
+            elif path == "/api/trainer/ingest/url":
+                url = body.get("url", "")
+                self.send_json(trainer_client.ingest_url(url=url))
+                return
+
+            elif path == "/api/trainer/curation/review":
+                action = body.get("action", "")
+                sample_id = body.get("sample_id")
+                notes = body.get("notes", "")
+                self.send_json(trainer_client.review_curation(action=action, sample_id=sample_id, notes=notes))
+                return
+
+            elif path == "/api/trainer/train":
+                mode = body.get("mode", "sft")
+                target_model = body.get("target_model", "ornith-1.5-9b")
+                steps = int(body.get("steps", 40))
+                approved = bool(body.get("approved", False))
+                self.send_json(trainer_client.start_training(mode=mode, target_model=target_model, steps=steps, approved=approved))
+                return
+
+            elif path == "/api/trainer/stop":
+                self.send_json(trainer_client.stop_training())
+                return
+
+            elif path == "/api/trainer/dryrun":
+                self.send_json(trainer_client.run_dryrun())
+                return
+
+            elif path == "/api/trainer/invariants":
+                self.send_json(trainer_client.run_golden_invariants())
+                return
+
+            elif path == "/api/trainer/export":
+                quant_target = body.get("quant_target", "q4_k_m")
+                self.send_json(trainer_client.export_gguf(quant_target=quant_target))
+                return
+
+            elif path == "/api/trainer/promote":
+                target_role = body.get("target_role", "worker")
+                user_approval = bool(body.get("user_approval", False))
+                self.send_json(trainer_client.promote_model(target_role=target_role, user_approval=user_approval))
+                return
+
+            elif path == "/api/trainer/passdown/feed":
+                self.send_json(trainer_client.feed_passdown())
                 return
 
             elif path == "/api/config":

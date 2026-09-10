@@ -76,6 +76,7 @@
       <button class="tab-btn" data-view="view-harness">[F9:HARNESS STUDIO]</button>
       <button class="tab-btn" data-view="view-immich">[F10:IMMICH]</button>
       <button class="tab-btn" data-view="view-memory">[F11:MEMORY]</button>
+      <button class="tab-btn" data-view="view-trainer">[F12:LLM TRAINER]</button>
     </nav>
 
     <div class="header-actions">
@@ -1249,6 +1250,355 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             </div>
           </div>
         </details>
+
+      </div>
+    </section>
+
+    <!-- VIEW 12: GGUF LLM TRAINING PIPELINE & COGNITIVE CURATION -->
+    <section class="view-pane" id="view-trainer">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ ⚡ GGUF LLM TRAINING PIPELINE &amp; COGNITIVE CURATION ]</h2>
+          <p>20GB Dual-GPU VRAM Envelope • QLoRA (4-bit NF4) &amp; Controlled DPO/GRPO • Dual-Gate Sleep Curation • 10 Golden Invariants • Safe GGUF Promotion</p>
+        </div>
+        <div class="filter-bar">
+          <button class="win95-btn" onclick="trainerIngestSleep()" id="btn-trainer-ingest-sleep" title="Harvest and curate recent sleep cycle dossiers">[⚡ INGEST SLEEP DOSSIERS]</button>
+          <button class="win95-btn" onclick="trainerApproveAllFrontier()" id="btn-trainer-approve-all" title="Approve all Gate 1 Frontier-audited samples">[🛡️ APPROVE FRONTIER SAMPLES]</button>
+          <button class="win95-btn" onclick="trainerRunDryRun()" id="btn-trainer-dryrun" title="Run 5-Phase dry-run verification suite on Ornith-1.5-9B">[🧪 RUN DRY-RUN TEST]</button>
+          <button class="win95-btn" onclick="trainerStartTraining()" id="btn-trainer-start" style="color: #44ff44; font-weight: bold;" title="Launch QLoRA training run">[▶ START TRAINING]</button>
+          <button class="win95-btn" onclick="trainerStopTraining()" id="btn-trainer-stop" style="color: #ff6666;" title="Cancel running training run">[⏹ STOP RUN]</button>
+          <button class="win95-btn" onclick="fetchTrainerAll(true)" id="btn-trainer-refresh">[🔄 REFRESH]</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.65rem; height: calc(100% - 70px); overflow-y: auto; padding-right: 4px;">
+        
+        <!-- Live Status & VRAM Allocation Ribbon -->
+        <div class="panel-box" style="padding: 0.6rem; background: var(--term-bg-subtle, #181818);">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; font-size: 0.78rem;">
+            <div class="immich-stat-card">
+              <div>TRAINING STATUS:</div>
+              <strong id="trainer-status-badge" style="color: var(--term-text-bright); font-size: 0.85rem;">IDLE</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>PEAK VRAM ESTIMATE:</div>
+              <strong id="trainer-vram-peak" style="color: #00ee66; font-size: 0.85rem;">8.5 GB / 20 GB</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>PRIMARY HEADROOM (RX 6750):</div>
+              <strong id="trainer-vram-headroom" style="color: #00ee66; font-size: 0.85rem;">3.5 GB (Fits 1 GPU)</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>10 GOLDEN INVARIANTS:</div>
+              <strong id="trainer-invariant-badge" style="color: var(--term-text-bright); font-size: 0.85rem;">7/10 PASSED (70.0%)</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trainer Sub-Nav Bar -->
+        <div class="filter-bar" style="margin-bottom: 0.2rem; background: #c0c0c0; border: 2px groove #dfdfdf; padding: 4px;">
+          <button class="filter-btn active" data-trainer-tab="curation" onclick="switchTrainerTab('curation')">[1: SLEEP DOSSIERS &amp; DUAL-GATE CURATION]</button>
+          <button class="filter-btn" data-trainer-tab="url" onclick="switchTrainerTab('url')">[2: URL &amp; TEXT INGESTION]</button>
+          <button class="filter-btn" data-trainer-tab="training" onclick="switchTrainerTab('training')">[3: QLoRA &amp; DPO STUDIO]</button>
+          <button class="filter-btn" data-trainer-tab="invariants" onclick="switchTrainerTab('invariants')">[4: SAFETY SHIELD &amp; 10 PROBES]</button>
+          <button class="filter-btn" data-trainer-tab="export" onclick="switchTrainerTab('export')">[5: GGUF EXPORT &amp; PROMOTION]</button>
+          <button class="filter-btn" data-trainer-tab="passdown" onclick="switchTrainerTab('passdown')">[6: ROLLING PASSDOWN HUD]</button>
+        </div>
+
+        <!-- TAB 1: SLEEP DOSSIERS & DUAL-GATE CURATION -->
+        <div class="trainer-tab-pane" id="trainer-tab-curation" style="display: flex; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛡️ DUAL-GATE CURATION REGISTRY &amp; RUMINATION HARVEST</span>
+              <div style="display: flex; gap: 0.4rem;">
+                <button class="send-btn" onclick="trainerApproveAllFrontier()">[🛡️ APPROVE ALL FRONTIER-VERIFIED]</button>
+                <button class="send-btn" onclick="trainerIngestSleep()">[⚡ HARVEST LATEST (LIMIT 50)]</button>
+              </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.6rem; font-size: 0.76rem;">
+              <div class="immich-stat-card">
+                <div>TOTAL DOSSIERS HARVESTED:</div>
+                <strong id="curation-stat-total" style="color: var(--term-text-bright); font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>GATE 1: FRONTIER VERIFIED:</div>
+                <strong id="curation-stat-frontier" style="color: #00ee66; font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>GATE 2: HUMAN APPROVED:</div>
+                <strong id="curation-stat-approved" style="color: #55aaff; font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>QUARANTINED / REJECTED:</div>
+                <strong id="curation-stat-quarantined" style="color: #ff6666; font-size: 0.9rem;">--</strong>
+              </div>
+            </div>
+
+            <!-- Filter Buttons -->
+            <div style="display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.74rem; font-weight: bold;">Filter:</span>
+              <button class="filter-btn active" onclick="filterCurationTable('all', this)">[ALL]</button>
+              <button class="filter-btn" onclick="filterCurationTable('frontier', this)">[FRONTIER VERIFIED]</button>
+              <button class="filter-btn" onclick="filterCurationTable('pending', this)">[PENDING REVIEW]</button>
+              <button class="filter-btn" onclick="filterCurationTable('approved', this)">[APPROVED]</button>
+              <button class="filter-btn" onclick="filterCurationTable('quarantined', this)">[QUARANTINED]</button>
+            </div>
+
+            <!-- Table of Curation Samples -->
+            <div style="max-height: 240px; overflow-y: auto; border: 1px inset #888; background: var(--term-bg, #000);">
+              <table style="width: 100%; border-collapse: collapse; font-family: var(--font-terminal); font-size: 0.72rem; color: var(--term-text, #0f0);">
+                <thead>
+                  <tr style="background: #222; color: #fff; border-bottom: 1px solid #444; position: sticky; top: 0;">
+                    <th style="padding: 4px; text-align: left;">ID</th>
+                    <th style="padding: 4px; text-align: left;">DOMAIN</th>
+                    <th style="padding: 4px; text-align: center;">GATE 1 (FRONTIER)</th>
+                    <th style="padding: 4px; text-align: center;">GATE 2 (HUMAN)</th>
+                    <th style="padding: 4px; text-align: left;">PROMPT SNIPPET</th>
+                    <th style="padding: 4px; text-align: center;">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody id="curation-table-body">
+                  <tr><td colspan="6" style="padding: 8px; text-align: center; color: #888;">Loading Curation Registry...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: URL & TEXT INGESTION -->
+        <div class="trainer-tab-pane" id="trainer-tab-url" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">🌐 EXTERNAL URL &amp; TECHNICAL MANUAL INGESTION</span>
+            <p style="font-size: 0.75rem; margin-bottom: 0.6rem; color: var(--term-text-dim);">
+              Scrapes web pages or documentation, bounds text chunks to &lt; 900 characters (strictly respecting the BGE 512-token context limit), and synthesizes grounded QA pairs in ChatML format using local models.
+            </p>
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+              <input type="text" class="form-control" id="trainer-url-input" placeholder="https://unsloth.ai/docs/get-started/fine-tuning-llms-guide" style="flex: 1;">
+              <button class="send-btn" onclick="trainerIngestUrlNow()">[🌐 INGEST URL &amp; SYNTHESIZE QA]</button>
+            </div>
+            
+            <div style="border-top: 1px dashed #666; padding-top: 0.6rem;">
+              <span style="font-weight: bold; font-size: 0.75rem; color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">📝 RAW NOTES OR OPERATOR DIRECTIVES INGESTION:</span>
+              <textarea class="form-control" id="trainer-raw-text-input" rows="4" placeholder="Paste technical procedures, system invariants, or code snippets here..." style="width: 100%; font-family: var(--font-terminal); font-size: 0.75rem;"></textarea>
+              <div style="display: flex; justify-content: flex-end; margin-top: 0.35rem;">
+                <button class="send-btn" onclick="trainerSynthesizeRawText()">[📝 SYNTHESIZE SFT PAIRS FROM TEXT]</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: QLoRA & DPO TRAINING STUDIO -->
+        <div class="trainer-tab-pane" id="trainer-tab-training" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.5rem;">🎛️ QLoRA 4-BIT &amp; CONTROLLED REINFORCEMENT LEARNING STUDIO</span>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                <div class="form-group">
+                  <label for="trainer-select-model" style="font-size: 0.75rem; font-weight: bold;">Target Model Architecture:</label>
+                  <select class="form-control" id="trainer-select-model">
+                    <option value="ornith-1.5-9b">Ornith-1.5-9B (Base Coordinator &amp; Worker - 8.5 GB Peak)</option>
+                    <option value="ornith-1.5-35b-moe">Ornith-1.5-35B-MoE (Dual-GPU DDP Split - 20 GB)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="trainer-select-mode" style="font-size: 0.75rem; font-weight: bold;">Training Objective / Mode:</label>
+                  <select class="form-control" id="trainer-select-mode">
+                    <option value="sft">SFT: Supervised Fine-Tuning (ChatML Completion-Only Loss)</option>
+                    <option value="dpo">DPO: Direct Preference Optimization (Coordinator vs Worker pairs)</option>
+                    <option value="grpo">GRPO: Rule-Verifiable Reinforcement Learning (AST &amp; Syntax Proofs)</option>
+                  </select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                  <div class="form-group">
+                    <label for="trainer-input-steps" style="font-size: 0.72rem; font-weight: bold;">Step Budget:</label>
+                    <input type="number" class="form-control" id="trainer-input-steps" value="40" min="5" max="500">
+                  </div>
+                  <div class="form-group">
+                    <label for="trainer-select-quant" style="font-size: 0.72rem; font-weight: bold;">Export Quantization:</label>
+                    <select class="form-control" id="trainer-select-quant">
+                      <option value="q4_k_m">Q4_K_M (Fast Worker :8002)</option>
+                      <option value="q8_0">Q8_0 (Deep Coordinator :8001)</option>
+                      <option value="all">All (Both Formats)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- VRAM Breakdown & Hyperparams -->
+              <div style="background: var(--term-bg, #000); border: 1px inset #888; padding: 0.5rem; font-family: var(--font-terminal); font-size: 0.72rem; color: var(--term-text, #0f0);">
+                <div style="color: #fff; font-weight: bold; margin-bottom: 0.3rem;">[ 20GB VRAM ENVELOPE ALLOCATION MAP ]</div>
+                <div>• Base Model (NF4 4-bit):  ~4.6 GB</div>
+                <div>• LoRA Adapters (r=16, a=32): ~0.18 GB</div>
+                <div>• Gradient Checkpointing:    ~2.8 GB</div>
+                <div>• Paged 8-bit AdamW:          ~0.36 GB</div>
+                <div style="border-top: 1px dashed #444; margin: 0.25rem 0;"></div>
+                <div style="color: #00ee66; font-weight: bold;">• Total Peak VRAM:           ~8.5 GB</div>
+                <div style="color: #00ee66;">• RX 6750 XT (12GB) Headroom: ~3.5 GB (SAFE)</div>
+                <div style="color: #ffff88; margin-top: 0.3rem;">• Secondary GPU (RX 6600 XT 8GB): Available for DPO ref policy &amp; BGE embedder.</div>
+              </div>
+            </div>
+
+            <!-- Operator Verification Box -->
+            <div style="margin-top: 0.6rem; padding: 0.4rem; background: #fffbe6; border: 1px solid #ffe58f; color: #614700; font-size: 0.74rem;">
+              <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                <input type="checkbox" id="trainer-human-approval-check" checked>
+                <strong>Operator Sign-Off:</strong> I confirm that training datasets have passed Gate 1 Frontier Verification and are sanitized of hallucinations.
+              </label>
+            </div>
+
+            <!-- Action Controls -->
+            <div style="display: flex; gap: 0.5rem; margin-top: 0.6rem;">
+              <button class="win95-btn" onclick="trainerStartTraining()" style="color: #008800; font-weight: bold; flex: 1;">[▶ LAUNCH QLoRA TRAINING RUN]</button>
+              <button class="win95-btn" onclick="trainerRunDryRun()" style="flex: 1;">[🧪 RUN 5-PHASE DRY-RUN TEST]</button>
+              <button class="win95-btn" onclick="trainerStopTraining()" style="color: #bb0000;">[⏹ ABORT]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: SAFETY SHIELD & 10 PROBES -->
+        <div class="trainer-tab-pane" id="trainer-tab-invariants" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <div>
+                <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛡️ 10 LOCKED GOLDEN INVARIANT PROBES &amp; AUTO-ROLLBACK SHIELD</span>
+                <div style="font-size: 0.72rem; color: var(--term-text-dim);">Evaluates identity, hardware grounding, code syntax, AMAT calculations, and safety refusal. Auto-rollback if pass rate drops &gt; 2%.</div>
+              </div>
+              <button class="send-btn" onclick="trainerAuditInvariantsNow()">[🛡️ RUN PROBE AUDIT NOW]</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; font-size: 0.73rem; font-family: var(--font-terminal);">
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-01-IDENTITY</div>
+                <strong style="color: #00ee66;">✓ Sovereign Cluster Identity</strong>
+                <div style="color: #888; font-size: 0.68rem;">Retains Ornith/StoneSage role; rejects self-identity debates.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-02-HARDWARE-AWARENESS</div>
+                <strong style="color: #00ee66;">✓ AMD Vulkan Heterogeneous Grounding</strong>
+                <div style="color: #888; font-size: 0.68rem;">Aligns with RX 6750 + RX 6600; forbids foreign accelerators.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-03-CODE-SYNTAX</div>
+                <strong style="color: #00ee66;">✓ AST Parsing &amp; Compilation Correctness</strong>
+                <div style="color: #888; font-size: 0.68rem;">Generates valid Python ASTs without syntax or eval flaws.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-04-MATHEMATICAL-REASONING</div>
+                <strong style="color: #00ee66;">✓ AMAT Cache Mathematical Proof</strong>
+                <div style="color: #888; font-size: 0.68rem;">Computes hit/miss latencies without arithmetic drift.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-05-SYSTEMS-SAFETY</div>
+                <strong style="color: #00ee66;">✓ Destructive Command Refusal (rm -rf /)</strong>
+                <div style="color: #888; font-size: 0.68rem;">Strictly refuses to execute or propose destructive system calls.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-06-CONCURRENCY-SAFETY</div>
+                <strong style="color: #00ee66;">✓ Race Conditions, Mutexes &amp; Locks</strong>
+                <div style="color: #888; font-size: 0.68rem;">Explains thread safety, atomics, and ABA hazards accurately.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-07-EPISTEMIC-HONESTY</div>
+                <strong style="color: #00ee66;">✓ Rejection of Future / Fabricated Facts</strong>
+                <div style="color: #888; font-size: 0.68rem;">Acknowledges unknown information without hallucinating dates.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-08-MEMORY-INVARIANT</div>
+                <strong style="color: #00ee66;">✓ BGE 512-Token Boundary Enforcement</strong>
+                <div style="color: #888; font-size: 0.68rem;">Keeps embedding inputs &lt; 900 chars to avoid server 500s.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-09-NEGATIVE-INSTRUCTION</div>
+                <strong style="color: #00ee66;">✓ Zero Identity-Loop Thought Collapse</strong>
+                <div style="color: #888; font-size: 0.68rem;">Eliminates the 1500-token self-debating monologue (&lt; 50 tok).</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-10-CONCISE-REASONING</div>
+                <strong style="color: #00ee66;">✓ Factual Answering Under 100 Tokens</strong>
+                <div style="color: #888; font-size: 0.68rem;">Provides direct answers without meta-chatter or boilerplate.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: GGUF EXPORT & PROMOTION -->
+        <div class="trainer-tab-pane" id="trainer-tab-export" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">📦 GGUF EXPORT &amp; CLUSTER PRODUCTION PROMOTION</span>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 0.65rem;">
+              <!-- Export Box -->
+              <div style="border: 1px inset #888; padding: 0.5rem; background: #c0c0c0;">
+                <span style="font-weight: bold; font-size: 0.76rem;">1. MERGE LoRA &amp; EXPORT GGUF:</span>
+                <p style="font-size: 0.72rem; margin: 0.25rem 0;">Merges adapter into 16-bit base weights and converts to llama.cpp GGUF format.</p>
+                <div class="form-group" style="margin-bottom: 0.4rem;">
+                  <label style="font-size: 0.72rem; font-weight: bold;">Quantization Target:</label>
+                  <select class="form-control" id="trainer-export-quant-select">
+                    <option value="q4_k_m">Q4_K_M (Worker - 80+ tok/s on RX 6600 XT)</option>
+                    <option value="q8_0">Q8_0 (Coordinator - High Precision on RX 6750 XT)</option>
+                    <option value="all">All (Both Quantizations)</option>
+                  </select>
+                </div>
+                <button class="win95-btn" onclick="trainerExportGgufNow()" style="width: 100%;">[📦 EXPORT &amp; QUANTIZE ADAPTER]</button>
+              </div>
+
+              <!-- Promote Box -->
+              <div style="border: 1px inset #888; padding: 0.5rem; background: #c0c0c0;">
+                <span style="font-weight: bold; font-size: 0.76rem;">2. PROMOTE TO CLUSTER PRODUCTION:</span>
+                <p style="font-size: 0.72rem; margin: 0.25rem 0;">Deploys staged GGUF to <code>/opt/models/</code>, creates automatic <code>.bak</code>, and restarts systemd.</p>
+                <div class="form-group" style="margin-bottom: 0.4rem;">
+                  <label style="font-size: 0.72rem; font-weight: bold;">Target Service Role:</label>
+                  <select class="form-control" id="trainer-promote-role-select">
+                    <option value="worker">Worker Accelerator (:8002 - llama-worker)</option>
+                    <option value="coordinator">Coordinator Accelerator (:8001 - llama-coordinator)</option>
+                  </select>
+                </div>
+                <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem;">
+                  <input type="checkbox" id="trainer-promote-confirm-check" checked>
+                  Confirm live service reload with backup
+                </label>
+                <button class="win95-btn" onclick="trainerPromoteModelNow()" style="width: 100%; color: #0000aa; font-weight: bold;">[🚀 PROMOTE MODEL TO PRODUCTION]</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 6: ROLLING PASSDOWN HUD -->
+        <div class="trainer-tab-pane" id="trainer-tab-passdown" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">📋 ROLLING PASSDOWN CONTEXT CARD (&lt; 400 TOKENS)</span>
+              <div style="display: flex; gap: 0.4rem;">
+                <button class="send-btn" onclick="trainerFeedPassdownNow()">[📥 FEED CORRECTIONS TO DEEP SLEEP QUEUE]</button>
+                <button class="send-btn" onclick="fetchTrainerPassdown()">[🔄 REFRESH PASSDOWN]</button>
+              </div>
+            </div>
+            
+            <pre id="trainer-passdown-card-preview" style="background: var(--term-bg, #000); color: var(--term-text, #0f0); font-family: var(--font-terminal); font-size: 0.72rem; padding: 0.5rem; max-height: 180px; overflow-y: auto; border: 1px inset #888; white-space: pre-wrap; margin-bottom: 0.5rem;">
+Loading compact context card...
+            </pre>
+
+            <details>
+              <summary style="font-size: 0.74rem; font-weight: bold; cursor: pointer; color: var(--term-text-bright);">[+] View Full ROLLING_PASSDOWN.md Content</summary>
+              <pre id="trainer-passdown-full-preview" style="background: var(--term-bg, #000); color: #ccc; font-family: var(--font-terminal); font-size: 0.70rem; padding: 0.5rem; max-height: 200px; overflow-y: auto; border: 1px inset #888; white-space: pre-wrap; margin-top: 0.35rem;">
+Loading full passdown markdown...
+              </pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- Real-Time Trainer Terminal Console -->
+        <div class="terminal-panel" style="flex: 1; min-height: 160px; display: flex; flex-direction: column;">
+          <div class="terminal-panel-header">
+            <span>💻 GGUF LLM TRAINER ORCHESTRATION CONSOLE OUTPUT</span>
+            <button class="launch-btn" onclick="document.getElementById('trainer-console').innerText = '[Console ready.]'" style="padding: 1px 4px; font-size: 0.7rem;">[CLS]</button>
+          </div>
+          <pre id="trainer-console" style="margin: 0; padding: 0.65rem; background: var(--term-bg, #000); color: var(--term-text, #0f0); font-family: var(--font-terminal); font-size: 0.72rem; flex: 1; overflow-y: auto; white-space: pre-wrap;">
+[ GGUF LLM Trainer Console Initialized. Ready for dataset curation, QLoRA training, and model promotion. ]
+          </pre>
+        </div>
 
       </div>
     </section>

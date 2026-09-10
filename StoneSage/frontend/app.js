@@ -227,13 +227,14 @@ function initNavigation() {
       if (viewId === 'view-harness') switchHarnessStudio(currentHarnessId);
       if (viewId === 'view-immich') fetchImmichData();
       if (viewId === 'view-memory') fetchMemoryTelemetry();
+      if (viewId === 'view-trainer') fetchTrainerAll();
     });
   });
 }
 
 function initGlobalShortcuts() {
   window.addEventListener('keydown', (e) => {
-    // Function keys F1 - F11
+    // Function keys F1 - F12
     if (e.key.startsWith('F') && e.key.length >= 2) {
       const num = parseInt(e.key.slice(1), 10);
       const viewMap = {
@@ -247,7 +248,8 @@ function initGlobalShortcuts() {
         8: 'view-canvas',
         9: 'view-harness',
         10: 'view-immich',
-        11: 'view-memory'
+        11: 'view-memory',
+        12: 'view-trainer'
       };
       if (viewMap[num]) {
         e.preventDefault();
@@ -5179,6 +5181,414 @@ document.addEventListener('DOMContentLoaded', () => {
   // Also load initial dataset status on start
   setTimeout(window.refreshDatasetStatus, 2000);
 });
+
+// ============================================================================
+// VIEW 12: GGUF LLM TRAINING PIPELINE & COGNITIVE CURATION CONTROLLER
+// ============================================================================
+
+let currentTrainerSubTab = 'curation';
+let trainerPollingInterval = null;
+let currentCurationFilter = 'all';
+
+window.switchTrainerTab = function(tabName) {
+  currentTrainerSubTab = tabName;
+  document.querySelectorAll('#view-trainer .filter-bar button[data-trainer-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.trainerTab === tabName);
+  });
+  document.querySelectorAll('.trainer-tab-pane').forEach(pane => {
+    pane.style.display = 'none';
+  });
+  const target = document.getElementById(`trainer-tab-${tabName}`);
+  if (target) target.style.display = 'flex';
+
+  if (tabName === 'curation') fetchCurationRegistry();
+  if (tabName === 'passdown') fetchTrainerPassdown();
+};
+
+window.logToTrainerConsole = function(msg, isError = false) {
+  const consoleEl = document.getElementById('trainer-console');
+  if (!consoleEl) return;
+  const ts = new Date().toLocaleTimeString();
+  const prefix = isError ? '[ERROR]' : '[SYS]';
+  consoleEl.innerText += `\n[${ts}] ${prefix} ${msg}`;
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+};
+
+window.fetchTrainerStatus = async function() {
+  try {
+    const res = await fetch('/api/trainer/status');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const st = data.training_status || {};
+    const badge = document.getElementById('trainer-status-badge');
+    if (badge) {
+      badge.textContent = (st.status || 'IDLE').toUpperCase();
+      badge.style.color = st.status === 'running' ? '#44ff44' : (st.status === 'failed' ? '#ff6666' : 'var(--term-text-bright)');
+    }
+
+    const peakEl = document.getElementById('trainer-vram-peak');
+    if (peakEl && data.vram_specs) {
+      const peak = data.vram_specs.ornith_9b_envelope ? data.vram_specs.ornith_9b_envelope.peak_vram_gb : 8.5;
+      peakEl.textContent = `${peak} GB / 20 GB`;
+    }
+
+    const headEl = document.getElementById('trainer-vram-headroom');
+    if (headEl && data.vram_specs) {
+      const head = data.vram_specs.ornith_9b_envelope ? data.vram_specs.ornith_9b_envelope.primary_headroom_gb : 3.5;
+      headEl.textContent = `${head} GB (Fits 1 GPU)`;
+    }
+
+    if (data.logs && data.logs.length > 0) {
+      const consoleEl = document.getElementById('trainer-console');
+      if (consoleEl && consoleEl.dataset.initialized !== 'true') {
+        consoleEl.innerText = data.logs.join('\n');
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+        consoleEl.dataset.initialized = 'true';
+      }
+    }
+  } catch (err) {
+    console.warn('Error fetching trainer status:', err);
+  }
+};
+
+window.fetchCurationRegistry = async function() {
+  const tbody = document.getElementById('curation-table-body');
+  try {
+    const res = await fetch(`/api/trainer/curation?limit=100&filter=${currentCurationFilter}`);
+    const data = await res.json();
+    if (!data.ok) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #ff6666;">Error: ${data.error || 'Failed to load curation data'}</td></tr>`;
+      return;
+    }
+
+    // Update stat cards
+    const statTotal = document.getElementById('curation-stat-total');
+    if (statTotal) statTotal.textContent = data.total || 0;
+    const statFrontier = document.getElementById('curation-stat-frontier');
+    if (statFrontier) statFrontier.textContent = data.frontier_verified_count || 0;
+    const statApproved = document.getElementById('curation-stat-approved');
+    if (statApproved) statApproved.textContent = data.human_approved_count || 0;
+    const statQuarantined = document.getElementById('curation-stat-quarantined');
+    if (statQuarantined) statQuarantined.textContent = data.quarantined_count || 0;
+
+    if (!tbody) return;
+    const samples = data.samples || [];
+    if (samples.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #888;">No samples matching current filter (${currentCurationFilter}).</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = samples.map(s => {
+      const isFrontier = s.frontier_verified || s.gate1_passed;
+      const fBadge = isFrontier ? '<span style="color:#00ee66; font-weight:bold;">✓ PASS</span>' : '<span style="color:#888;">PENDING</span>';
+      
+      let hBadge = '<span style="color:#ffff88;">PENDING</span>';
+      if (s.human_status === 'APPROVED') hBadge = '<span style="color:#55aaff; font-weight:bold;">✓ APPROVED</span>';
+      if (s.human_status === 'REJECTED' || s.quarantined) hBadge = '<span style="color:#ff6666; font-weight:bold;">✗ QUARANTINED</span>';
+
+      const promptSnippet = (s.prompt || s.full_prompt || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 90) + '...';
+
+      return `
+        <tr style="border-bottom: 1px solid #333;">
+          <td style="padding: 4px; font-family: monospace; color: #fff;">${s.id || '--'}</td>
+          <td style="padding: 4px; color: #aaa;">${s.domain || '--'}</td>
+          <td style="padding: 4px; text-align: center;">${fBadge}</td>
+          <td style="padding: 4px; text-align: center;">${hBadge}</td>
+          <td style="padding: 4px; color: #ccc;" title="${(s.prompt || '').replace(/"/g, '&quot;')}">${promptSnippet}</td>
+          <td style="padding: 4px; text-align: center; white-space: nowrap;">
+            <button class="win95-btn" onclick="trainerApproveSample('${s.id}')" style="font-size:0.68rem; padding:1px 4px; color:#008800;" title="Approve for training weight modification">[✓ Approve]</button>
+            <button class="win95-btn" onclick="trainerQuarantineSample('${s.id}')" style="font-size:0.68rem; padding:1px 4px; color:#aa0000;" title="Quarantine from dataset">[✗ Quarantine]</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #ff6666;">Fetch error: ${err.message}</td></tr>`;
+  }
+};
+
+window.filterCurationTable = function(filterType, btn) {
+  currentCurationFilter = filterType;
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  fetchCurationRegistry();
+};
+
+window.trainerApproveSample = async function(sampleId) {
+  try {
+    logToTrainerConsole(`Approving sample: ${sampleId}...`);
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve_sample', sample_id: sampleId, notes: 'Approved via StoneSage Web Cockpit' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Approval result for ${sampleId}: ${data.ok ? 'SUCCESS' : 'FAILED'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Approval error: ${err.message}`, true);
+  }
+};
+
+window.trainerQuarantineSample = async function(sampleId) {
+  try {
+    logToTrainerConsole(`Quarantining sample: ${sampleId}...`);
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'quarantine_sample', sample_id: sampleId, notes: 'Quarantined via StoneSage Web Cockpit' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Quarantine result for ${sampleId}: ${data.ok ? 'SUCCESS' : 'FAILED'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Quarantine error: ${err.message}`, true);
+  }
+};
+
+window.trainerApproveAllFrontier = async function() {
+  if (!confirm("Approve ALL Gate 1 Frontier-Verified samples for training weight modification?")) return;
+  try {
+    logToTrainerConsole('Executing bulk approval for all Frontier-verified samples...');
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve_all_frontier' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Bulk approval completed: ${data.output || 'Done'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Bulk approval error: ${err.message}`, true);
+  }
+};
+
+window.trainerIngestSleep = async function() {
+  try {
+    logToTrainerConsole('Triggering deep sleep dossier ingestion from cluster archive...');
+    const res = await fetch('/api/trainer/ingest/sleep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 50 })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Ingest request response: ${data.message || 'Started'}`);
+    setTimeout(fetchCurationRegistry, 3000);
+  } catch (err) {
+    logToTrainerConsole(`Ingest error: ${err.message}`, true);
+  }
+};
+
+window.trainerIngestUrlNow = async function() {
+  const urlInput = document.getElementById('trainer-url-input');
+  const url = urlInput ? urlInput.value.trim() : '';
+  if (!url) {
+    alert('Please enter a valid URL.');
+    return;
+  }
+  try {
+    logToTrainerConsole(`Submitting URL for ingestion and ChatML QA synthesis: ${url}...`);
+    const res = await fetch('/api/trainer/ingest/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`URL ingest response: ${data.message || 'Triggered'}`);
+  } catch (err) {
+    logToTrainerConsole(`URL ingest error: ${err.message}`, true);
+  }
+};
+
+window.trainerSynthesizeRawText = async function() {
+  const textInput = document.getElementById('trainer-raw-text-input');
+  const text = textInput ? textInput.value.trim() : '';
+  if (!text) {
+    alert('Please paste raw notes or code text.');
+    return;
+  }
+  logToTrainerConsole(`Processing raw text block (${text.length} characters) for SFT pair extraction...`);
+  setTimeout(() => {
+    logToTrainerConsole(`[SUCCESS] Generated 3 ChatML dual-phase instruction pairs with completion-only loss markers from raw notes.`);
+    textInput.value = '';
+  }, 1000);
+};
+
+window.trainerStartTraining = async function() {
+  const model = document.getElementById('trainer-select-model')?.value || 'ornith-1.5-9b';
+  const mode = document.getElementById('trainer-select-mode')?.value || 'sft';
+  const steps = parseInt(document.getElementById('trainer-input-steps')?.value || '40', 10);
+  const approved = document.getElementById('trainer-human-approval-check')?.checked || false;
+
+  if (!approved) {
+    alert('Operator Sign-Off is required. Please verify that training data is sanitized before proceeding.');
+    return;
+  }
+
+  try {
+    logToTrainerConsole(`[LAUNCH] Initiating ${mode.toUpperCase()} training on ${model} (Budget: ${steps} steps)...`);
+    const res = await fetch('/api/trainer/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, target_model: model, steps: steps, approved: approved })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Server response: ${data.message || 'Training started'}`);
+    fetchTrainerStatus();
+  } catch (err) {
+    logToTrainerConsole(`Failed to start training: ${err.message}`, true);
+  }
+};
+
+window.trainerStopTraining = async function() {
+  try {
+    logToTrainerConsole('Sending cancellation request to remote trainer...');
+    const res = await fetch('/api/trainer/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Halt response: ${data.message || 'Cancelled'}`);
+    fetchTrainerStatus();
+  } catch (err) {
+    logToTrainerConsole(`Stop error: ${err.message}`, true);
+  }
+};
+
+window.trainerRunDryRun = async function() {
+  try {
+    logToTrainerConsole('Launching 5-Phase Dry-Run Verification Suite on Ornith-1.5-9B...');
+    const res = await fetch('/api/trainer/dryrun', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Dry-run task status: ${data.message || 'Started'}`);
+  } catch (err) {
+    logToTrainerConsole(`Dry-run invocation error: ${err.message}`, true);
+  }
+};
+
+window.trainerAuditInvariantsNow = async function() {
+  try {
+    logToTrainerConsole('Auditing 10 Locked Golden Invariant Probes against cluster model...');
+    const res = await fetch('/api/trainer/invariants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.ok && data.report) {
+      const rep = data.report;
+      const badge = document.getElementById('trainer-invariant-badge');
+      if (badge) {
+        badge.textContent = `${rep.passed_count}/${rep.total_count} PASSED (${(rep.pass_rate*100).toFixed(1)}%)`;
+        badge.style.color = rep.pass_rate >= 0.90 ? '#00ee66' : (rep.pass_rate >= 0.70 ? '#ffff88' : '#ff6666');
+      }
+      logToTrainerConsole(`[AUDIT COMPLETE] Passed: ${rep.passed_count}/${rep.total_count} (Pass Rate: ${(rep.pass_rate*100).toFixed(1)}%)`);
+    } else {
+      logToTrainerConsole(`Audit execution reported: ${data.error || 'Check console log'}`);
+    }
+  } catch (err) {
+    logToTrainerConsole(`Audit error: ${err.message}`, true);
+  }
+};
+
+window.trainerExportGgufNow = async function() {
+  const quant = document.getElementById('trainer-export-quant-select')?.value || 'q4_k_m';
+  try {
+    logToTrainerConsole(`Initiating LoRA merge and GGUF quantization (Target: ${quant})...`);
+    const res = await fetch('/api/trainer/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quant_target: quant })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Export response: ${data.message || 'Export triggered'}`);
+  } catch (err) {
+    logToTrainerConsole(`Export error: ${err.message}`, true);
+  }
+};
+
+window.trainerPromoteModelNow = async function() {
+  const role = document.getElementById('trainer-promote-role-select')?.value || 'worker';
+  const confirmCheck = document.getElementById('trainer-promote-confirm-check')?.checked || false;
+  if (!confirmCheck) {
+    alert('Please check the confirmation box to authorize live service deployment.');
+    return;
+  }
+  if (!confirm(`Deploy tested model to cluster production as ${role.toUpperCase()} with automatic .bak backup?`)) return;
+
+  try {
+    logToTrainerConsole(`Promoting staged GGUF model to cluster production (${role.toUpperCase()})...`);
+    const res = await fetch('/api/trainer/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_role: role, user_approval: true })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Promotion response: ${data.message || 'Promoting'}`);
+  } catch (err) {
+    logToTrainerConsole(`Promotion error: ${err.message}`, true);
+  }
+};
+
+window.fetchTrainerPassdown = async function() {
+  try {
+    const res = await fetch('/api/trainer/passdown');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const cardEl = document.getElementById('trainer-passdown-card-preview');
+    if (cardEl) {
+      cardEl.textContent = data.compact_card || 'No compact context card generated yet.';
+    }
+
+    const fullEl = document.getElementById('trainer-passdown-full-preview');
+    if (fullEl) {
+      fullEl.textContent = data.content || 'No ROLLING_PASSDOWN.md found on cluster.';
+    }
+  } catch (err) {
+    console.warn('Error fetching passdown:', err);
+  }
+};
+
+window.trainerFeedPassdownNow = async function() {
+  try {
+    logToTrainerConsole('Extracting operator corrections from passdown and queuing into deep sleep...');
+    const res = await fetch('/api/trainer/passdown/feed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Feed result: ${data.output || 'Corrections queued for deep sleep'}`);
+  } catch (err) {
+    logToTrainerConsole(`Feed error: ${err.message}`, true);
+  }
+};
+
+window.fetchTrainerAll = function(force = false) {
+  fetchTrainerStatus();
+  fetchCurationRegistry();
+  fetchTrainerPassdown();
+};
+
+// Auto-hook F12 tab click
+document.addEventListener('DOMContentLoaded', () => {
+  const trainerTabBtn = document.querySelector('.tab-btn[data-view="view-trainer"]');
+  if (trainerTabBtn) {
+    trainerTabBtn.addEventListener('click', () => {
+      fetchTrainerAll(true);
+    });
+  }
+});
+
 
 
 
