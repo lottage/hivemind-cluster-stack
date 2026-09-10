@@ -322,8 +322,50 @@ function initWorkstation() {
     });
   }
 
+  initWorkstationResizer();
   fetchWorkspaceTree();
   fetchGitStatus();
+}
+
+function initWorkstationResizer() {
+  const resizer = document.getElementById('workstation-split-resizer');
+  const editorPane = document.querySelector('.code-editor-pane');
+  const splitContainer = document.querySelector('.editor-terminal-split');
+  if (!resizer || !editorPane || !splitContainer) return;
+
+  let isDragging = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startY = e.clientY;
+    startHeight = editorPane.getBoundingClientRect().height;
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dy = e.clientY - startY;
+    const containerHeight = splitContainer.getBoundingClientRect().height;
+    const minHeight = 160;
+    const maxHeight = containerHeight - 140;
+    const newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + dy));
+    editorPane.style.height = `${newHeight}px`;
+    editorPane.style.flex = 'none';
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
 }
 
 async function fetchWorkspaceTree() {

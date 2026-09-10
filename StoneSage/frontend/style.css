@@ -525,10 +525,12 @@ body::after {
 /* 7. CPTR WORKSTATION VIEW (open-webui/computer style) */
 .workstation-container {
   display: grid;
-  grid-template-columns: 260px 1fr 340px;
+  grid-template-columns: 260px minmax(0, 1fr) 340px;
   gap: 0.65rem;
   flex: 1;
-  min-height: 720px;
+  height: clamp(680px, calc(100vh - 160px), 1100px);
+  min-height: 680px;
+  overflow: hidden;
 }
 
 @media (max-width: 1200px) {
@@ -599,10 +601,12 @@ body::after {
 
 /* Editor & Terminal Center Split */
 .editor-terminal-split {
-  display: grid;
-  grid-template-rows: 1fr 240px;
-  gap: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .code-editor-pane {
@@ -611,6 +615,9 @@ body::after {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-height: 160px;
+  height: 0;
 }
 
 .editor-toolbar {
@@ -622,13 +629,17 @@ body::after {
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.76rem;
+  flex-shrink: 0;
 }
 
 .editor-workspace-body {
   display: flex;
   flex: 1;
+  min-height: 0;
+  height: 0;
   overflow: hidden;
   background: var(--term-bg);
+  position: relative;
 }
 
 .editor-gutter {
@@ -647,11 +658,17 @@ body::after {
   line-height: 1.5;
   overflow: hidden;
   white-space: pre;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
 }
 
 .editor-textarea {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
   background: transparent;
   border: none;
   color: var(--term-text);
@@ -662,15 +679,19 @@ body::after {
   resize: none;
   outline: none;
   white-space: pre;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: auto;
   tab-size: 4;
   -moz-tab-size: 4;
+  box-sizing: border-box;
 }
 
 /* Unified Diff View */
 .diff-view-container {
   display: none;
   flex: 1;
+  min-height: 0;
+  height: 0;
   padding: 0.65rem;
   background: var(--term-bg);
   overflow: auto;
@@ -678,6 +699,7 @@ body::after {
   font-size: 0.8rem;
   line-height: 1.45;
   white-space: pre-wrap;
+  box-sizing: border-box;
 }
 .diff-line.add {
   color: var(--term-text-bright);
@@ -691,6 +713,35 @@ body::after {
   color: var(--term-info);
 }
 
+/* Draggable Resizer Bar Between Code Editor & Terminal */
+.split-resizer {
+  height: 8px;
+  background: var(--term-surface);
+  border-top: 1px solid var(--term-border);
+  border-bottom: 1px solid var(--term-border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: background 0.15s;
+  margin: 2px 0;
+}
+.split-resizer::after {
+  content: "••••••";
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: var(--term-text-muted);
+  line-height: 1;
+}
+.split-resizer:hover, .split-resizer.dragging {
+  background: var(--term-header-bg);
+}
+.split-resizer:hover::after, .split-resizer.dragging::after {
+  color: var(--term-text-bright);
+}
+
 /* Interactive Host Terminal Console */
 .host-terminal-pane {
   background: #000000;
@@ -698,6 +749,9 @@ body::after {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  height: 240px;
+  min-height: 140px;
+  flex-shrink: 0;
 }
 
 .terminal-output-area {
@@ -1817,6 +1871,7 @@ dialog::backdrop {
 }
 
 /* Code Editor (Clean 90s Notepad feel) */
+/* Code Editor (Clean 90s Notepad feel) */
 [data-theme="win95"] .code-editor-pane {
   background: #ffffff;
   border-top: 2px solid #808080;
@@ -1824,6 +1879,10 @@ dialog::backdrop {
   border-right: 2px solid #ffffff;
   border-bottom: 2px solid #ffffff;
   box-shadow: inset 1px 1px 0px #000000;
+  flex: 1;
+  min-height: 160px;
+  height: 0;
+  overflow: hidden;
 }
 
 [data-theme="win95"] .editor-toolbar {
@@ -1832,10 +1891,26 @@ dialog::backdrop {
   font-family: 'MS Sans Serif', Tahoma, sans-serif;
   font-size: 11.5px;
   color: #000000;
+  flex-shrink: 0;
+}
+
+[data-theme="win95"] .split-resizer {
+  background: #c0c0c0;
+  border-top: 1px solid #ffffff;
+  border-bottom: 1px solid #808080;
+  height: 8px;
+  margin: 2px 0;
+}
+[data-theme="win95"] .split-resizer::after {
+  color: #555555;
 }
 
 [data-theme="win95"] .editor-workspace-body {
   background: #ffffff;
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 [data-theme="win95"] .editor-gutter {
@@ -1843,11 +1918,18 @@ dialog::backdrop {
   border-right: 1px solid #d0d0d0;
   color: #777777;
   font-family: 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0.5rem 0.4rem;
   width: 48px;
   min-width: 48px;
   max-width: 48px;
   flex-shrink: 0;
   white-space: pre;
+  height: 100%;
+  max-height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 [data-theme="win95"] .editor-textarea {
@@ -1855,10 +1937,18 @@ dialog::backdrop {
   color: #000000;
   font-family: 'Courier New', monospace;
   font-size: 13px;
+  line-height: 1.5;
+  padding: 0.5rem;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
   tab-size: 4;
   -moz-tab-size: 4;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 /* MS-DOS Prompt Console inside Windows 95 */
