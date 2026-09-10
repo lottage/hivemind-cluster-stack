@@ -114,6 +114,15 @@ Agents communicate, plan, critique, and construct collaboratively through a pers
 - **Universal System Prompt Injection**: Every agent persona and dynamic offspring is permanently wired to the Assembly Hall fabric.
 - **Automated Obsidian & CouchDB Notary**: Automatically compiles substantive debates into structured markdown dossiers, syncing via AES-256-GCM E2EE into CouchDB for instant mobile replication.
 
+### 9. Edge LLM Training, Curation & Continuous Self-Improvement Pipeline (`trainer/`)
+- Fully autonomous fine-tuning loop designed for edge deployment and consumer GPUs (20GB total cluster VRAM envelope).
+- **Dual-Gate Curation**: Automatically harvests sleep cycle dossiers from autonomous thinking exploration, filters out flawed logic via Tier-1 Frontier evaluation, and extracts formal invariant theorems.
+- **Compressed Reasoning (< 180 words)**: Formats high-density thinking traces to prevent token starvation on edge models.
+- **Frontier Trigger Guardrails**: Defends against 11 registered empirical failure modes (repetition traps, invalid syntax, unverified math leaps) and purges meta-critique leakage.
+- **Obsidian & URL Ingestion**: Synthesizes structured SFT/DPO instruction pairs from external URLs, technical documentation, and native Obsidian vault notes (`obsidian://`).
+- **4-Bit NF4 QLoRA & DPO**: Trains with peak VRAM under 8.5GB on a single 12GB GPU.
+- **Safe GGUF Promotion**: Automatically verifies candidate checkpoints against a 10-probe safety shield, merges LoRA adapters, exports quantized GGUF weights, and hot-promotes to the live cluster daemon with zero downtime.
+
 ---
 
 ## 🚀 Quick Start
@@ -216,6 +225,100 @@ Edge-deployed reasoning models frequently suffer from autoregressive circular th
 - **Slot Forward-Pass Abort**: Instantly terminates the HTTP/Vulkan forward pass on the GPU slot to halt token starvation.
 - **Native MCP Agent Nudge**: Dispatches `nudge_agent` directive into the cluster bridge, prompting the model to discard circular paths and re-derive from first principles.
 - **Real-Time Cockpit Telemetry**: Displays a high-contrast pulsating warning badge in the web GUI (`[⚠️ STUCK REASONING INTERCEPTED]`) with complete historical intercept logs.
+
+---
+
+## 🔬 Autonomous LLM Training & Cognitive Curation Engine (`trainer/`)
+
+The stack includes an end-to-end edge training harness in `trainer/`, accessible via CLI and the StoneSage Web GUI (`[F12: LLM TRAINER]`):
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CONTINUOUS EDGE SELF-IMPROVEMENT LOOP                    │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                 ┌─────────────────────┴─────────────────────┐
+                 ▼                                           ▼
+      [Autonomous Sleep Dossiers]                 [External URLs & Obsidian]
+      Continuous 24/7 Exploration                 Raw Docs & Obsidian URIs
+                 │                                           │
+                 └─────────────────────┬─────────────────────┘
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │   DUAL-GATE CURATION & SFT/DPO    │
+                     │  • Gate 1: Frontier Audit Verdict │
+                     │  • Gate 2: AST & Code Validity    │
+                     │  • Meta-Critique Leakage Purge    │
+                     │  • Reasoning Bound: <= 180 words  │
+                     │  • 11 Trigger Failure Guardrails  │
+                     └─────────────────┬─────────────────┘
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │  4-BIT NF4 QLoRA / DPO TRAINING   │
+                     │  • Peak VRAM: 8.5 GB (Fits 12GB)  │
+                     │  • Double Quantization & Paged-Opt│
+                     │  • Target: r=16, alpha=32, q/k/v/o│
+                     └─────────────────┬─────────────────┘
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │     SAFETY SHIELD & 10 PROBES     │
+                     │  • Composite Intel Index >= 8.5   │
+                     │  • Concurrency & ABA Race Check   │
+                     │  • Zero-Hallucination Gate        │
+                     └─────────────────┬─────────────────┘
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │  GGUF EXPORT & CLUSTER PROMOTION  │
+                     │  • LoRA Merge & Quantization      │
+                     │  • Hot-Promote to /opt/models/    │
+                     │  • Zero-Downtime Daemon Reload    │
+                     └───────────────────────────────────┘
+```
+
+### 1. Dual-Gate Sleep Dossier Curation
+- **Harvesting**: Reads autonomous thinking markdown dossiers generated by the 24/7 background exploration loop.
+- **Gate 1 (Frontier Audit Filter)**: Retains only dossiers reviewed and verified by Tier-1 Frontier meta-audits (Antigravity / Gemini) with passing invariant scores.
+- **Zero Meta-Critique Leakage**: Extracts candidate prompts and verified winning solutions. Automatically strips frontier evaluation commentary (*"Both models failed...", "The 14B coordinator missed..."*) so the fine-tuned model never mimics meta-evaluator discourse.
+- **Concise Reasoning Compression**: Trims `<think>...</think>` blocks to dense, algebraic derivation under 180 words, eliminating 1,500+ token conversational fluff and maximizing edge GPU token throughput.
+- **11 Frontier Trigger Guardrails**: Registered in `trainer/data_ingestion/frontier_trigger_registry.py`. Evaluates prompts against known failure patterns:
+  1. `beam_orig_shapes` autoregressive repetition
+  2. AST syntax violation in generated Python
+  3. Unchecked divide-by-zero or numerical edge cases
+  4. Circular premise assumption
+  5. Missing mutex unlock / concurrency deadlock
+  6. Premature conclusion without intermediate proof step
+  7. Leniency bias towards syntactically clean but logically incorrect code
+  8. Unbounded memory allocations
+  9. Implicit type coercion hazards
+  10. Hallucinated API endpoints
+  11. Non-reproducible empirical claims
+
+### 2. Multi-Source Ingestion & Native Obsidian Support
+- **External URLs & Documentation**: Fetches raw web documentation and synthesizes paired multi-turn instruction sets.
+- **Native Obsidian URI Handler**: Resolves `obsidian://open?vault=<vault>&file=<path>` links directly from local or CouchDB vaults. Parses callouts (`>[!NOTE]`, `>[!WARNING]`), strips YAML frontmatter and wiki-links (`[[note]]`), and generates verified question-answer training pairs.
+
+### 3. Edge-Optimized VRAM Architecture (20GB Cluster Envelope)
+- **4-bit NormalFloat4 (NF4) QLoRA**: Loads base weights (e.g., `Ornith-1.5-9B`) in 4-bit precision with Double Quantization (`bitsandbytes`).
+- **Memory Footprint**: Peak allocation of **8.5 GB VRAM** during gradient forward/backward passes, leaving **3.5 GB headroom** on a standard 12GB primary GPU.
+- **DPO & GRPO Alignment**: Direct Preference Optimization pairs positive verified answers against rejected sub-threshold attempts.
+
+### 4. Safety Shield & 10 Golden Invariants
+Before weights can be exported or promoted to live service, candidates must pass 10 automated empirical probes:
+1. Python AST Parse Invariant (0 SyntaxErrors)
+2. Memory Leak & Resource Finalization Invariant
+3. Concurrency Thread-Safety & ABA Hazard Invariant
+4. Bounded Context Limit Invariant (< 1000 chars for BGE embedder)
+5. Zero Hallucination on Non-Existent Hardware Endpoints
+6. Strict JSON/YAML Schema Adherence
+7. Mathematical Theorem Consistency
+8. Defensive Exception Catching
+9. Non-Circular Self-Correction Invariant
+10. Minimum Composite Intelligence Index (CII $\ge 8.5 / 10$)
+
+### 5. Automated GGUF Export & Zero-Downtime Promotion
+- **Merge**: Fuses trained LoRA adapter weights directly into the base 16-bit model weights via PyTorch.
+- **Quantize**: Converts fused weights into high-efficiency GGUF quantizations (`Q4_K_M`, `Q5_K_M`, `Q8_0`) using `llama.cpp` quantization tools.
+- **Hot Promotion**: Moves the new `.gguf` weight file to the production model directory (`/opt/models/`), updates the active symlink, and issues a graceful restart to the coordinator service via cluster bridge with zero user session interruption.
 
 ---
 
