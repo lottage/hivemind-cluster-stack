@@ -2174,4 +2174,173 @@ dialog::backdrop {
   gap: 0.75rem;
 }
 
+/* ==========================================================================
+   Harness Parameter Studio: 8-Tier llama.cpp Customization Blocks
+   ========================================================================== */
+.harness-tier-box {
+  border: 2px groove #dfdfdf;
+  padding: 0.85rem;
+  background: var(--bg-card, var(--term-surface));
+  margin-bottom: 0.75rem;
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.1);
+}
+
+[data-theme="deut"] .harness-tier-box,
+[data-theme="trit"] .harness-tier-box,
+[data-theme="crt-green"] .harness-tier-box,
+[data-theme="crt-amber"] .harness-tier-box {
+  border: 2px solid var(--term-border);
+}
+
+.harness-tier-legend {
+  font-weight: 700;
+  font-family: var(--font-terminal);
+  color: var(--term-text-bright, #000080);
+  padding: 0 0.45rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.03em;
+  background: var(--term-bg, #fff);
+  border: 1px solid var(--term-border, #808080);
+}
+
+.harness-tier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.harness-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.harness-control-label {
+  font-weight: 700;
+  font-size: 0.82rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--term-text);
+}
+
+.harness-val-badge {
+  font-family: var(--font-terminal);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--term-text-bright);
+  background: var(--term-header-bg, #e0e0e0);
+  padding: 1px 6px;
+  border: 1px inset #808080;
+}
+
+.harness-slider-combo {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.harness-slider-combo input[type="range"] {
+  flex: 1;
+  cursor: pointer;
+}
+
+.harness-num-input {
+  width: 90px;
+  font-weight: 700;
+  font-family: var(--font-terminal);
+  text-align: right;
+  padding: 2px 5px;
+}
+
+.harness-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 3px 9px;
+  font-family: var(--font-terminal);
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 2px outset #ffffff;
+  background: #c0c0c0;
+  color: #000;
+  cursor: pointer;
+  user-select: none;
+}
+
+.harness-toggle-btn.active {
+  border: 2px inset #000000;
+  background: var(--win95-title-blue, #000080);
+  color: #ffffff;
+}
+
+[data-theme="deut"] .harness-toggle-btn,
+[data-theme="trit"] .harness-toggle-btn {
+  background: var(--term-btn-bg);
+  color: var(--term-text);
+  border: 2px solid var(--term-border);
+}
+
+[data-theme="deut"] .harness-toggle-btn.active,
+[data-theme="trit"] .harness-toggle-btn.active {
+  background: var(--term-active);
+  color: #ffffff;
+  border-color: var(--term-border-bright);
+}
+
+/* Stop strings tagger */
+.stop-tags-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  min-height: 38px;
+  padding: 4px;
+  border: 2px inset #808080;
+  background: var(--term-bg, #ffffff);
+}
+
+.stop-tag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  background: var(--term-header-bg, #000080);
+  color: #ffffff;
+  font-family: var(--font-terminal);
+  font-size: 0.78rem;
+  font-weight: 700;
+  border: 1px outset #ffffff;
+  box-shadow: 1px 1px 0px rgba(0,0,0,0.2);
+}
+
+.stop-tag-remove {
+  cursor: pointer;
+  font-weight: 900;
+  color: #ff9999;
+  margin-left: 2px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.stop-tag-remove:hover {
+  color: #ffffff;
+  background: #cc0000;
+}
+
+.stop-tag-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--term-text);
+  font-family: var(--font-terminal);
+  font-size: 0.82rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 140px;
+  padding: 2px 4px;
+}
+
+
 

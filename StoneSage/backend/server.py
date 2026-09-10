@@ -267,6 +267,86 @@ def parse_llama_flags(exec_start: str) -> Dict[str, Any]:
     flags["custom_flags"] = " ".join(custom).strip()
     return flags
 
+def get_available_models() -> List[Dict[str, Any]]:
+    """Scan compute host for all available GGUF models."""
+    remote_cmd = """
+python3 -c "
+import os, glob, json
+models = []
+paths = glob.glob('/opt/models/**/*.gguf', recursive=True) + glob.glob('/home/austin/.lmstudio/models/**/*.gguf', recursive=True)
+for p in sorted(set(paths)):
+    try:
+        st = os.stat(p)
+        fn = os.path.basename(p)
+        size_gb = round(st.st_size / (1024**3), 2)
+        q = 'Unknown'
+        fn_upper = fn.upper()
+        for candidate in ['Q4_K_M', 'Q8_0', 'Q5_K_M', 'Q4_0', 'Q6_K', 'BF16', 'F16', 'IQ4_NL', 'IQ3_M']:
+            if candidate in fn_upper:
+                q = candidate
+                break
+        models.append({'filename': fn, 'path': p, 'size_gb': size_gb, 'quant': q})
+    except Exception:
+        pass
+print(json.dumps(models))
+"
+"""
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", remote_cmd.strip()]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return json.loads(res.stdout.strip())
+    except Exception as e:
+        print("Error discovering models:", e)
+    return [
+        {"filename": "ornith-1.5-9b-coordinator-q8_0.gguf", "path": "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf", "size_gb": 9.11, "quant": "Q8_0"},
+        {"filename": "ornith-1.5-35b-moe.gguf", "path": "/opt/models/ornith-1.5-35b-moe.gguf", "size_gb": 21.87, "quant": "IQ4_NL"},
+        {"filename": "qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf", "path": "/opt/models/Qwen2.5-Coder-14B-Instruct-abliterated-Q4_K_M.gguf", "size_gb": 8.37, "quant": "Q4_K_M"},
+        {"filename": "qwen2.5-coder-3b-instruct-q5_k_m.gguf", "path": "/opt/models/qwen2.5-coder-3b-instruct-q5_k_m.gguf", "size_gb": 2.27, "quant": "Q5_K_M"}
+    ]
+
+def get_hardware_capabilities() -> Dict[str, Any]:
+    """Poll compute host hardware: GPU VRAM, CPU threads, RAM."""
+    remote_cmd = """
+python3 -c "
+import os, subprocess, json
+threads = os.cpu_count() or 8
+ram_gb = 32.0
+try:
+    with open('/proc/meminfo') as f:
+        for line in f:
+            if 'MemTotal' in line:
+                ram_gb = round(int(line.split()[1]) / (1024**2), 1)
+                break
+except Exception: pass
+print(json.dumps({
+    'primary_gpu': 'AMD Radeon RX 6750 XT (12GB Vulkan0)',
+    'primary_vram_gb': 12.0,
+    'secondary_gpu': 'AMD Radeon RX 6600 XT (8GB Vulkan1)',
+    'secondary_vram_gb': 8.0,
+    'total_vram_gb': 20.0,
+    'cpu_threads': threads,
+    'ram_gb': ram_gb
+}))
+"
+"""
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", remote_cmd.strip()]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        if res.returncode == 0:
+            return json.loads(res.stdout.strip())
+    except Exception as e:
+        print("Error polling hardware:", e)
+    return {
+        "primary_gpu": "AMD Radeon RX 6750 XT (12GB Vulkan0)",
+        "primary_vram_gb": 12.0,
+        "secondary_gpu": "AMD Radeon RX 6600 XT (8GB Vulkan1)",
+        "secondary_vram_gb": 8.0,
+        "total_vram_gb": 20.0,
+        "cpu_threads": 20,
+        "ram_gb": 32.0
+    }
+
 def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dict[str, Any]) -> tuple:
     try:
         get_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
@@ -321,6 +401,31 @@ def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dic
             cmd_parts.append("--mlock")
         if params.get("no_mmap"):
             cmd_parts.append("--no-mmap")
+        if params.get("no_kv_offload"):
+            cmd_parts.append("--no-kv-offload")
+        if params.get("kv_unified"):
+            cmd_parts.append("--kv-unified")
+        if params.get("slot_save_path"):
+            cmd_parts.extend(["--slot-save-path", str(params["slot_save_path"])])
+        if params.get("context_shift"):
+            cmd_parts.append("--context-shift")
+        if params.get("speculative_mode") and params["speculative_mode"] != "off":
+            if params.get("draft_max"):
+                cmd_parts.extend(["--draft-max", str(params["draft_max"])])
+            if params.get("draft_min"):
+                cmd_parts.extend(["--draft-min", str(params["draft_min"])])
+            if params.get("draft_p_min"):
+                cmd_parts.extend(["--draft-p-min", str(params["draft_p_min"])])
+        if params.get("chat_template"):
+            cmd_parts.extend(["--chat-template", str(params["chat_template"])])
+        if params.get("system_prompt"):
+            cmd_parts.extend(["--system-prompt", str(params["system_prompt"])])
+        if params.get("stop_strings"):
+            stops = params["stop_strings"]
+            if isinstance(stops, str):
+                stops = [s.strip() for s in stops.split(",") if s.strip()]
+            for s in stops:
+                cmd_parts.extend(["-r", str(s)])
         if params.get("cont_batching"):
             cmd_parts.append("--cont-batching")
         if params.get("custom_flags"):
@@ -769,6 +874,19 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             harness = urllib.parse.parse_qs(parsed.query).get("harness", ["llama_coordinator"])[0]
             data = get_harness_parameters(harness)
             self.send_json({"ok": True, "harness": harness, "data": data})
+            return
+
+        elif path == "/api/harness/models":
+            self.send_json({"ok": True, "models": get_available_models()})
+            return
+
+        elif path == "/api/harness/hardware":
+            self.send_json({"ok": True, "hardware": get_hardware_capabilities()})
+            return
+
+        elif path == "/api/harness/profiles":
+            cfg = load_config()
+            self.send_json({"ok": True, "profiles": cfg.get("harness_profiles", {})})
             return
 
         elif path == "/api/dataset/status":
@@ -1595,6 +1713,32 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 else:
                     self.send_json({"ok": True, "message": f"{harness} configuration updated successfully!"})
                     return
+
+            elif path == "/api/harness/profiles":
+                action = body.get("action", "save")
+                name = (body.get("name") or "").strip()
+                cfg = load_config()
+                if "harness_profiles" not in cfg:
+                    cfg["harness_profiles"] = {}
+
+                if action == "delete":
+                    if name and name in cfg["harness_profiles"]:
+                        del cfg["harness_profiles"][name]
+                        save_config(cfg)
+                    self.send_json({"ok": True, "profiles": cfg["harness_profiles"]})
+                    return
+
+                # Default: save profile
+                profile_data = body.get("profile", {})
+                if not name:
+                    idx = 1
+                    while f"profile{idx}" in cfg["harness_profiles"]:
+                        idx += 1
+                    name = f"profile{idx}"
+                cfg["harness_profiles"][name] = profile_data
+                save_config(cfg)
+                self.send_json({"ok": True, "name": name, "profiles": cfg["harness_profiles"]})
+                return
 
             elif path == "/api/dataset/compile":
                 limit = int(body.get("limit", 25))

@@ -4527,8 +4527,22 @@ window.openApkDownloadModal = function() {
 // ==========================================
 // HARNESS PARAMETER STUDIO & DAEMON CONTROL
 // ==========================================
-let currentHarnessId = 'hermes';
+let currentHarnessId = 'llama_coordinator';
 let currentHarnessData = null;
+let availableModels = [];
+let hardwareCapabilities = {
+  primary_gpu: "AMD Radeon RX 6750 XT (12GB Vulkan0)",
+  primary_vram_gb: 12.0,
+  secondary_gpu: "AMD Radeon RX 6600 XT (8GB Vulkan1)",
+  secondary_vram_gb: 8.0,
+  total_vram_gb: 20.0,
+  cpu_threads: 20,
+  ram_gb: 32.0
+};
+let savedProfiles = {};
+let currentStopStrings = ["<|im_end|>", "<|endoftext|>"];
+let autoCtxEnabled = true;
+let autoNglEnabled = true;
 
 window.switchHarnessStudio = async function(harnessId) {
   currentHarnessId = harnessId;
@@ -4552,16 +4566,35 @@ async function loadHarnessStudioData(harnessId) {
   const slotsEl = document.getElementById('harness-active-slots');
 
   if (healthBadge) healthBadge.textContent = '[HEALTH: PROBING...]';
-  if (container) container.innerHTML = '<div style="padding: 1rem; color: var(--term-text-muted);">Fetching live harness telemetry and systemd service parameters...</div>';
+  if (container) container.innerHTML = '<div style="padding: 1rem; color: var(--term-text-muted);">Fetching live harness telemetry, models, hardware and profile parameters...</div>';
 
   try {
-    const res = await fetch(`/api/harness/parameters?harness=${encodeURIComponent(harnessId)}`);
-    const json = await res.json();
-    if (!json.ok || !json.data) {
-      if (container) container.innerHTML = `<div style="color: var(--term-alert); padding: 1rem;">Failed to load parameters: ${json.error || 'Unknown error'}</div>`;
-      return;
+    // Concurrently fetch parameters, available models, hardware limits, and saved profiles
+    const [paramsRes, modelsRes, hwRes, profRes] = await Promise.all([
+      fetch(`/api/harness/parameters?harness=${encodeURIComponent(harnessId)}`).catch(() => null),
+      fetch('/api/harness/models').catch(() => null),
+      fetch('/api/harness/hardware').catch(() => null),
+      fetch('/api/harness/profiles').catch(() => null)
+    ]);
+
+    if (modelsRes && modelsRes.ok) {
+      const mj = await modelsRes.json();
+      if (mj.ok && Array.isArray(mj.models)) availableModels = mj.models;
     }
-    const d = json.data;
+    if (hwRes && hwRes.ok) {
+      const hj = await hwRes.json();
+      if (hj.ok && hj.hardware) hardwareCapabilities = hj.hardware;
+    }
+    if (profRes && profRes.ok) {
+      const pj = await profRes.json();
+      if (pj.ok && pj.profiles) savedProfiles = pj.profiles;
+    }
+
+    let d = {};
+    if (paramsRes && paramsRes.ok) {
+      const pj = await paramsRes.json();
+      if (pj.ok && pj.data) d = pj.data;
+    }
     currentHarnessData = d;
 
     if (titleEl) titleEl.textContent = `🎛️ ACTIVE HARNESS: ${d.name || harnessId.toUpperCase()}`;
@@ -4587,25 +4620,135 @@ function renderHarnessForm(harnessId, data) {
   const sam = data.sampling_params || {};
   const opt = data.options || {};
 
-  if (harnessId.startsWith('llama_')) {
-    container.innerHTML = `
-      <!-- 1. Server Architecture & Acceleration (llama-server flags) -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          ⚙️ [SERVER ARCHITECTURE &amp; HARDWARE ALLOCATION (systemd / llama-server)]
-        </legend>
+  // For llama_coordinator, llama_worker, hermes, or any llama-backed service
+  if (harnessId.startsWith('llama_') || harnessId === 'hermes') {
+    const activeModelPath = sp.model || (harnessId.includes('worker') ? '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf' : '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf');
+    const modelOptionsHtml = availableModels.length > 0
+      ? availableModels.map(m => `<option value="${m.path}" ${m.path === activeModelPath || m.filename === activeModelPath.split('/').pop() ? 'selected' : ''}>${m.filename} (${m.size_gb} GB • ${m.quant})</option>`).join('')
+      : `<option value="${activeModelPath}" selected>${activeModelPath.split('/').pop()} (Active)</option>`;
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
-          
-          <!-- Context Window (-c) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Context Window (<code>-c / --ctx-size</code>)</span>
-              <span id="label-val-n_ctx" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_ctx || 8192}</span>
+    const profileOptionsHtml = Object.keys(savedProfiles).map(pName => `<option value="${pName}">Profile: ${pName}</option>`).join('');
+
+    container.innerHTML = `
+      <!-- ==========================================
+           1) MODEL & HARDWARE CAPABILITY POLLING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          1) MODEL &amp; HARDWARE CAPABILITY POLLING
+        </legend>
+        
+        <div style="margin-bottom: 0.65rem; padding: 0.4rem 0.6rem; background: var(--term-header-bg); border: 1px inset var(--term-border); font-size: 0.78rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; color: var(--term-text-bright); font-weight: 700;">
+          <span>🖥️ <strong>Detected Hardware:</strong> ${hardwareCapabilities.primary_gpu || 'RX 6750 XT 12GB'} | ${hardwareCapabilities.secondary_gpu || 'RX 6600 XT 8GB'}</span>
+          <span>⚡ <strong>Total VRAM:</strong> ${hardwareCapabilities.total_vram_gb || 20.0} GB</span>
+          <span>🧠 <strong>CPU Threads:</strong> ${hardwareCapabilities.cpu_threads || 20}</span>
+          <span>💾 <strong>System RAM:</strong> ${hardwareCapabilities.ram_gb || 32.0} GB</span>
+          <button type="button" class="theme-opt-btn" onclick="pollHardwareAndRefreshLimits()" style="margin-left: auto; padding: 1px 6px;">[🔄 Refresh HW Telemetry]</button>
+        </div>
+
+        <div class="harness-tier-grid">
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Model:</strong> Dropdown Menu (scanned from /opt/models and ~/.lmstudio)</span>
+              <span class="harness-val-badge" id="model-selected-badge">${activeModelPath.split('/').pop()}</span>
+            </label>
+            <select id="param-model" class="form-control" onchange="onHarnessModelSelected(this.value)" style="font-weight: 700; font-family: var(--font-terminal);">
+              ${modelOptionsHtml}
+            </select>
+            <div style="font-size: 0.75rem; color: var(--term-text-muted); margin-top: 0.2rem;" id="model-size-calc">
+              Selected model path: <code id="model-active-path-display">${activeModelPath}</code>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           2) PROMPT & PROFILE MANAGEMENT
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          2) PROMPT &amp; PROFILE MANAGEMENT
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- System Prompt -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>System Prompt:</strong> Text Box</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);">Passed via <code>--system-prompt</code></span>
+            </label>
+            <textarea id="param-system_prompt" class="form-control" rows="2" placeholder="Enter system prompt instructions or persona..." oninput="syncDirect()">${sp.system_prompt || ''}</textarea>
+          </div>
+
+          <!-- Chat Template -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Chat Template:</strong> Text Box</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);"><code>--chat-template</code></span>
+            </label>
+            <input type="text" id="param-chat_template" class="form-control" placeholder="chatml, llama3, mistral, or custom jinja..." value="${sp.chat_template || ''}" oninput="syncDirect()">
+          </div>
+
+          <!-- Select Template & Save Profile Row -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Select Template:</strong> Saved Settings</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);">Restores all tiers</span>
             </label>
             <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" style="flex: 1;" oninput="syncParam('n_ctx', this.value)">
-              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control" style="width: 85px;" oninput="syncParam('n_ctx', this.value, true)">
+              <select id="harness-profile-select" class="form-control" onchange="onSelectProfileTemplate(this.value)" style="flex: 1;">
+                <option value="">-- Select Saved Profile --</option>
+                ${profileOptionsHtml}
+              </select>
+              <button type="button" class="theme-opt-btn" onclick="deleteCurrentHarnessProfile()" title="Delete selected profile" style="color: #ff5555; padding: 2px 6px;">[🗑️]</button>
+            </div>
+          </div>
+
+          <!-- Save Profile -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Save Profile:</strong> Button &amp; Textbox (defaults to profile1, profile2... if blank)</span>
+            </label>
+            <div style="display: flex; gap: 0.45rem; align-items: center;">
+              <input type="text" id="harness-profile-name" class="form-control" placeholder="Profile Name (optional, defaults to profile1, profile2...)" style="flex: 1;">
+              <button type="button" class="send-btn" onclick="saveCurrentHarnessProfile()" style="padding: 3px 12px; font-weight: bold;">[💾 Save Profile]</button>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           3) CONTEXT AND PERFORMANCE
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          3) CONTEXT AND PERFORMANCE
+        </legend>
+
+        <div style="margin-bottom: 0.65rem;">
+          <button type="button" class="send-btn" onclick="autoOptimizeBasedOnHardware()" style="padding: 4px 14px; font-weight: bold; font-size: 0.82rem;">
+            [⚡ Automatic Optimize Based on Hardware]
+          </button>
+          <span style="font-size: 0.75rem; color: var(--term-text-muted); margin-left: 0.5rem;">
+            Calculates VRAM headroom &amp; optimizes context, offload layers, and threads.
+          </span>
+        </div>
+
+        <div class="harness-tier-grid">
+          <!-- Context Length -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>Context Length:</strong> (<code>-c / --ctx-size</code>)</span>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button type="button" class="harness-toggle-btn ${autoCtxEnabled ? 'active' : ''}" id="btn-toggle-ctx_auto" onclick="toggleHarnessAuto('ctx')">
+                  ${autoCtxEnabled ? '[Auto: ON]' : '[Auto: OFF]'}
+                </button>
+                <span class="harness-val-badge" id="label-val-n_ctx">${sp.n_ctx || 8192}</span>
+              </div>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" oninput="syncParam('n_ctx', this.value)">
+              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control harness-num-input" oninput="syncParam('n_ctx', this.value, true)">
             </div>
             <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 4096)">4k</button>
@@ -4613,191 +4756,426 @@ function renderHarnessForm(harnessId, data) {
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 12288)">12k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 16384)">16k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 32768)">32k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 65536)">64k</button>
             </div>
           </div>
 
-          <!-- GPU Layers (-ngl) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>GPU Offload Layers (<code>-ngl / --gpu-layers</code>)</span>
-              <span id="label-val-n_gpu_layers" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_gpu_layers || 99}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="number" min="0" max="999" value="${sp.n_gpu_layers || 99}" id="param-n_gpu_layers" class="form-control" style="flex: 1;" oninput="syncDirect()">
-              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=99; syncDirect();">Max (99)</button>
-              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=0; syncDirect();">CPU (0)</button>
+          <!-- GPU Offload -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>GPU Offload:</strong> (<code>-ngl / --gpu-layers</code>)</span>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button type="button" class="harness-toggle-btn ${autoNglEnabled ? 'active' : ''}" id="btn-toggle-ngl_auto" onclick="toggleHarnessAuto('ngl')">
+                  ${autoNglEnabled ? '[Auto: ON]' : '[Auto: OFF]'}
+                </button>
+                <span class="harness-val-badge" id="label-val-n_gpu_layers">${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}</span>
+              </div>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0" max="128" step="1" value="${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}" id="param-n_gpu_layers-range" class="form-control" oninput="syncParam('n_gpu_layers', this.value)">
+              <input type="number" min="0" max="999" value="${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}" id="param-n_gpu_layers" class="form-control harness-num-input" oninput="syncParam('n_gpu_layers', this.value, true)">
+            </div>
+            <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 99)">All (99)</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 40)">Half (40)</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 0)">CPU (0)</button>
             </div>
           </div>
 
-          <!-- Flash Attention (--flash-attn) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Flash Attention (<code>--flash-attn</code>)</label>
-            <select id="param-flash_attn" class="form-control" onchange="syncDirect()">
-              <option value="on" ${sp.flash_attn === 'on' ? 'selected' : ''}>on (Mandatory for RX Vulkan)</option>
-              <option value="off" ${sp.flash_attn === 'off' ? 'selected' : ''}>off</option>
-              <option value="auto" ${sp.flash_attn === 'auto' ? 'selected' : ''}>auto</option>
-            </select>
+          <!-- CPU Thread Pool Size -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>CPU Thread Pool Size:</strong> (<code>-t / --threads</code>)</span>
+              <span class="harness-val-badge" id="label-val-threads">${sp.threads || 8}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="1" max="32" step="1" value="${sp.threads || 8}" id="param-threads-range" class="form-control" oninput="syncParam('threads', this.value)">
+              <input type="number" min="1" max="32" value="${sp.threads || 8}" id="param-threads" class="form-control harness-num-input" oninput="syncParam('threads', this.value, true)">
+            </div>
           </div>
-
-          <!-- KV Cache K (-ctk) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">KV Cache Type K (<code>-ctk</code>)</label>
-            <select id="param-cache_type_k" class="form-control" onchange="syncDirect()">
-              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_k === t ? 'selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- KV Cache V (-ctv) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">KV Cache Type V (<code>-ctv</code>)</label>
-            <select id="param-cache_type_v" class="form-control" onchange="syncDirect()">
-              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_v === t ? 'selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- Logical Batch (-b) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Batch Size (<code>-b / --batch-size</code>)</label>
-            <input type="number" min="128" max="8192" step="128" value="${sp.batch_size || 2048}" id="param-batch_size" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Micro-Batch (-ub) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Micro-Batch Size (<code>-ub / --ubatch-size</code>)</label>
-            <input type="number" min="64" max="4096" step="64" value="${sp.ubatch_size || 512}" id="param-ubatch_size" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Threads (-t) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Threads (<code>-t / --threads</code>)</label>
-            <input type="number" min="1" max="32" value="${sp.threads || 8}" id="param-threads" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Parallel Slots (-np) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Parallel Request Slots (<code>-np / --parallel</code>)</label>
-            <input type="number" min="1" max="16" value="${sp.parallel || 4}" id="param-parallel" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Compute Device (--device) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Compute Device (<code>--device</code>)</label>
-            <select id="param-device" class="form-control" onchange="syncDirect()">
-              ${(opt.devices || ['Vulkan0', 'Vulkan1', 'CUDA0', 'CPU']).map(dev => `<option value="${dev}" ${(sp.device || data.device) === dev ? 'selected' : ''}>${dev}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- Defrag Threshold -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Defrag Threshold (<code>--defrag-thold</code>)</label>
-            <input type="number" min="0.0" max="1.0" step="0.05" value="${sp.defrag_thold !== undefined ? sp.defrag_thold : 0.1}" id="param-defrag_thold" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Flags Row -->
-          <div class="form-group" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem;">
-            <label><input type="checkbox" id="param-mlock" ${sp.mlock ? 'checked' : ''} onchange="syncDirect()"> <code>--mlock</code> (Lock in RAM)</label>
-            <label><input type="checkbox" id="param-no_mmap" ${sp.no_mmap ? 'checked' : ''} onchange="syncDirect()"> <code>--no-mmap</code> (No memory map)</label>
-            <label><input type="checkbox" id="param-cont_batching" ${sp.cont_batching ? 'checked' : ''} onchange="syncDirect()"> <code>--cont-batching</code></label>
-          </div>
-
         </div>
       </fieldset>
 
-      <!-- 2. Sampling & Generation Texture Controls -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          🎯 [SAMPLING, TEXTURE &amp; GENERATION PARAMETERS (/props &amp; client overrides)]
+      <!-- ==========================================
+           4) EXPERIMENTAL
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          4) EXPERIMENTAL
         </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Evaluation Batch Size (-ub) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Evaluation Batch Size:</strong> (<code>-ub / --ubatch-size</code>)</span>
+            </label>
+            <input type="number" min="64" max="4096" step="64" value="${sp.ubatch_size || 512}" id="param-ubatch_size" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
-          
+          <!-- Physical Batch Size (-b) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Physical Batch Size:</strong> (<code>-b / --batch-size</code>)</span>
+            </label>
+            <input type="number" min="128" max="8192" step="128" value="${sp.batch_size || 2048}" id="param-batch_size" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Max Concurrent Predictions (-np) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Max Concurrent Predictions:</strong> (<code>-np / --parallel</code>)</span>
+            </label>
+            <input type="number" min="1" max="16" value="${sp.parallel || 4}" id="param-parallel" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Flash Attention (-fa) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Flash Attention:</strong> (<code>-fa / --flash-attn</code>)</span>
+              <span class="harness-val-badge" id="label-val-flash_attn">${sp.flash_attn || 'on'}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <button type="button" class="harness-toggle-btn ${sp.flash_attn !== 'off' ? 'active' : ''}" id="btn-toggle-flash_attn" onclick="toggleFlashAttn()" style="flex: 1;">
+                ${sp.flash_attn !== 'off' ? '[✓ ON (Recommended)]' : '[✗ OFF]'}
+              </button>
+              <select id="param-flash_attn" class="form-control" style="width: 90px;" onchange="syncFlashAttnSelect(this.value)">
+                <option value="on" ${sp.flash_attn === 'on' || !sp.flash_attn ? 'selected' : ''}>on</option>
+                <option value="off" ${sp.flash_attn === 'off' ? 'selected' : ''}>off</option>
+                <option value="auto" ${sp.flash_attn === 'auto' ? 'selected' : ''}>auto</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           5) GENERATION
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          5) GENERATION
+        </legend>
+        
+        <div class="harness-tier-grid">
           <!-- Temperature -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Temperature</span>
-              <span id="label-val-temperature" style="color: var(--term-text-bright); font-family: monospace;">${sam.temperature || 0.70}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature-range" class="form-control" style="flex: 1;" oninput="syncParam('temperature', this.value)">
-              <input type="number" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature" class="form-control" style="width: 75px;" oninput="syncParam('temperature', this.value, true)">
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>Temperature:</strong> slider, text box</span>
+              <span class="harness-val-badge" id="label-val-temperature">${sam.temperature || 0.70}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature-range" class="form-control" oninput="syncParam('temperature', this.value)">
+              <input type="number" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature" class="form-control harness-num-input" oninput="syncParam('temperature', this.value, true)">
             </div>
           </div>
 
-          <!-- Min-P (Homelab Texture Invariant) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Min-P (Invariant: 0.05 - 0.08)</span>
-              <span id="label-val-min_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.min_p || 0.06}</span>
+          <!-- Limit Response Length (-n) -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-limit_response_length" ${sp.n_predict ? 'checked' : ''} onchange="toggleLimitResponse(this.checked)">
+                <span><strong>Limit Response Length:</strong> (<code>-n / --predict</code>)</span>
+              </label>
+            </div>
+            <input type="number" min="1" max="32768" value="${sp.n_predict || 2048}" id="param-n_predict" class="form-control harness-num-input" style="width: 100%;" ${sp.n_predict ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Context Overflow -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Context Overflow:</strong> Dropdown Menu</span>
             </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p-range" class="form-control" style="flex: 1;" oninput="syncParam('min_p', this.value)">
-              <input type="number" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p" class="form-control" style="width: 75px;" oninput="syncParam('min_p', this.value, true)">
+            <select id="param-context_overflow" class="form-control" onchange="syncDirect()">
+              <option value="rolling" ${sp.context_shift !== false ? 'selected' : ''}>Rolling Window (--context-shift)</option>
+              <option value="truncate" ${sp.context_overflow === 'truncate' ? 'selected' : ''}>Truncate Middle</option>
+              <option value="stop" ${sp.context_overflow === 'stop' ? 'selected' : ''}>Stop at Limit</option>
+            </select>
+          </div>
+
+          <!-- Stop Strings (-r) -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Stop Strings:</strong> text box (press Enter to add string, allows multiple <code>-r</code>)</span>
+            </label>
+            <div class="stop-tags-box" id="stop-strings-tag-box">
+              ${renderStopStringsTags()}
+              <input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter (e.g. <|im_end|>, User:)..." onkeydown="handleStopStringKeyDown(event)">
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           6) REASONING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          6) REASONING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Enable Thinking -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Enable Thinking:</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sam.enable_thinking ? 'active' : ''}" id="btn-toggle-enable_thinking" onclick="toggleHarnessParam('enable_thinking')">
+              ${sam.enable_thinking ? '[✓ ON (CoT Activated)]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Reasoning Budget -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_reasoning_budget" ${sam.reasoning_budget ? 'checked' : ''} onchange="toggleReasoningBudget(this.checked)">
+                <span><strong>Reasoning Budget:</strong> checkbox, text box</span>
+              </label>
+            </div>
+            <input type="number" min="128" max="32768" value="${sam.reasoning_budget || 4096}" id="param-reasoning_budget" class="form-control harness-num-input" style="width: 100%;" ${sam.reasoning_budget ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Reasoning Budget Message -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Reasoning Budget Message:</strong> text box</span>
+            </label>
+            <input type="text" id="param-reasoning_budget_msg" class="form-control" value="${sam.reasoning_budget_msg || 'I have to answer now.'}" placeholder="I have to answer now." oninput="syncDirect()">
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           7) MEMORY
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          7) MEMORY &amp; KV CACHE OPTIMIZATION
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Offload KV Cache to GPU Memory -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Offload KV Cache to GPU:</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.no_kv_offload ? '' : 'active'}" id="btn-toggle-kv_offload" onclick="toggleHarnessParam('kv_offload')">
+              ${sp.no_kv_offload ? '[✗ OFF (CPU RAM)]' : '[✓ ON (GPU VRAM)]'}
+            </button>
+          </div>
+
+          <!-- Unified KV Cache -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Unified KV Cache:</strong> toggle (<code>--kv-unified</code>)</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.kv_unified ? 'active' : ''}" id="btn-toggle-kv_unified" onclick="toggleHarnessParam('kv_unified')">
+              ${sp.kv_unified ? '[✓ ON]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Context Checkpoints -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Context Checkpoints:</strong> text box (<code>--slot-save-path</code>)</span>
+            </label>
+            <input type="text" id="param-slot_save_path" class="form-control" placeholder="/opt/checkpoints or slot state dir..." value="${sp.slot_save_path || ''}" oninput="syncDirect()">
+          </div>
+
+          <!-- K Cache Quantization Type -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_cache_type_k" checked onchange="toggleCacheTypeK(this.checked)">
+                <span><strong>K Cache Quantization:</strong> (<code>-ctk</code>)</span>
+              </label>
+            </div>
+            <select id="param-cache_type_k" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${(sp.cache_type_k || 'q4_0') === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- V Cache Quantization Type -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_cache_type_v" checked onchange="toggleCacheTypeV(this.checked)">
+                <span><strong>V Cache Quantization:</strong> (<code>-ctv</code>)</span>
+              </label>
+            </div>
+            <select id="param-cache_type_v" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${(sp.cache_type_v || 'q4_0') === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Keep Model In Memory (--mlock) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Keep Model In Memory:</strong> (<code>--mlock</code>)</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.mlock ? 'active' : ''}" id="btn-toggle-mlock" onclick="toggleHarnessParam('mlock')">
+              ${sp.mlock ? '[✓ ON (Lock in RAM)]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Try mmap() -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Try mmap():</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.no_mmap ? '' : 'active'}" id="btn-toggle-mmap" onclick="toggleHarnessParam('mmap')">
+              ${sp.no_mmap ? '[✗ OFF (--no-mmap)]' : '[✓ ON (mmap)]'}
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           8) SPECULATIVE DECODING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          8) SPECULATIVE DECODING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Speculative Mode Dropdown -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Speculative Decoding:</strong> Dropdown Menu</span>
+            </label>
+            <select id="param-speculative_mode" class="form-control" onchange="onSpeculativeModeChange(this.value)">
+              <option value="off" ${!sp.speculative_mode || sp.speculative_mode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="draft" ${sp.speculative_mode === 'draft' ? 'selected' : ''}>Draft Model (--draft-max)</option>
+              <option value="mtp" ${sp.speculative_mode === 'mtp' ? 'selected' : ''}>MTP (Multi-Token Prediction)</option>
+              <option value="medusa" ${sp.speculative_mode === 'medusa' ? 'selected' : ''}>Medusa Heads</option>
+            </select>
+          </div>
+
+          <!-- Max Draft Tokens -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Max Draft Tokens:</strong> (<code>--draft-max</code>)</span>
+            </label>
+            <input type="number" min="1" max="64" value="${sp.draft_max || 16}" id="param-draft_max" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Min Draft Tokens -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Min Draft Tokens:</strong> (<code>--draft-min</code>)</span>
+            </label>
+            <input type="number" min="1" max="16" value="${sp.draft_min || 1}" id="param-draft_min" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Draft Probability -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Draft Probability:</strong> (<code>--draft-p-min</code>)</span>
+            </label>
+            <input type="number" min="0.00" max="1.00" step="0.05" value="${sp.draft_p_min || 0.75}" id="param-draft_p_min" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           9) ADVANCED INVARIANT SAMPLING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          9) ADVANCED INVARIANT SAMPLING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Top K Sampling -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Top K Sampling:</strong> text box</span>
+            </label>
+            <input type="number" min="0" max="500" value="${sam.top_k || 40}" id="param-top_k" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Top P -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-top_p" checked onchange="toggleTopP(this.checked)">
+                <span><strong>Top P:</strong> checkbox, text box, slider</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-top_p">${sam.top_p || 0.95}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p-range" class="form-control" oninput="syncParam('top_p', this.value)">
+              <input type="number" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p" class="form-control harness-num-input" oninput="syncParam('top_p', this.value, true)">
             </div>
           </div>
 
-          <!-- Top-P -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Top-P</span>
-              <span id="label-val-top_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.top_p || 0.95}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p-range" class="form-control" style="flex: 1;" oninput="syncParam('top_p', this.value)">
-              <input type="number" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p" class="form-control" style="width: 75px;" oninput="syncParam('top_p', this.value, true)">
+          <!-- Min P (Homelab Invariant) -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-min_p" checked onchange="toggleMinP(this.checked)">
+                <span><strong>Min P:</strong> (Invariant: 0.05 - 0.08)</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-min_p">${sam.min_p || 0.06}</span>
             </div>
-          </div>
-
-          <!-- Top-K -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Top-K</label>
-            <input type="number" min="0" max="500" value="${sam.top_k || 40}" id="param-top_k" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Presence Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Presence Penalty</span>
-              <span id="label-val-presence_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.presence_penalty || 0.20}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('presence_penalty', this.value)">
-              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty" class="form-control" style="width: 75px;" oninput="syncParam('presence_penalty', this.value, true)">
-            </div>
-          </div>
-
-          <!-- Frequency Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Frequency Penalty</span>
-              <span id="label-val-frequency_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.frequency_penalty || 0.00}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('frequency_penalty', this.value)">
-              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty" class="form-control" style="width: 75px;" oninput="syncParam('frequency_penalty', this.value, true)">
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="0.20" step="0.005" value="${sam.min_p || 0.06}" id="param-min_p-range" class="form-control" oninput="syncParam('min_p', this.value)">
+              <input type="number" min="0.00" max="0.20" step="0.005" value="${sam.min_p || 0.06}" id="param-min_p" class="form-control harness-num-input" oninput="syncParam('min_p', this.value, true)">
             </div>
           </div>
 
           <!-- Repeat Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Repeat Penalty</span>
-              <span id="label-val-repeat_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.repeat_penalty || 1.00}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('repeat_penalty', this.value)">
-              <input type="number" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty" class="form-control" style="width: 75px;" oninput="syncParam('repeat_penalty', this.value, true)">
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-repeat_penalty" checked onchange="toggleRepeatPenalty(this.checked)">
+                <span><strong>Repeat Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-repeat_penalty">${sam.repeat_penalty || 1.00}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty-range" class="form-control" oninput="syncParam('repeat_penalty', this.value)">
+              <input type="number" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty" class="form-control harness-num-input" oninput="syncParam('repeat_penalty', this.value, true)">
             </div>
           </div>
 
-          <!-- Repeat Last N -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Repeat Last N</label>
-            <input type="number" min="0" max="512" value="${sam.repeat_last_n || 64}" id="param-repeat_last_n" class="form-control" oninput="syncDirect()">
+          <!-- Presence Penalty -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-presence_penalty" checked onchange="togglePresencePenalty(this.checked)">
+                <span><strong>Presence Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-presence_penalty">${sam.presence_penalty || 0.20}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty-range" class="form-control" oninput="syncParam('presence_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty" class="form-control harness-num-input" oninput="syncParam('presence_penalty', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Frequency Penalty -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-frequency_penalty" checked onchange="toggleFrequencyPenalty(this.checked)">
+                <span><strong>Frequency Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-frequency_penalty">${sam.frequency_penalty || 0.00}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty-range" class="form-control" oninput="syncParam('frequency_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty" class="form-control harness-num-input" oninput="syncParam('frequency_penalty', this.value, true)">
+            </div>
           </div>
 
           <!-- Mirostat Mode -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Mirostat Mode</label>
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Mirostat Mode:</strong></span>
+            </label>
             <select id="param-mirostat" class="form-control" onchange="syncDirect()">
               <option value="0" ${sam.mirostat === 0 ? 'selected' : ''}>0 (Disabled)</option>
               <option value="1" ${sam.mirostat === 1 ? 'selected' : ''}>1 (Mirostat 1.0)</option>
@@ -4805,40 +5183,57 @@ function renderHarnessForm(harnessId, data) {
             </select>
           </div>
 
-        </div>
-      </fieldset>
+          <!-- Repeat Last N -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Repeat Last N:</strong></span>
+            </label>
+            <input type="number" min="0" max="512" value="${sam.repeat_last_n || 64}" id="param-repeat_last_n" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
 
-      <!-- 3. Direct Custom CLI Flags (Any llama-server argument from GitHub README) -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          ⌨️ [CUSTOM CLI ARGUMENTS (Direct llama-server flags)]
-        </legend>
-        <p style="font-size: 0.78rem; color: var(--term-text-muted); margin-bottom: 0.4rem;">
-          Type ANY custom flags directly from the <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" style="color: #0000ee;">llama.cpp server README</a> (e.g. <code>--rope-freq-base 1000000 --split-mode layer</code>).
-        </p>
-        <input type="text" class="form-control" id="param-custom_flags" value="${sp.custom_flags || ''}" placeholder="--rope-freq-base 1000000 --verbose-prompt 0" oninput="syncDirect()" style="font-family: monospace;">
+          <!-- Compute Device -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Compute Device:</strong> (<code>--device</code>)</span>
+            </label>
+            <select id="param-device" class="form-control" onchange="syncDirect()">
+              <option value="Vulkan0" ${(sp.device || 'Vulkan0') === 'Vulkan0' ? 'selected' : ''}>Vulkan0 (RX 6750 XT 12GB - :8001 Primary)</option>
+              <option value="Vulkan1" ${(sp.device || '') === 'Vulkan1' ? 'selected' : ''}>Vulkan1 (RX 6600 XT 8GB - :8002 Worker)</option>
+              <option value="CPU" ${(sp.device || '') === 'CPU' ? 'selected' : ''}>CPU (Host Intel i7)</option>
+            </select>
+          </div>
+
+          <!-- Custom CLI Flags -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Custom CLI Flags:</strong> Direct llama-server arguments</span>
+              <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" style="color: #0000ee; font-size: 0.75rem;">Docs ↗</a>
+            </label>
+            <input type="text" class="form-control" id="param-custom_flags" value="${sp.custom_flags || ''}" placeholder="--rope-freq-base 1000000 --verbose-prompt 0" oninput="syncDirect()" style="font-family: monospace;">
+          </div>
+        </div>
       </fieldset>
     `;
   } else {
-    // Non-llama harnesses (Hermes, Snapdragon, OpenWebUI)
+    // Non-llama harnesses (Snapdragon, OpenWebUI)
     container.innerHTML = `
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
           ⚙️ [${(data.name || harnessId).toUpperCase()} PARAMETERS]
         </legend>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+        <div class="harness-tier-grid">
           ${Object.entries(sp).map(([k, v]) => {
             if (typeof v === 'boolean') {
               return `
-                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                <div class="harness-control-group" style="display: flex; flex-direction: row; align-items: center; gap: 0.5rem;">
                   <input type="checkbox" id="param-${k}" ${v ? 'checked' : ''} onchange="syncDirect()">
                   <label for="param-${k}" style="font-weight: bold;">${k}</label>
                 </div>
               `;
             } else if (opt[k] && Array.isArray(opt[k])) {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <select id="param-${k}" class="form-control" onchange="syncDirect()">
                     ${opt[k].map(item => `<option value="${item}" ${item === v ? 'selected' : ''}>${item}</option>`).join('')}
@@ -4847,14 +5242,14 @@ function renderHarnessForm(harnessId, data) {
               `;
             } else if (typeof v === 'number') {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <input type="number" step="${Number.isInteger(v) ? '1' : '0.05'}" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
                 </div>
               `;
             } else {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <input type="text" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
                 </div>
@@ -4866,6 +5261,387 @@ function renderHarnessForm(harnessId, data) {
     `;
   }
 }
+
+// Stop strings tagger functions
+function renderStopStringsTags() {
+  return currentStopStrings.map((s, idx) => `
+    <span class="stop-tag-item">
+      <span>${escapeHtml(s)}</span>
+      <span class="stop-tag-remove" onclick="removeStopString(${idx})" title="Remove stop string">✕</span>
+    </span>
+  `).join('');
+}
+
+window.handleStopStringKeyDown = function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addStopStringFromInput();
+  }
+};
+
+window.addStopStringFromInput = function() {
+  const input = document.getElementById('stop-string-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (val && !currentStopStrings.includes(val)) {
+    currentStopStrings.push(val);
+    input.value = '';
+    const box = document.getElementById('stop-strings-tag-box');
+    if (box) {
+      box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+      document.getElementById('stop-string-input').focus();
+    }
+    syncDirect();
+  }
+};
+
+window.removeStopString = function(idx) {
+  currentStopStrings.splice(idx, 1);
+  const box = document.getElementById('stop-strings-tag-box');
+  if (box) {
+    box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+  }
+  syncDirect();
+};
+
+window.onHarnessModelSelected = function(modelPath) {
+  const selectedModel = availableModels.find(m => m.path === modelPath);
+  const badge = document.getElementById('model-selected-badge');
+  const pathDisplay = document.getElementById('model-active-path-display');
+  const sizeCalc = document.getElementById('model-size-calc');
+
+  if (selectedModel) {
+    if (badge) badge.textContent = `${selectedModel.filename} (${selectedModel.size_gb} GB • ${selectedModel.quant})`;
+    if (pathDisplay) pathDisplay.textContent = selectedModel.path;
+    if (sizeCalc) {
+      sizeCalc.innerHTML = `Model Size: <strong>${selectedModel.size_gb} GB</strong> | Format: <strong>GGUF ${selectedModel.quant}</strong> | Path: <code>${selectedModel.path}</code>`;
+    }
+
+    // Dynamic limitations update based on selected model size & hardware
+    if (autoCtxEnabled || autoNglEnabled) {
+      const primaryVram = hardwareCapabilities.primary_vram_gb || 12.0;
+      if (selectedModel.size_gb < primaryVram - 1.5) {
+        // Fits entirely in primary GPU VRAM
+        if (autoNglEnabled) syncParam('n_gpu_layers', 99);
+        if (autoCtxEnabled) {
+          if (selectedModel.size_gb < 5.0) syncParam('n_ctx', 16384);
+          else if (selectedModel.size_gb < 9.0) syncParam('n_ctx', 12288);
+          else syncParam('n_ctx', 8192);
+        }
+      } else {
+        // Exceeds single GPU - allocate across GPUs or partial CPU
+        if (autoNglEnabled) syncParam('n_gpu_layers', 45);
+        if (autoCtxEnabled) syncParam('n_ctx', 8192);
+      }
+    }
+  }
+  syncDirect();
+};
+
+window.pollHardwareAndRefreshLimits = async function() {
+  try {
+    const res = await fetch('/api/harness/hardware');
+    const json = await res.json();
+    if (json.ok && json.hardware) {
+      hardwareCapabilities = json.hardware;
+      alert(`Hardware Polled Successfully:\nPrimary: ${hardwareCapabilities.primary_gpu}\nSecondary: ${hardwareCapabilities.secondary_gpu}\nTotal VRAM: ${hardwareCapabilities.total_vram_gb} GB\nCPU Threads: ${hardwareCapabilities.cpu_threads}\nRAM: ${hardwareCapabilities.ram_gb} GB`);
+      await refreshHarnessStudio();
+    }
+  } catch (err) {
+    alert(`Error polling hardware: ${err.message}`);
+  }
+};
+
+window.autoOptimizeBasedOnHardware = function() {
+  const modelEl = document.getElementById('param-model');
+  const modelPath = modelEl ? modelEl.value : '';
+  const selectedModel = availableModels.find(m => m.path === modelPath);
+  const sizeGb = selectedModel ? selectedModel.size_gb : 8.5;
+  const primaryVram = hardwareCapabilities.primary_vram_gb || 12.0;
+
+  // Optimize context & offload
+  if (sizeGb <= primaryVram - 2.5) {
+    syncParam('n_gpu_layers', 99);
+    syncParam('n_ctx', 12288);
+  } else if (sizeGb <= primaryVram) {
+    syncParam('n_gpu_layers', 99);
+    syncParam('n_ctx', 8192);
+  } else {
+    syncParam('n_gpu_layers', 50);
+    syncParam('n_ctx', 8192);
+  }
+
+  // Optimize threads to 8 or threads / 2
+  const threads = Math.min(Math.max(Math.floor((hardwareCapabilities.cpu_threads || 10) * 0.8), 4), 16);
+  syncParam('threads', threads);
+
+  // Flash attention ON for Vulkan AMD
+  const faSel = document.getElementById('param-flash_attn');
+  if (faSel) faSel.value = 'on';
+  const faBtn = document.getElementById('btn-toggle-flash_attn');
+  if (faBtn) {
+    faBtn.classList.add('active');
+    faBtn.textContent = '[✓ ON (Recommended)]';
+  }
+
+  // Optimize batches
+  const ubEl = document.getElementById('param-ubatch_size');
+  if (ubEl) ubEl.value = 512;
+  const bEl = document.getElementById('param-batch_size');
+  if (bEl) bEl.value = 2048;
+
+  // Quantized KV Cache for VRAM headroom
+  const ctkEl = document.getElementById('param-cache_type_k');
+  if (ctkEl) ctkEl.value = 'q4_0';
+  const ctvEl = document.getElementById('param-cache_type_v');
+  if (ctvEl) ctvEl.value = 'q4_0';
+
+  syncDirect();
+  alert(`⚡ Hardware Optimization Complete!\n• Model: ${selectedModel ? selectedModel.filename : 'Active'}\n• GPU Layers: ${document.getElementById('param-n_gpu_layers').value}\n• Context Length: ${document.getElementById('param-n_ctx').value}\n• CPU Threads: ${threads}\n• Flash Attention: ON\n• KV Cache: Q4_0`);
+};
+
+window.toggleHarnessAuto = function(type) {
+  if (type === 'ctx') {
+    autoCtxEnabled = !autoCtxEnabled;
+    const btn = document.getElementById('btn-toggle-ctx_auto');
+    if (btn) {
+      btn.classList.toggle('active', autoCtxEnabled);
+      btn.textContent = autoCtxEnabled ? '[Auto: ON]' : '[Auto: OFF]';
+    }
+  } else if (type === 'ngl') {
+    autoNglEnabled = !autoNglEnabled;
+    const btn = document.getElementById('btn-toggle-ngl_auto');
+    if (btn) {
+      btn.classList.toggle('active', autoNglEnabled);
+      btn.textContent = autoNglEnabled ? '[Auto: ON]' : '[Auto: OFF]';
+    }
+  }
+};
+
+window.toggleFlashAttn = function() {
+  const sel = document.getElementById('param-flash_attn');
+  const btn = document.getElementById('btn-toggle-flash_attn');
+  if (!sel || !btn) return;
+  const isCurrentlyOn = sel.value === 'on';
+  sel.value = isCurrentlyOn ? 'off' : 'on';
+  btn.classList.toggle('active', !isCurrentlyOn);
+  btn.textContent = !isCurrentlyOn ? '[✓ ON (Recommended)]' : '[✗ OFF]';
+  syncDirect();
+};
+
+window.syncFlashAttnSelect = function(val) {
+  const btn = document.getElementById('btn-toggle-flash_attn');
+  if (btn) {
+    btn.classList.toggle('active', val !== 'off');
+    btn.textContent = val !== 'off' ? `[✓ ${val.toUpperCase()}]` : '[✗ OFF]';
+  }
+  syncDirect();
+};
+
+window.toggleLimitResponse = function(checked) {
+  const el = document.getElementById('param-n_predict');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleReasoningBudget = function(checked) {
+  const el = document.getElementById('param-reasoning_budget');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleCacheTypeK = function(checked) {
+  const el = document.getElementById('param-cache_type_k');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleCacheTypeV = function(checked) {
+  const el = document.getElementById('param-cache_type_v');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.onSpeculativeModeChange = function(val) {
+  const isOff = val === 'off';
+  const dMax = document.getElementById('param-draft_max');
+  const dMin = document.getElementById('param-draft_min');
+  const dProb = document.getElementById('param-draft_p_min');
+  if (dMax) dMax.disabled = isOff;
+  if (dMin) dMin.disabled = isOff;
+  if (dProb) dProb.disabled = isOff;
+  syncDirect();
+};
+
+window.toggleTopP = function(checked) {
+  const r = document.getElementById('param-top_p-range');
+  const n = document.getElementById('param-top_p');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleMinP = function(checked) {
+  const r = document.getElementById('param-min_p-range');
+  const n = document.getElementById('param-min_p');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleRepeatPenalty = function(checked) {
+  const r = document.getElementById('param-repeat_penalty-range');
+  const n = document.getElementById('param-repeat_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.togglePresencePenalty = function(checked) {
+  const r = document.getElementById('param-presence_penalty-range');
+  const n = document.getElementById('param-presence_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleFrequencyPenalty = function(checked) {
+  const r = document.getElementById('param-frequency_penalty-range');
+  const n = document.getElementById('param-frequency_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleHarnessParam = function(key) {
+  const btn = document.getElementById(`btn-toggle-${key}`);
+  if (!btn) return;
+  const isActive = btn.classList.contains('active');
+  btn.classList.toggle('active', !isActive);
+
+  if (key === 'enable_thinking') {
+    btn.textContent = !isActive ? '[✓ ON (CoT Activated)]' : '[✗ OFF]';
+  } else if (key === 'kv_offload') {
+    btn.textContent = !isActive ? '[✓ ON (GPU VRAM)]' : '[✗ OFF (CPU RAM)]';
+  } else if (key === 'kv_unified') {
+    btn.textContent = !isActive ? '[✓ ON]' : '[✗ OFF]';
+  } else if (key === 'mlock') {
+    btn.textContent = !isActive ? '[✓ ON (Lock in RAM)]' : '[✗ OFF]';
+  } else if (key === 'mmap') {
+    btn.textContent = !isActive ? '[✓ ON (mmap)]' : '[✗ OFF (--no-mmap)]';
+  }
+  syncDirect();
+};
+
+// Profile template handling: save, load, delete
+window.saveCurrentHarnessProfile = async function() {
+  const nameInput = document.getElementById('harness-profile-name');
+  let name = nameInput ? nameInput.value.trim() : '';
+  const currentParams = collectHarnessParams();
+
+  try {
+    const res = await fetch('/api/harness/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        name: name,
+        profile: currentParams
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      savedProfiles = data.profiles || {};
+      const savedName = data.name || name;
+      alert(`✅ Profile saved as "${savedName}"!`);
+      if (nameInput) nameInput.value = '';
+
+      // Update dropdown
+      const sel = document.getElementById('harness-profile-select');
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select Saved Profile --</option>' +
+          Object.keys(savedProfiles).map(p => `<option value="${p}" ${p === savedName ? 'selected' : ''}>Profile: ${p}</option>`).join('');
+      }
+    } else {
+      alert(`Failed to save profile: ${data.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`Error saving profile: ${err.message}`);
+  }
+};
+
+window.onSelectProfileTemplate = function(profileName) {
+  if (!profileName || !savedProfiles[profileName]) return;
+  const p = savedProfiles[profileName];
+
+  if (p.model && document.getElementById('param-model')) {
+    document.getElementById('param-model').value = p.model;
+    onHarnessModelSelected(p.model);
+  }
+  if (p.system_prompt !== undefined && document.getElementById('param-system_prompt')) {
+    document.getElementById('param-system_prompt').value = p.system_prompt;
+  }
+  if (p.chat_template !== undefined && document.getElementById('param-chat_template')) {
+    document.getElementById('param-chat_template').value = p.chat_template;
+  }
+  if (p.n_ctx) syncParam('n_ctx', p.n_ctx);
+  if (p.n_gpu_layers !== undefined) syncParam('n_gpu_layers', p.n_gpu_layers);
+  if (p.threads) syncParam('threads', p.threads);
+  if (p.ubatch_size && document.getElementById('param-ubatch_size')) document.getElementById('param-ubatch_size').value = p.ubatch_size;
+  if (p.batch_size && document.getElementById('param-batch_size')) document.getElementById('param-batch_size').value = p.batch_size;
+  if (p.parallel && document.getElementById('param-parallel')) document.getElementById('param-parallel').value = p.parallel;
+
+  if (p.flash_attn && document.getElementById('param-flash_attn')) {
+    document.getElementById('param-flash_attn').value = p.flash_attn;
+    syncFlashAttnSelect(p.flash_attn);
+  }
+  if (p.temperature !== undefined) syncParam('temperature', p.temperature);
+  if (p.top_p !== undefined) syncParam('top_p', p.top_p);
+  if (p.min_p !== undefined) syncParam('min_p', p.min_p);
+  if (p.repeat_penalty !== undefined) syncParam('repeat_penalty', p.repeat_penalty);
+  if (p.presence_penalty !== undefined) syncParam('presence_penalty', p.presence_penalty);
+  if (p.frequency_penalty !== undefined) syncParam('frequency_penalty', p.frequency_penalty);
+  if (p.top_k !== undefined && document.getElementById('param-top_k')) document.getElementById('param-top_k').value = p.top_k;
+
+  if (Array.isArray(p.stop_strings)) {
+    currentStopStrings = [...p.stop_strings];
+    const box = document.getElementById('stop-strings-tag-box');
+    if (box) {
+      box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+    }
+  }
+
+  syncDirect();
+};
+
+window.deleteCurrentHarnessProfile = async function() {
+  const sel = document.getElementById('harness-profile-select');
+  const name = sel ? sel.value : '';
+  if (!name) {
+    alert('Please select a profile to delete.');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete profile "${name}"?`)) return;
+
+  try {
+    const res = await fetch('/api/harness/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', name: name })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      savedProfiles = data.profiles || {};
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select Saved Profile --</option>' +
+          Object.keys(savedProfiles).map(p => `<option value="${p}">Profile: ${p}</option>`).join('');
+      }
+      alert(`Profile "${name}" deleted.`);
+    }
+  } catch (err) {
+    alert(`Error deleting profile: ${err.message}`);
+  }
+};
 
 window.syncParam = function(key, val, fromInput = false) {
   const lbl = document.getElementById(`label-val-${key}`);
@@ -4890,13 +5666,15 @@ function collectHarnessParams() {
   const sp = currentHarnessData.server_params || {};
   const sam = currentHarnessData.sampling_params || {};
 
-  const keys = new Set([...Object.keys(sp), ...Object.keys(sam)]);
-  if (currentHarnessId.startsWith('llama_')) {
-    ['n_ctx', 'n_gpu_layers', 'flash_attn', 'cache_type_k', 'cache_type_v', 'batch_size', 'ubatch_size',
-     'threads', 'parallel', 'device', 'defrag_thold', 'mlock', 'no_mmap', 'cont_batching', 'custom_flags',
-     'temperature', 'min_p', 'top_p', 'top_k', 'presence_penalty', 'frequency_penalty', 'repeat_penalty',
-     'repeat_last_n', 'mirostat'].forEach(k => keys.add(k));
-  }
+  const keys = new Set([
+    ...Object.keys(sp), ...Object.keys(sam),
+    'model', 'system_prompt', 'chat_template', 'n_ctx', 'n_gpu_layers', 'threads',
+    'ubatch_size', 'batch_size', 'parallel', 'flash_attn', 'temperature', 'n_predict',
+    'context_overflow', 'slot_save_path', 'cache_type_k', 'cache_type_v', 'mlock',
+    'no_mmap', 'speculative_mode', 'draft_max', 'draft_min', 'draft_p_min',
+    'top_k', 'top_p', 'min_p', 'repeat_penalty', 'presence_penalty', 'frequency_penalty',
+    'mirostat', 'repeat_last_n', 'device', 'custom_flags'
+  ]);
 
   keys.forEach(k => {
     const el = document.getElementById(`param-${k}`);
@@ -4911,6 +5689,33 @@ function collectHarnessParams() {
     }
   });
 
+  // Toggles and checkboxes
+  const thinkingBtn = document.getElementById('btn-toggle-enable_thinking');
+  if (thinkingBtn) params.enable_thinking = thinkingBtn.classList.contains('active');
+
+  const kvOffloadBtn = document.getElementById('btn-toggle-kv_offload');
+  if (kvOffloadBtn) params.no_kv_offload = !kvOffloadBtn.classList.contains('active');
+
+  const kvUnifiedBtn = document.getElementById('btn-toggle-kv_unified');
+  if (kvUnifiedBtn) params.kv_unified = kvUnifiedBtn.classList.contains('active');
+
+  const mlockBtn = document.getElementById('btn-toggle-mlock');
+  if (mlockBtn) params.mlock = mlockBtn.classList.contains('active');
+
+  const mmapBtn = document.getElementById('btn-toggle-mmap');
+  if (mmapBtn) params.no_mmap = !mmapBtn.classList.contains('active');
+
+  const budgetCheck = document.getElementById('param-enable_reasoning_budget');
+  if (budgetCheck && !budgetCheck.checked) {
+    delete params.reasoning_budget;
+  }
+
+  const limitCheck = document.getElementById('param-limit_response_length');
+  if (limitCheck && !limitCheck.checked) {
+    delete params.n_predict;
+  }
+
+  params.stop_strings = [...currentStopStrings];
   return params;
 }
 
@@ -4924,10 +5729,10 @@ function updateHarnessPreview() {
   }
 
   if (execPreview) {
-    if (currentHarnessId.startsWith('llama_')) {
+    if (currentHarnessId.startsWith('llama_') || currentHarnessId === 'hermes') {
       const port = currentHarnessId.includes('worker') ? 8002 : 8001;
       const alias = currentHarnessId.includes('worker') ? 'worker' : 'coordinator';
-      const model = currentHarnessData?.server_params?.model || (port === 8001 ? '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf' : '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf');
+      const model = params.model || currentHarnessData?.server_params?.model || (port === 8001 ? '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf' : '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf');
       const dev = params.device || (port === 8001 ? 'Vulkan0' : 'Vulkan1');
       const parts = [
         `/usr/local/bin/llama-server`,
@@ -4935,7 +5740,7 @@ function updateHarnessPreview() {
         `--host 0.0.0.0`,
         `--port ${port}`,
         `--device ${dev}`,
-        `-ngl ${params.n_gpu_layers || 99}`,
+        `-ngl ${params.n_gpu_layers !== undefined ? params.n_gpu_layers : 99}`,
         `-c ${params.n_ctx || 8192}`,
         `--flash-attn ${params.flash_attn || 'on'}`,
         `-ctk ${params.cache_type_k || 'q4_0'}`,
@@ -4947,10 +5752,27 @@ function updateHarnessPreview() {
       if (params.ubatch_size) parts.push(`-ub ${params.ubatch_size}`);
       if (params.threads) parts.push(`-t ${params.threads}`);
       if (params.parallel) parts.push(`-np ${params.parallel}`);
-      if (params.defrag_thold !== undefined) parts.push(`--defrag-thold ${params.defrag_thold}`);
+      if (params.n_predict) parts.push(`-n ${params.n_predict}`);
+      if (params.context_overflow === 'rolling') parts.push(`--context-shift`);
+      if (params.no_kv_offload) parts.push(`--no-kv-offload`);
+      if (params.kv_unified) parts.push(`--kv-unified`);
+      if (params.slot_save_path) parts.push(`--slot-save-path "${params.slot_save_path}"`);
       if (params.mlock) parts.push(`--mlock`);
       if (params.no_mmap) parts.push(`--no-mmap`);
-      if (params.cont_batching) parts.push(`--cont-batching`);
+
+      if (params.speculative_mode && params.speculative_mode !== 'off') {
+        if (params.draft_max) parts.push(`--draft-max ${params.draft_max}`);
+        if (params.draft_min) parts.push(`--draft-min ${params.draft_min}`);
+        if (params.draft_p_min) parts.push(`--draft-p-min ${params.draft_p_min}`);
+      }
+
+      if (params.chat_template) parts.push(`--chat-template "${params.chat_template}"`);
+      if (params.system_prompt) parts.push(`--system-prompt "${params.system_prompt.replace(/"/g, '\\"')}"`);
+
+      if (Array.isArray(params.stop_strings)) {
+        params.stop_strings.forEach(s => parts.push(`-r "${s}"`));
+      }
+
       if (params.custom_flags) parts.push(params.custom_flags.trim());
 
       execPreview.textContent = parts.join(' \\\n  ');
@@ -5002,8 +5824,11 @@ window.resetHarnessStudioDefaults = function() {
   if (!confirm('Reset all parameters to cluster hardware recommended defaults?')) return;
   if (currentHarnessId === 'llama_coordinator') {
     syncParam('n_ctx', 8192);
-    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
-    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    syncParam('n_gpu_layers', 99);
+    syncParam('threads', 8);
+    const faSel = document.getElementById('param-flash_attn');
+    if (faSel) faSel.value = 'on';
+    syncFlashAttnSelect('on');
     if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
     if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
     if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan0';
@@ -5015,8 +5840,11 @@ window.resetHarnessStudioDefaults = function() {
     syncParam('repeat_penalty', 1.00);
   } else if (currentHarnessId === 'llama_worker') {
     syncParam('n_ctx', 8192);
-    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
-    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    syncParam('n_gpu_layers', 99);
+    syncParam('threads', 6);
+    const faSel = document.getElementById('param-flash_attn');
+    if (faSel) faSel.value = 'on';
+    syncFlashAttnSelect('on');
     if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
     if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
     if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan1';
