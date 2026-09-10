@@ -230,7 +230,7 @@
             <label style="font-size: 0.72rem; color: var(--term-text-dim);">Commit Message:</label>
             <input type="text" class="form-control" id="git-commit-msg" placeholder="commit summary...">
             <div style="display: flex; gap: 0.35rem;">
-              <button class="launch-btn" id="git-gen-msg-btn" style="flex: 1;" title="Let 3B worker generate commit message">[3B AI MSG]</button>
+              <button class="launch-btn" id="git-gen-msg-btn" style="flex: 1;" title="Let Worker AI generate commit message">[AI COMMIT MSG]</button>
               <button class="send-btn" id="git-commit-btn" style="flex: 1;">[COMMIT]</button>
             </div>
           </div>
@@ -240,7 +240,7 @@
           </div>
           <div style="display: flex; flex-direction: column; gap: 0.35rem;">
             <select class="form-control" id="subagent-model-quick">
-              <option value="worker" selected>[WORKER :8002 (80+ tok/s)]</option>
+              <option value="worker" selected>[WORKER :8002 (Fast Utility)]</option>
               <option value="coordinator">[COORDINATOR :8001 (Primary)]</option>
             </select>
             <textarea class="form-control" id="subagent-task-quick" rows="2" placeholder="Task for subagent (e.g. write unit tests, review diff)..."></textarea>
@@ -302,7 +302,7 @@
             </label>
             <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem;">
               <button class="launch-btn" onclick="openStmQuickView()" style="flex: 1; padding: 2px 4px;">[VIEW RAM]</button>
-              <button class="launch-btn" onclick="compressStmWorkingMemory()" style="padding: 2px 4px;" title="3B Worker fast compression">[⚡ COMPRESS]</button>
+              <button class="launch-btn" onclick="compressStmWorkingMemory()" style="padding: 2px 4px;" title="Worker fast context compression">[⚡ COMPRESS]</button>
             </div>
           </div>
 
@@ -329,7 +329,7 @@
 StoneSage Cognitive Terminal &amp; Harness online.
 Dual Compute Accelerator Cluster active:
 - Coordinator: Active Model (:8001 on Primary Accelerator Vulkan0)
-- Worker: Active Model (:8002 on Worker Accelerator Vulkan1 - 80+ t/s)
+- Worker: Active Model (:8002 on Worker Accelerator Vulkan1 - High Throughput)
 - Embedder: BGE-Large-en-v1.5 (:8003 on Vector Engine Vulkan1)
 - Vector DB: Qdrant @ 192.168.1.112:6333 (CouchDB + User Vault Ingested)
 - Short-Term Memory: Active In-RAM cache with Worker context compression
@@ -350,7 +350,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
           <div id="ai-view-planner-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto;">
             <div class="terminal-panel" style="margin-bottom: 0.75rem;">
               <div class="terminal-panel-header">
-                <span>🎯 OBJECTIVE DECOMPOSITION (14B Planner -&gt; 3B Autonomous Executor)</span>
+                <span>🎯 OBJECTIVE DECOMPOSITION (Coordinator Planner -&gt; Worker Autonomous Executor)</span>
               </div>
               <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
                 <div style="display: flex; gap: 0.4rem;">
@@ -358,7 +358,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                   <button class="send-btn" id="planner-decompose-btn" onclick="generatePlanFromGoal()">[📋 DECOMPOSE PLAN]</button>
                 </div>
                 <div style="font-size: 0.74rem; color: var(--term-text-dim);">
-                  14B Coordinator parses the goal into an explicit, sequential Finite Instruction Set. You can execute step-by-step or run the autonomous loop.
+                  Coordinator parses the goal into an explicit, sequential Finite Instruction Set. You can execute step-by-step or run the autonomous loop.
                 </div>
               </div>
             </div>
@@ -384,7 +384,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
               <div class="terminal-panel-header">
                 <span>🧠 SHORT-TERM WORKING MEMORY (FAST RAM CACHE)</span>
                 <div style="display: flex; gap: 0.35rem;">
-                  <button class="launch-btn" onclick="compressStmWorkingMemory()">[⚡ COMPRESS WITH 3B WORKER]</button>
+                  <button class="launch-btn" onclick="compressStmWorkingMemory()">[⚡ COMPRESS WITH WORKER]</button>
                   <button class="launch-btn" onclick="clearStmMemory()">[CLEAR RAM]</button>
                 </div>
               </div>
@@ -487,14 +487,14 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                 <span>🚀 ONE-CLICK MODEL SWITCH &amp; AUTOTUNE PRESETS</span>
               </div>
               <div style="padding: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q5')" style="flex: 1; min-width: 220px;">
-                  [ 🦅 LOAD ORNITH 9B Q5_K_M (16k) ]
+                <button class="send-btn" onclick="quickSwitchModel('high-precision')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD HIGH-PRECISION PROFILE ]
                 </button>
-                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q4')" style="flex: 1; min-width: 220px;">
-                  [ 🦅 LOAD ORNITH 9B Q4_K_M (16k) ]
+                <button class="send-btn" onclick="quickSwitchModel('high-throughput')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD HIGH-THROUGHPUT PROFILE ]
                 </button>
-                <button class="launch-btn" onclick="quickSwitchModel('qwen-14b')" style="flex: 1; min-width: 220px;">
-                  [ ⚡ RESTORE QWEN 14B CODER ]
+                <button class="launch-btn" onclick="quickSwitchModel('code-specialist')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD CODE SPECIALIST PROFILE ]
                 </button>
               </div>
             </div>
@@ -529,8 +529,8 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                 <div style="border-top: 1px dashed var(--term-border); padding-top: 0.6rem; margin-top: 0.3rem;">
                   <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">Or Download Directly from Hugging Face:</div>
                   <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                    <input type="text" id="hf-repo-input" class="form-control" placeholder="HuggingFace Repo (e.g. bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF)" style="flex: 2; min-width: 240px;">
-                    <input type="text" id="hf-file-input" class="form-control" placeholder="GGUF Filename (e.g. deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf)" style="flex: 2; min-width: 240px;">
+                    <input type="text" id="hf-repo-input" class="form-control" placeholder="HuggingFace Repo (e.g. org/model-repo-GGUF)" style="flex: 2; min-width: 240px;">
+                    <input type="text" id="hf-file-input" class="form-control" placeholder="GGUF Filename (e.g. model-Q4_K_M.gguf)" style="flex: 2; min-width: 240px;">
                     <button class="launch-btn" onclick="executeHfDownloadSwitch()" id="btn-hf-download">[📥 DOWNLOAD &amp; SWITCH]</button>
                   </div>
                 </div>
@@ -592,11 +592,11 @@ Select a model above or click a one-click preset to switch and tune.
           <p>Autonomous dual-GPU presence, model-directed exploration, parameter self-inspection, and Home Assistant camera vigilance</p>
         </div>
         <div class="filter-bar">
-          <button class="win95-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
-          <button class="win95-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
-          <button class="win95-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind" style="color: #ffff88; font-weight: bold;">[⚡ NUDGE / UNBLOCK]</button>
-          <button class="win95-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
-          <button class="win95-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
+          <button class="launch-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
+          <button class="launch-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
+          <button class="launch-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind">[⚡ NUDGE / UNBLOCK]</button>
+          <button class="launch-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
+          <button class="launch-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
         </div>
       </div>
 
@@ -754,9 +754,9 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
             <button class="filter-btn" data-hvac-mode="off">[OFF]</button>
           </div>
 
-          <!-- 3B Worker Natural Language Automation Command Line -->
+          <!-- Worker Natural Language Automation Command Line -->
           <div style="width: 100%; border-top: 1px dashed var(--term-border-dim); padding-top: 0.65rem; margin-top: 0.5rem;">
-            <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">3B Worker NLP Automation Dispatch:</div>
+            <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">Worker NLP Automation Dispatch:</div>
             <div style="display: flex; gap: 0.35rem;">
               <input type="text" class="form-control" id="ha-nlp-input" placeholder="e.g. set thermostat to 72, turn off lights...">
               <button class="send-btn" id="ha-nlp-send-btn">[DISPATCH]</button>
@@ -1147,12 +1147,12 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ HARNESS PARAMETER STUDIO &amp; DAEMON CONTROLLER ]</h2>
-          <p>Granular Direct Parameter Control • llama.cpp, Hermes ReAct, Snapdragon NPU &amp; OpenWebUI • Zero Coarse Toggles</p>
+          <p>Granular Direct Parameter Control • llama.cpp, Agentic ReAct, Snapdragon NPU &amp; OpenWebUI • Zero Coarse Toggles</p>
         </div>
         <div class="filter-bar">
           <button class="filter-btn active" data-harness="llama_coordinator" onclick="switchHarnessStudio('llama_coordinator')">[🎛️ LLAMA COORDINATOR (:8001)]</button>
           <button class="filter-btn" data-harness="llama_worker" onclick="switchHarnessStudio('llama_worker')">[⚡ LLAMA WORKER (:8002)]</button>
-          <button class="filter-btn" data-harness="hermes" onclick="switchHarnessStudio('hermes')">[🤖 HERMES 3 AGENTIC (:8001)]</button>
+          <button class="filter-btn" data-harness="hermes" onclick="switchHarnessStudio('hermes')">[🤖 AGENTIC HARNESS (:8001)]</button>
           <button class="filter-btn" data-harness="snapdragon" onclick="switchHarnessStudio('snapdragon')">[📱 SNAPDRAGON EDGE NPU]</button>
           <button class="filter-btn" data-harness="openwebui" onclick="switchHarnessStudio('openwebui')">[🌐 OPENWEBUI PIPELINE]</button>
           <button class="launch-btn" onclick="refreshHarnessStudio()">[🔄 REFRESH LIVE PARAMS]</button>
@@ -1264,12 +1264,12 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
           <p>20GB Dual-GPU VRAM Envelope • QLoRA (4-bit NF4) &amp; Controlled DPO/GRPO • Dual-Gate Sleep Curation • 10 Golden Invariants • Safe GGUF Promotion</p>
         </div>
         <div class="filter-bar">
-          <button class="win95-btn" onclick="trainerIngestSleep()" id="btn-trainer-ingest-sleep" title="Harvest and curate recent sleep cycle dossiers">[⚡ INGEST SLEEP DOSSIERS]</button>
-          <button class="win95-btn" onclick="trainerApproveAllFrontier()" id="btn-trainer-approve-all" title="Approve all Gate 1 Frontier-audited samples">[🛡️ APPROVE FRONTIER SAMPLES]</button>
-          <button class="win95-btn" onclick="trainerRunDryRun()" id="btn-trainer-dryrun" title="Run 5-Phase dry-run verification suite on Ornith-1.5-9B">[🧪 RUN DRY-RUN TEST]</button>
-          <button class="win95-btn" onclick="trainerStartTraining()" id="btn-trainer-start" style="color: #44ff44; font-weight: bold;" title="Launch QLoRA training run">[▶ START TRAINING]</button>
-          <button class="win95-btn" onclick="trainerStopTraining()" id="btn-trainer-stop" style="color: #ff6666;" title="Cancel running training run">[⏹ STOP RUN]</button>
-          <button class="win95-btn" onclick="fetchTrainerAll(true)" id="btn-trainer-refresh">[🔄 REFRESH]</button>
+          <button class="launch-btn" onclick="trainerIngestSleep()" id="btn-trainer-ingest-sleep" title="Harvest and curate recent sleep cycle dossiers">[⚡ INGEST SLEEP DOSSIERS]</button>
+          <button class="launch-btn" onclick="trainerApproveAllFrontier()" id="btn-trainer-approve-all" title="Approve all Gate 1 Frontier-audited samples">[🛡️ APPROVE FRONTIER SAMPLES]</button>
+          <button class="launch-btn" onclick="trainerRunDryRun()" id="btn-trainer-dryrun" title="Run 5-Phase dry-run verification suite on active model">[🧪 RUN DRY-RUN TEST]</button>
+          <button class="send-btn" onclick="trainerStartTraining()" id="btn-trainer-start" style="font-weight: 800;" title="Launch QLoRA training run">[▶ START TRAINING]</button>
+          <button class="launch-btn" onclick="trainerStopTraining()" id="btn-trainer-stop" style="font-weight: 800;" title="Cancel running training run">[⏹ STOP RUN]</button>
+          <button class="launch-btn" onclick="fetchTrainerAll(true)" id="btn-trainer-refresh">[🔄 REFRESH]</button>
         </div>
       </div>
 
@@ -1400,8 +1400,9 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
                 <div class="form-group">
                   <label for="trainer-select-model" style="font-size: 0.75rem; font-weight: bold;">Target Model Architecture:</label>
                   <select class="form-control" id="trainer-select-model">
-                    <option value="ornith-1.5-9b">Ornith-1.5-9B (Base Coordinator &amp; Worker - 8.5 GB Peak)</option>
-                    <option value="ornith-1.5-35b-moe">Ornith-1.5-35B-MoE (Dual-GPU DDP Split - 20 GB)</option>
+                    <option value="coordinator_target">Primary Coordinator Architecture (Auto-Detected)</option>
+                    <option value="worker_target">Worker Fast Architecture (Auto-Detected)</option>
+                    <option value="moe_target">Cluster Dual-GPU Split Architecture</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -1452,9 +1453,9 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
 
             <!-- Action Controls -->
             <div style="display: flex; gap: 0.5rem; margin-top: 0.6rem;">
-              <button class="win95-btn" onclick="trainerStartTraining()" style="color: #008800; font-weight: bold; flex: 1;">[▶ LAUNCH QLoRA TRAINING RUN]</button>
-              <button class="win95-btn" onclick="trainerRunDryRun()" style="flex: 1;">[🧪 RUN 5-PHASE DRY-RUN TEST]</button>
-              <button class="win95-btn" onclick="trainerStopTraining()" style="color: #bb0000;">[⏹ ABORT]</button>
+              <button class="send-btn" onclick="trainerStartTraining()" style="font-weight: bold; flex: 1;">[▶ LAUNCH QLoRA TRAINING RUN]</button>
+              <button class="launch-btn" onclick="trainerRunDryRun()" style="flex: 1;">[🧪 RUN 5-PHASE DRY-RUN TEST]</button>
+              <button class="launch-btn" onclick="trainerStopTraining()" style="font-weight: bold;">[⏹ ABORT]</button>
             </div>
           </div>
         </div>
@@ -1474,7 +1475,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
               <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
                 <div style="color: #aaa;">INV-01-IDENTITY</div>
                 <strong style="color: #00ee66;">✓ Sovereign Cluster Identity</strong>
-                <div style="color: #888; font-size: 0.68rem;">Retains Ornith/StoneSage role; rejects self-identity debates.</div>
+                <div style="color: #888; font-size: 0.68rem;">Retains StoneSage cluster role; rejects self-identity debates.</div>
               </div>
               <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
                 <div style="color: #aaa;">INV-02-HARDWARE-AWARENESS</div>
@@ -1543,11 +1544,11 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
                     <option value="all">All (Both Quantizations)</option>
                   </select>
                 </div>
-                <button class="win95-btn" onclick="trainerExportGgufNow()" style="width: 100%;">[📦 EXPORT &amp; QUANTIZE ADAPTER]</button>
+                <button class="launch-btn" onclick="trainerExportGgufNow()" style="width: 100%;">[📦 EXPORT &amp; QUANTIZE ADAPTER]</button>
               </div>
 
               <!-- Promote Box -->
-              <div style="border: 1px inset #888; padding: 0.5rem; background: #c0c0c0;">
+              <div style="border: 1px solid var(--term-border); padding: 0.5rem; background: var(--term-surface);">
                 <span style="font-weight: bold; font-size: 0.76rem;">2. PROMOTE TO CLUSTER PRODUCTION:</span>
                 <p style="font-size: 0.72rem; margin: 0.25rem 0;">Deploys staged GGUF to <code>/opt/models/</code>, creates automatic <code>.bak</code>, and restarts systemd.</p>
                 <div class="form-group" style="margin-bottom: 0.4rem;">
@@ -1561,7 +1562,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
                   <input type="checkbox" id="trainer-promote-confirm-check" checked>
                   Confirm live service reload with backup
                 </label>
-                <button class="win95-btn" onclick="trainerPromoteModelNow()" style="width: 100%; color: #0000aa; font-weight: bold;">[🚀 PROMOTE MODEL TO PRODUCTION]</button>
+                <button class="send-btn" onclick="trainerPromoteModelNow()" style="width: 100%; font-weight: bold;">[🚀 PROMOTE MODEL TO PRODUCTION]</button>
               </div>
             </div>
           </div>
@@ -1649,15 +1650,15 @@ Loading full passdown markdown...
           <div class="form-group">
             <label for="route-ideation">🗲 Fast Ideation &amp; Chores</label>
             <select class="form-control" id="route-ideation">
-              <option value="local_worker">Local Worker (9B Q4 GPU1 - 80+ tok/s)</option>
-              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
+              <option value="local_worker">Local Worker (:8002 / GPU1 - Fast)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 / GPU0 - Primary)</option>
             </select>
           </div>
           <div class="form-group">
             <label for="route-solving">🧠 Deep Solving &amp; Logic</label>
             <select class="form-control" id="route-solving">
-              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
-              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 / GPU0 - Primary)</option>
+              <option value="moe_35b">Cluster MoE (Dual GPU Split)</option>
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
             </select>
           </div>
@@ -1666,15 +1667,15 @@ Loading full passdown markdown...
             <select class="form-control" id="route-audit">
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
               <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
-              <option value="moe_35b">Ornith 35B MoE (Sleep Rumination)</option>
-              <option value="local_coordinator">Local Coordinator (14B/9B Fallback)</option>
+              <option value="moe_35b">Cluster MoE (Sleep Rumination)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 Fallback)</option>
               <option value="openrouter">OpenRouter API</option>
             </select>
           </div>
           <div class="form-group">
             <label for="route-rumination">🌙 Sleep Rumination (Backlog)</label>
             <select class="form-control" id="route-rumination">
-              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="moe_35b">Cluster MoE (Dual GPU Split)</option>
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
               <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
             </select>
@@ -1683,9 +1684,9 @@ Loading full passdown markdown...
         <div class="form-group" style="margin-bottom: 0.5rem;">
           <label for="route-chat">💬 Cockpit Interactive Chat</label>
           <select class="form-control" id="route-chat">
-            <option value="local_coordinator">Local Coordinator (9B Q8 on :8001)</option>
-            <option value="local_worker">Local Worker (9B Q4 on :8002)</option>
-            <option value="moe_35b">Ornith 35B MoE (Dual Accelerator)</option>
+            <option value="local_coordinator">Local Coordinator (:8001 Primary)</option>
+            <option value="local_worker">Local Worker (:8002 Fast)</option>
+            <option value="moe_35b">Cluster MoE (Dual Accelerator)</option>
             <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
           </select>
         </div>
@@ -1909,7 +1910,7 @@ Loading full passdown markdown...
           <pre class="dossier-content-pre" id="dossier-modal-prompt" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 220px; overflow-y: auto;"></pre>
         </div>
         <div>
-          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[2. 35B MoE CHOSEN SOLUTION]</div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[2. EVALUATOR CHOSEN SOLUTION]</div>
           <pre class="dossier-content-pre" id="dossier-modal-chosen" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 340px; overflow-y: auto;"></pre>
         </div>
       </div>
@@ -1928,8 +1929,8 @@ Loading full passdown markdown...
       <div class="dossier-dialog-footer">
         <div id="dossier-modal-status-msg" style="font-weight: 700; color: var(--term-text-bright);">Reviewing sample content.</div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <button class="win95-btn" id="dossier-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; background: #000080; color: #ffffff; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
-          <button class="win95-btn" id="dossier-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; background: #880000; color: #ffffff; cursor: pointer;">[✗ QUARANTINE SAMPLE]</button>
+          <button class="send-btn" id="dossier-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
+          <button class="launch-btn" id="dossier-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer; color: var(--term-alert);">[✗ QUARANTINE SAMPLE]</button>
           <button class="launch-btn" onclick="trainerCloseDossierModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[CLOSE]</button>
         </div>
       </div>

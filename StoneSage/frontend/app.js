@@ -33,7 +33,7 @@ const state = {
 
   // AI Cognitive Harness
   ai: {
-    activeModel: 'hermes', // 'hermes' (Ornith-1.5-35B MoE 16k), 'coordinator' (:8001), 'worker' (3B), 'openai', 'anthropic', 'gemini'
+    activeModel: 'coordinator', // 'coordinator' (:8001), 'worker' (:8002), 'openai', 'anthropic', 'gemini'
     ragEnabled: true,
     ragCollection: 'companion_profile',
     isGenerating: false,
@@ -576,7 +576,7 @@ async function generateAiCommitMessage() {
     return;
   }
 
-  input.value = 'Generating summary via 3B worker...';
+  input.value = 'Generating summary via Worker AI...';
   try {
     const prompt = `Write a crisp, single-sentence git commit message following Conventional Commits format for these changed files:\n${changed}\nRespond with ONLY the commit message.`;
     const res = await fetch('/api/cluster/chat', {
@@ -615,7 +615,7 @@ async function commitWorkstationGit() {
   const msgInput = document.getElementById('git-commit-msg');
   const msg = msgInput ? msgInput.value.trim() : '';
   if (!msg) {
-    alert('Please enter a commit message or click [3B AI MSG].');
+    alert('Please enter a commit message or click [AI COMMIT MSG].');
     return;
   }
 
@@ -859,7 +859,7 @@ async function execTerminalCommand(cmd) {
   git add <files>        Stage files for commit
 
 [ HOMELAB CLUSTER & HYPERVISOR ]
-  pve-health             Probe latency to 14B, 3B, BGE, MCP, Qdrant
+  pve-health             Probe latency to Coordinator, Worker, BGE, MCP, Qdrant
   nodes / pve-nodes      Show live CPU, RAM, and Disk metrics (pve, bigserv)
   services               Show live status & latency for all 21 homelab apps
   vms / containers       List all QEMU VMs & LXC containers across cluster
@@ -876,7 +876,7 @@ async function execTerminalCommand(cmd) {
   thermostat <temp>      Quick set living room thermostat temperature
 
 [ AI COGNITIVE COCKPIT & MEMORY ]
-  ai <prompt>            Stream answer from local 14B Coordinator / 3B Worker
+  ai <prompt>            Stream answer from local Coordinator (:8001) / Worker (:8002)
   plan <goal>            Decompose high-level goal into structured milestones
   stm / stm-status       Display in-RAM Short-Term Memory and active plan
   stm-add <key> <val>    Push key/value to RAM working context
@@ -1177,7 +1177,7 @@ Node bigserv (192.168.1.82):
       logToTerminal('Usage: ha <natural language intent> (e.g. ha turn off office light)', 'alert');
       return;
     }
-    logToTerminal(`[DELEGATING INTENT TO 3B WORKER: "${intent}"]`, 'dim');
+    logToTerminal(`[DELEGATING INTENT TO WORKER: "${intent}"]`, 'dim');
     try {
       const res = await fetch('/api/ha/service', {
         method: 'POST',
@@ -1276,7 +1276,7 @@ Node bigserv (192.168.1.82):
       logToTerminal('Usage: plan <high-level objective> (e.g. plan audit smart home security)', 'alert');
       return;
     }
-    logToTerminal(`[14B COORDINATOR DECOMPOSING PLAN: "${goal}"...]`, 'dim');
+    logToTerminal(`[COORDINATOR DECOMPOSING PLAN: "${goal}"...]`, 'dim');
     try {
       const res = await fetch('/api/planner/generate', {
         method: 'POST',
@@ -1488,15 +1488,14 @@ async function loadHarnessCapabilities() {
       const cMeta = data.active_coordinator?.meta;
       const wMeta = data.active_worker?.meta;
       const cLabel = cMeta
-        ? `[HERMES: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || 'MoE'} (${Math.round((cMeta.n_ctx || 16384) / 1024)}k ctx)]`
-        : '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]';
+        ? `[COORDINATOR: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || ''} (${Math.round((cMeta.n_ctx || 16384) / 1024)}k ctx)]`
+        : '[COORDINATOR :8001 (Primary)]';
       const wLabel = wMeta
-        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || 'Q4'} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
-        : '[WORKER :8002 (80+ t/s)]';
+        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || ''} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
+        : '[WORKER :8002 (Fast Utility)]';
 
       aiModelSel.innerHTML = `
-        <option value="hermes" selected>${cLabel}</option>
-        <option value="coordinator">[PRIMARY COORDINATOR :8001]</option>
+        <option value="coordinator" selected>${cLabel}</option>
         <option value="worker">${wLabel}</option>
         <option value="openai">[FRONTIER: GPT-4o]</option>
         <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
@@ -1509,8 +1508,8 @@ async function loadHarnessCapabilities() {
     if (subSel) {
       const cMeta = data.active_coordinator?.meta;
       const wMeta = data.active_worker?.meta;
-      const cLabel = cMeta ? `[${(cMeta.n_params / 1e9).toFixed(1)}B COORDINATOR :8001]` : '[COORDINATOR :8001 (Primary)]';
-      const wLabel = wMeta ? `[${(wMeta.n_params / 1e9).toFixed(1)}B WORKER :8002 (80+ tok/s)]` : '[WORKER :8002 (80+ tok/s)]';
+      const cLabel = cMeta ? `[COORDINATOR :8001 (${(cMeta.n_params / 1e9).toFixed(1)}B)]` : '[COORDINATOR :8001 (Primary)]';
+      const wLabel = wMeta ? `[WORKER :8002 (${(wMeta.n_params / 1e9).toFixed(1)}B)]` : '[WORKER :8002 (Fast)]';
 
       subSel.innerHTML = `
         <option value="worker" selected>${wLabel}</option>
@@ -1648,11 +1647,9 @@ async function submitChatPrompt() {
   const msgBlock = document.createElement('div');
   msgBlock.className = 'chat-msg assistant';
   
-  const roleTitle = state.ai.activeModel === 'hermes'
-    ? '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]'
-    : (state.ai.activeModel === 'coordinator' 
-      ? '[14B/35B COORDINATOR :8001]' 
-      : (state.ai.activeModel === 'worker' ? '[3B WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`));
+  const roleTitle = (state.ai.activeModel === 'coordinator' || state.ai.activeModel === 'hermes')
+    ? '[PRIMARY COORDINATOR :8001]' 
+    : (state.ai.activeModel === 'worker' ? '[FAST WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`);
 
   msgBlock.innerHTML = `
     <div class="chat-msg-header">
@@ -1746,7 +1743,7 @@ async function submitChatPrompt() {
             if (bodyElem) {
               let html = '';
               if (reasoningBuffer) {
-                html += `<details class="reasoning-trace" open style="background: rgba(0,0,0,0.25); border: 1px dashed var(--term-border); padding: 6px; margin-bottom: 8px; font-size: 0.85em; color: var(--term-text-muted);"><summary style="cursor: pointer; color: var(--term-warn); font-weight: bold;">[🧠 HERMES AGENTIC REASONING TRACE]</summary><div style="margin-top: 4px; white-space: pre-wrap; font-family: monospace;">${escapeHtml(reasoningBuffer)}</div></details>`;
+                html += `<details class="reasoning-trace" open style="background: rgba(0,0,0,0.25); border: 1px dashed var(--term-border); padding: 6px; margin-bottom: 8px; font-size: 0.85em; color: var(--term-text-muted);"><summary style="cursor: pointer; color: var(--term-warn); font-weight: bold;">[🧠 AGENTIC REASONING TRACE]</summary><div style="margin-top: 4px; white-space: pre-wrap; font-family: monospace;">${escapeHtml(reasoningBuffer)}</div></details>`;
               }
               html += escapeHtml(fullResponse).replace(/\n/g, '<br>');
               bodyElem.innerHTML = html;
@@ -1838,7 +1835,7 @@ window.generatePlanFromGoal = async function() {
     btn.disabled = true;
     btn.textContent = '[DECOMPOSING...]';
   }
-  list.innerHTML = '<div style="color:var(--term-text-bright); padding:0.5rem;">[14B COORDINATOR] Analyzing goal and decomposing into finite execution steps...</div>';
+  list.innerHTML = '<div style="color:var(--term-text-bright); padding:0.5rem;">[COORDINATOR] Analyzing goal and decomposing into finite execution steps...</div>';
 
   try {
     const res = await fetch('/api/planner/generate', {
@@ -2074,7 +2071,7 @@ window.clearStmMemory = async function() {
 
 window.compressStmWorkingMemory = async function() {
   try {
-    logToTerminal('[STM ENGINE] Requesting 3B worker context compression...');
+    logToTerminal('[STM ENGINE] Requesting Worker context compression...');
     const res = await fetch('/api/memory/stm/compress', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
@@ -3005,7 +3002,7 @@ window.promptRebootGuest = function(node, vmid, name) {
 };
 
 /* ==========================================================================
-   9b. Live Canvas Scratchpad & Ambient Voice Copilot
+   Section 9 (Voice & Canvas): Live Canvas Scratchpad & Ambient Voice Copilot
    ========================================================================== */
 function initLiveCanvas() {
   const input = document.getElementById('canvas-copilot-input');
@@ -4131,24 +4128,27 @@ window.fetchClusterModels = async function() {
 
 window.quickSwitchModel = async function(preset) {
   const presets = {
-    'ornith-9b-q5': {
+    'high-precision': {
       hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
       file: 'deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf',
       context: 16384,
-      name: 'Ornith 9B (Q5_K_M 16k)'
+      name: 'High-Precision 16k Profile'
     },
-    'ornith-9b-q4': {
+    'high-throughput': {
       hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
       file: 'deepreinforce-ai_Ornith-1.0-9B-Q4_K_M.gguf',
       context: 16384,
-      name: 'Ornith 9B (Q4_K_M 16k)'
+      name: 'High-Throughput 16k Profile'
     },
-    'qwen-14b': {
+    'code-specialist': {
       model: 'qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf',
       context: 8192,
-      name: 'Qwen 2.5 Coder 14B'
+      name: 'Code Specialist Profile'
     }
   };
+  presets['ornith-9b-q5'] = presets['high-precision'];
+  presets['ornith-9b-q4'] = presets['high-throughput'];
+  presets['qwen-14b'] = presets['code-specialist'];
 
   const p = presets[preset];
   if (!p) return;
@@ -4622,7 +4622,7 @@ function renderHarnessForm(harnessId, data) {
 
   // For llama_coordinator, llama_worker, hermes, or any llama-backed service
   if (harnessId.startsWith('llama_') || harnessId === 'hermes') {
-    const activeModelPath = sp.model || (harnessId.includes('worker') ? '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf' : '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf');
+    const activeModelPath = sp.model || (availableModels.length > 0 ? availableModels[0].path : (harnessId.includes('worker') ? '/opt/models/model-worker.gguf' : '/opt/models/model-coordinator.gguf'));
     const modelOptionsHtml = availableModels.length > 0
       ? availableModels.map(m => `<option value="${m.path}" ${m.path === activeModelPath || m.filename === activeModelPath.split('/').pop() ? 'selected' : ''}>${m.filename} (${m.size_gb} GB • ${m.quant})</option>`).join('')
       : `<option value="${activeModelPath}" selected>${activeModelPath.split('/').pop()} (Active)</option>`;
@@ -5732,7 +5732,7 @@ function updateHarnessPreview() {
     if (currentHarnessId.startsWith('llama_') || currentHarnessId === 'hermes') {
       const port = currentHarnessId.includes('worker') ? 8002 : 8001;
       const alias = currentHarnessId.includes('worker') ? 'worker' : 'coordinator';
-      const model = params.model || currentHarnessData?.server_params?.model || (port === 8001 ? '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf' : '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf');
+      const model = params.model || currentHarnessData?.server_params?.model || (availableModels.length > 0 ? availableModels[0].path : (port === 8001 ? '/opt/models/model-coordinator.gguf' : '/opt/models/model-worker.gguf'));
       const dev = params.device || (port === 8001 ? 'Vulkan0' : 'Vulkan1');
       const parts = [
         `/usr/local/bin/llama-server`,
@@ -6393,7 +6393,7 @@ window.trainerSynthesizeRawText = async function() {
 };
 
 window.trainerStartTraining = async function() {
-  const model = document.getElementById('trainer-select-model')?.value || 'ornith-1.5-9b';
+  const model = document.getElementById('trainer-select-model')?.value || 'coordinator';
   const mode = document.getElementById('trainer-select-mode')?.value || 'sft';
   const steps = parseInt(document.getElementById('trainer-input-steps')?.value || '40', 10);
   const approved = document.getElementById('trainer-human-approval-check')?.checked || false;
@@ -6436,7 +6436,7 @@ window.trainerStopTraining = async function() {
 
 window.trainerRunDryRun = async function() {
   try {
-    logToTrainerConsole('Launching 5-Phase Dry-Run Verification Suite on Ornith-1.5-9B...');
+    logToTrainerConsole('Launching 5-Phase Dry-Run Verification Suite on active model...');
     const res = await fetch('/api/trainer/dryrun', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -635,22 +635,27 @@ body::after {
   background: var(--term-surface);
   border-right: 1px solid var(--term-border-dim);
   padding: 0.5rem 0.4rem;
-  font-family: var(--font-terminal);
+  font-family: 'Consolas', 'Courier New', monospace;
   font-size: 0.82rem;
   color: var(--term-text-muted);
   text-align: right;
   user-select: none;
-  min-width: 42px;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  flex-shrink: 0;
   line-height: 1.5;
   overflow: hidden;
+  white-space: pre;
 }
 
 .editor-textarea {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   color: var(--term-text);
-  font-family: var(--font-terminal);
+  font-family: 'Consolas', 'Courier New', monospace;
   font-size: 0.82rem;
   line-height: 1.5;
   padding: 0.5rem;
@@ -658,6 +663,8 @@ body::after {
   outline: none;
   white-space: pre;
   overflow: auto;
+  tab-size: 4;
+  -moz-tab-size: 4;
 }
 
 /* Unified Diff View */
@@ -1309,6 +1316,27 @@ dialog::backdrop {
   padding: 0;
 }
 
+[data-theme="deut"] .win95-btn,
+[data-theme="trit"] .win95-btn,
+[data-theme="crt-green"] .win95-btn,
+[data-theme="crt-amber"] .win95-btn {
+  background: var(--term-btn-bg);
+  color: var(--term-text);
+  border: 1px solid var(--term-border);
+  box-shadow: none;
+  font-family: var(--font-terminal);
+  font-weight: 700;
+}
+
+[data-theme="deut"] .win95-btn:hover,
+[data-theme="trit"] .win95-btn:hover,
+[data-theme="crt-green"] .win95-btn:hover,
+[data-theme="crt-amber"] .win95-btn:hover {
+  background: var(--term-btn-hover);
+  color: var(--term-text-bright);
+  border-color: var(--term-border-bright);
+}
+
 /* Classic Menu Bar (File, Edit, View, Go...) */
 .win95-menubar {
   background: #c0c0c0;
@@ -1815,6 +1843,11 @@ dialog::backdrop {
   border-right: 1px solid #d0d0d0;
   color: #777777;
   font-family: 'Courier New', monospace;
+  width: 48px;
+  min-width: 48px;
+  max-width: 48px;
+  flex-shrink: 0;
+  white-space: pre;
 }
 
 [data-theme="win95"] .editor-textarea {
@@ -1822,6 +1855,10 @@ dialog::backdrop {
   color: #000000;
   font-family: 'Courier New', monospace;
   font-size: 13px;
+  flex: 1;
+  min-width: 0;
+  tab-size: 4;
+  -moz-tab-size: 4;
 }
 
 /* MS-DOS Prompt Console inside Windows 95 */
