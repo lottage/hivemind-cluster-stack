@@ -9,10 +9,15 @@ An open-source, local-first **distributed AI cognitive stack** designed for mult
 
 ---
 Consider Donating To Show Support:
+
 <img width="128" height="128" alt="image" src="https://github.com/user-attachments/assets/6b249e60-7a84-456f-acce-72d3e107f8b9" />
+
 https://tinyurl.com/lclhvmnd
+
 BTC: bc1q5yzskhxzsulqeznjkk8u55re5n2vzzfxrygjp0
+
 ETH: 0x2b493DB4355a1Df948287ec4ce102f039CcbB85C
+
 ---
 
 ## 🏛️ System Architecture
