@@ -8,6 +8,17 @@
 An open-source, local-first **distributed AI cognitive stack** designed for multi-GPU homelabs and compute clusters. Features unified multi-model consensus, 24/7 autonomous exploration loops, dynamic multi-GPU Mixture-of-Experts (MoE) elevation, an inter-agent collaborative deliberation council (combining LlamaIndex blackboard architecture with CrewAI role-based workflows), persistent agent persona memory, and two distinct pre-bloat 90s-aesthetic retro user interfaces.
 
 ---
+Consider Donating To Show Support:
+<form action="https://www.paypal.com/donate" method="post" target="_top">
+<input type="hidden" name="business" value="6ZSXDXXKVHTWU" />
+<input type="hidden" name="no_recurring" value="0" />
+<input type="hidden" name="item_name" value="Support our growing project - One Human, One Stack. Your contribution fuels our future!" />
+<input type="hidden" name="currency_code" value="USD" />
+<input type="image" src="https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif" border="0" name="submit" title="PayPal - The safer, easier way to pay online!" alt="Donate with PayPal button" />
+<img alt="" border="0" src="https://www.paypal.com/en_US/i/scr/pixel.gif" width="1" height="1" />
+</form>
+
+---
 
 ## 🏛️ System Architecture
 
