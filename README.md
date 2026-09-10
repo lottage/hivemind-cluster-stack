@@ -5,7 +5,7 @@
 [![FastMCP / SSE](https://img.shields.io/badge/Protocol-MCP%20%2F%20SSE-orange.svg)](https://modelcontextprotocol.io/)
 [![Hardware: Dual-GPU Vulkan / ROCm / CUDA](https://img.shields.io/badge/Hardware-Dual--GPU%20Vulkan%20%2F%20CUDA-purple.svg)](https://github.com/ggerganov/llama.cpp)
 
-An open-source, local-first **distributed AI cognitive stack** designed for multi-GPU homelabs and compute clusters. Features unified multi-model consensus, 24/7 autonomous exploration loops, dynamic multi-GPU Mixture-of-Experts (MoE) elevation, an inter-agent collaborative deliberation council (combining LlamaIndex blackboard architecture with CrewAI role-based workflows), persistent agent persona memory, and two distinct pre-bloat 90s-aesthetic retro user interfaces.
+An open-source, local-first **distributed AI cognitive stack** designed for multi-GPU homelabs and compute clusters. Features unified multi-model consensus, 24/7 autonomous exploration loops, dynamic multi-GPU Mixture-of-Experts (MoE) elevation, an inter-agent collaborative deliberation council (combining LlamaIndex blackboard architecture with CrewAI role-based workflows), persistent agent persona memory, and a pre-bloat retro user interface including colorblind friendly themes, with a link for an Android Companion APK. 
 
 ---
 Consider Donating To Show Support:
