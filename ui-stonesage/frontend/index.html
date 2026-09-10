@@ -76,14 +76,17 @@
       <button class="tab-btn" data-view="view-harness">[F9:HARNESS STUDIO]</button>
       <button class="tab-btn" data-view="view-immich">[F10:IMMICH]</button>
       <button class="tab-btn" data-view="view-memory">[F11:MEMORY]</button>
+      <button class="tab-btn" data-view="view-trainer">[F12:LLM TRAINER]</button>
     </nav>
 
     <div class="header-actions">
-      <!-- Theme Switcher (CRT Green, Amber, Win95) -->
+      <!-- Theme Switcher (CRT Green, Amber, Win95, Deut, Trit) -->
       <div class="theme-switcher">
         <button class="theme-opt-btn" data-theme="crt-green">CRT-GRN</button>
         <button class="theme-opt-btn" data-theme="crt-amber">AMBER</button>
         <button class="theme-opt-btn active" data-theme="win95">WIN95</button>
+        <button class="theme-opt-btn" data-theme="deut" title="Deuteranopia Palette: Cobalt Blue &amp; Golden Amber">DEUT</button>
+        <button class="theme-opt-btn" data-theme="trit" title="Tritanopia Palette: Peacock Teal &amp; Vivid Coral">TRIT</button>
       </div>
       <div class="cluster-pill" id="cluster-status-pill" title="Cluster & Vector Brain Status">
         <span id="cluster-status-text">[CLUSTER: PROBING...]</span>
@@ -102,7 +105,12 @@
       <span class="tier-badge" id="badge-embedder"><strong>BGE EMBEDDER:</strong> Vector Engine (:8003/1024-dim)</span>
       <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 127.0.0.1:6333</span>
     </div>
-    <div style="display: flex; gap: 0.5rem; align-items: center;">
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <button class="launch-btn profile-toggle-btn" id="header-hivemind-profile-btn" onclick="toggleHiveMindConcurrencyProfile()" title="Toggle 24/7 Max Capacity Multi-Agent Concurrency Profile (8 Parallel Slots, 4-bit KV, Context-Shift, Min-P 0.07)">[⚡ HIVE MIND: 8-AGENT PROFILE: OFF]</button>
+      <span class="tier-badge watchdog-badge" id="badge-watchdog-indicator" onclick="showWatchdogModal()" style="cursor: pointer;" title="Cognitive Loop Watchdog: Monitoring reasoning streams for repetition traps. Click for intercept log.">
+        <span id="watchdog-pulse-dot" class="watchdog-dot armed"></span>
+        <strong>WATCHDOG:</strong> <span id="watchdog-status-text">ARMED</span>
+      </span>
       <span id="header-time-indicator" style="font-family: var(--font-terminal); color: var(--term-text-bright);"></span>
     </div>
   </div>
@@ -189,6 +197,9 @@
             </div>
           </div>
 
+          <!-- Resizer Handle Between Editor and Terminal -->
+          <div class="split-resizer" id="workstation-split-resizer" title="Drag to resize editor and terminal"></div>
+
           <!-- Bottom: Interactive Host Terminal Shell Console -->
           <div class="host-terminal-pane">
             <div class="terminal-panel-header">
@@ -227,7 +238,7 @@
             <label style="font-size: 0.72rem; color: var(--term-text-dim);">Commit Message:</label>
             <input type="text" class="form-control" id="git-commit-msg" placeholder="commit summary...">
             <div style="display: flex; gap: 0.35rem;">
-              <button class="launch-btn" id="git-gen-msg-btn" style="flex: 1;" title="Let 3B worker generate commit message">[3B AI MSG]</button>
+              <button class="launch-btn" id="git-gen-msg-btn" style="flex: 1;" title="Let Worker AI generate commit message">[AI COMMIT MSG]</button>
               <button class="send-btn" id="git-commit-btn" style="flex: 1;">[COMMIT]</button>
             </div>
           </div>
@@ -237,7 +248,7 @@
           </div>
           <div style="display: flex; flex-direction: column; gap: 0.35rem;">
             <select class="form-control" id="subagent-model-quick">
-              <option value="worker" selected>[WORKER :8002 (80+ tok/s)]</option>
+              <option value="worker" selected>[WORKER :8002 (Fast Utility)]</option>
               <option value="coordinator">[COORDINATOR :8001 (Primary)]</option>
             </select>
             <textarea class="form-control" id="subagent-task-quick" rows="2" placeholder="Task for subagent (e.g. write unit tests, review diff)..."></textarea>
@@ -299,7 +310,7 @@
             </label>
             <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem;">
               <button class="launch-btn" onclick="openStmQuickView()" style="flex: 1; padding: 2px 4px;">[VIEW RAM]</button>
-              <button class="launch-btn" onclick="compressStmWorkingMemory()" style="padding: 2px 4px;" title="3B Worker fast compression">[⚡ COMPRESS]</button>
+              <button class="launch-btn" onclick="compressStmWorkingMemory()" style="padding: 2px 4px;" title="Worker fast context compression">[⚡ COMPRESS]</button>
             </div>
           </div>
 
@@ -326,7 +337,7 @@
 StoneSage Cognitive Terminal &amp; Harness online.
 Dual Compute Accelerator Cluster active:
 - Coordinator: Active Model (:8001 on Primary Accelerator Vulkan0)
-- Worker: Active Model (:8002 on Worker Accelerator Vulkan1 - 80+ t/s)
+- Worker: Active Model (:8002 on Worker Accelerator Vulkan1 - High Throughput)
 - Embedder: BGE-Large-en-v1.5 (:8003 on Vector Engine Vulkan1)
 - Vector DB: Qdrant @ 127.0.0.1:6333 (CouchDB + User Vault Ingested)
 - Short-Term Memory: Active In-RAM cache with Worker context compression
@@ -334,6 +345,13 @@ Dual Compute Accelerator Cluster active:
 Ready for directives, planner decomposition, finite instruction set execution, or homelab automation.
                 </div>
               </div>
+            <!-- Watchdog Stuck Reasoning Notification Banner -->
+            <div id="chat-watchdog-alert" class="chat-watchdog-alert" style="display: none;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="watchdog-alert-icon">⚠️</span>
+                <span><strong>STUCK REASONING INTERCEPTED:</strong> Repetition loop caught on <code id="chat-watchdog-phrase">--</code>. Dispatched system nudge to break circular trap.</span>
+              </div>
+              <button class="launch-btn" onclick="dismissWatchdogAlert()" style="padding: 2px 6px; font-size: 0.7rem; line-height: 1;">[DISMISS]</button>
             </div>
 
             <div class="chat-input-bar">
@@ -347,7 +365,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
           <div id="ai-view-planner-pane" style="display: none; flex-direction: column; flex: 1; padding: 0.75rem; overflow-y: auto;">
             <div class="terminal-panel" style="margin-bottom: 0.75rem;">
               <div class="terminal-panel-header">
-                <span>🎯 OBJECTIVE DECOMPOSITION (14B Planner -&gt; 3B Autonomous Executor)</span>
+                <span>🎯 OBJECTIVE DECOMPOSITION (Coordinator Planner -&gt; Worker Autonomous Executor)</span>
               </div>
               <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
                 <div style="display: flex; gap: 0.4rem;">
@@ -355,7 +373,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                   <button class="send-btn" id="planner-decompose-btn" onclick="generatePlanFromGoal()">[📋 DECOMPOSE PLAN]</button>
                 </div>
                 <div style="font-size: 0.74rem; color: var(--term-text-dim);">
-                  14B Coordinator parses the goal into an explicit, sequential Finite Instruction Set. You can execute step-by-step or run the autonomous loop.
+                  Coordinator parses the goal into an explicit, sequential Finite Instruction Set. You can execute step-by-step or run the autonomous loop.
                 </div>
               </div>
             </div>
@@ -381,7 +399,7 @@ Ready for directives, planner decomposition, finite instruction set execution, o
               <div class="terminal-panel-header">
                 <span>🧠 SHORT-TERM WORKING MEMORY (FAST RAM CACHE)</span>
                 <div style="display: flex; gap: 0.35rem;">
-                  <button class="launch-btn" onclick="compressStmWorkingMemory()">[⚡ COMPRESS WITH 3B WORKER]</button>
+                  <button class="launch-btn" onclick="compressStmWorkingMemory()">[⚡ COMPRESS WITH WORKER]</button>
                   <button class="launch-btn" onclick="clearStmMemory()">[CLEAR RAM]</button>
                 </div>
               </div>
@@ -484,14 +502,14 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                 <span>🚀 ONE-CLICK MODEL SWITCH &amp; AUTOTUNE PRESETS</span>
               </div>
               <div style="padding: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q5')" style="flex: 1; min-width: 220px;">
-                  [ 🦅 LOAD ORNITH 9B Q5_K_M (16k) ]
+                <button class="send-btn" onclick="quickSwitchModel('high-precision')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD HIGH-PRECISION PROFILE ]
                 </button>
-                <button class="send-btn" onclick="quickSwitchModel('ornith-9b-q4')" style="flex: 1; min-width: 220px;">
-                  [ 🦅 LOAD ORNITH 9B Q4_K_M (16k) ]
+                <button class="send-btn" onclick="quickSwitchModel('high-throughput')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD HIGH-THROUGHPUT PROFILE ]
                 </button>
-                <button class="launch-btn" onclick="quickSwitchModel('qwen-14b')" style="flex: 1; min-width: 220px;">
-                  [ ⚡ RESTORE QWEN 14B CODER ]
+                <button class="launch-btn" onclick="quickSwitchModel('code-specialist')" style="flex: 1; min-width: 220px;">
+                  [ ⚡ LOAD CODE SPECIALIST PROFILE ]
                 </button>
               </div>
             </div>
@@ -526,8 +544,8 @@ Ready for directives, planner decomposition, finite instruction set execution, o
                 <div style="border-top: 1px dashed var(--term-border); padding-top: 0.6rem; margin-top: 0.3rem;">
                   <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">Or Download Directly from Hugging Face:</div>
                   <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                    <input type="text" id="hf-repo-input" class="form-control" placeholder="HuggingFace Repo (e.g. bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF)" style="flex: 2; min-width: 240px;">
-                    <input type="text" id="hf-file-input" class="form-control" placeholder="GGUF Filename (e.g. deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf)" style="flex: 2; min-width: 240px;">
+                    <input type="text" id="hf-repo-input" class="form-control" placeholder="HuggingFace Repo (e.g. org/model-repo-GGUF)" style="flex: 2; min-width: 240px;">
+                    <input type="text" id="hf-file-input" class="form-control" placeholder="GGUF Filename (e.g. model-Q4_K_M.gguf)" style="flex: 2; min-width: 240px;">
                     <button class="launch-btn" onclick="executeHfDownloadSwitch()" id="btn-hf-download">[📥 DOWNLOAD &amp; SWITCH]</button>
                   </div>
                 </div>
@@ -589,11 +607,12 @@ Select a model above or click a one-click preset to switch and tune.
           <p>Autonomous dual-GPU presence, model-directed exploration, parameter self-inspection, and Home Assistant camera vigilance</p>
         </div>
         <div class="filter-bar">
-          <button class="win95-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
-          <button class="win95-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
-          <button class="win95-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind" style="color: #ffff88; font-weight: bold;">[⚡ NUDGE / UNBLOCK]</button>
-          <button class="win95-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
-          <button class="win95-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
+          <button class="launch-btn profile-toggle-btn" onclick="toggleHiveMindConcurrencyProfile()" id="btn-toggle-hivemind-profile" title="Toggle 24/7 Max Capacity Multi-Agent Concurrency Profile">[⚡ 24/7 MAX CONCURRENCY: OFF]</button>
+          <button class="launch-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
+          <button class="launch-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
+          <button class="launch-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind">[⚡ NUDGE / UNBLOCK]</button>
+          <button class="launch-btn" onclick="toggleHiveMindLoop()" id="btn-toggle-hivemind">[▶ START 24/7 LOOP]</button>
+          <button class="launch-btn" onclick="loadHiveMindStatus(true)" id="btn-refresh-hivemind">[🔄 REFRESH]</button>
         </div>
       </div>
 
@@ -611,6 +630,14 @@ Select a model above or click a one-click preset to switch and tune.
             <div class="immich-stat-card">
               <div>ENGINE STATE:</div>
               <strong id="hm-stat-state" style="color: var(--term-text-bright);">PROBING...</strong>
+            </div>
+            <div class="immich-stat-card" id="hm-card-profile" style="cursor: pointer;" onclick="toggleHiveMindConcurrencyProfile()" title="Click to toggle 24/7 Max Capacity Concurrency profile">
+              <div>HIVE-MIND PROFILE:</div>
+              <strong id="hm-stat-profile" style="color: var(--term-text-bright); font-size: 0.72rem;">DEFAULT (DUAL-ACCEL)</strong>
+            </div>
+            <div class="immich-stat-card" id="hm-card-watchdog" style="cursor: pointer;" onclick="showWatchdogModal()" title="Click to view watchdog log or reset">
+              <div>REASONING WATCHDOG:</div>
+              <strong id="hm-stat-watchdog" style="color: #00aa00; font-size: 0.72rem;">ARMED (0 Loops)</strong>
             </div>
             <div class="immich-stat-card">
               <div>CURRENT MISSION:</div>
@@ -751,9 +778,9 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
             <button class="filter-btn" data-hvac-mode="off">[OFF]</button>
           </div>
 
-          <!-- 3B Worker Natural Language Automation Command Line -->
+          <!-- Worker Natural Language Automation Command Line -->
           <div style="width: 100%; border-top: 1px dashed var(--term-border-dim); padding-top: 0.65rem; margin-top: 0.5rem;">
-            <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">3B Worker NLP Automation Dispatch:</div>
+            <div style="font-size: 0.74rem; color: var(--term-text-dim); margin-bottom: 0.35rem;">Worker NLP Automation Dispatch:</div>
             <div style="display: flex; gap: 0.35rem;">
               <input type="text" class="form-control" id="ha-nlp-input" placeholder="e.g. set thermostat to 72, turn off lights...">
               <button class="send-btn" id="ha-nlp-send-btn">[DISPATCH]</button>
@@ -1144,12 +1171,12 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       <div class="view-header">
         <div class="view-title-group">
           <h2>[ HARNESS PARAMETER STUDIO &amp; DAEMON CONTROLLER ]</h2>
-          <p>Granular Direct Parameter Control • llama.cpp, Hermes ReAct, Snapdragon NPU &amp; OpenWebUI • Zero Coarse Toggles</p>
+          <p>Granular Direct Parameter Control • llama.cpp, Agentic ReAct, Snapdragon NPU &amp; OpenWebUI • Zero Coarse Toggles</p>
         </div>
         <div class="filter-bar">
-          <button class="filter-btn active" data-harness="hermes" onclick="switchHarnessStudio('hermes')">[🤖 HERMES 3 AGENTIC (DEFAULT)]</button>
-          <button class="filter-btn" data-harness="llama_coordinator" onclick="switchHarnessStudio('llama_coordinator')">[🎛️ LLAMA COORDINATOR (:8001)]</button>
+          <button class="filter-btn active" data-harness="llama_coordinator" onclick="switchHarnessStudio('llama_coordinator')">[🎛️ LLAMA COORDINATOR (:8001)]</button>
           <button class="filter-btn" data-harness="llama_worker" onclick="switchHarnessStudio('llama_worker')">[⚡ LLAMA WORKER (:8002)]</button>
+          <button class="filter-btn" data-harness="hermes" onclick="switchHarnessStudio('hermes')">[🤖 AGENTIC HARNESS (:8001)]</button>
           <button class="filter-btn" data-harness="snapdragon" onclick="switchHarnessStudio('snapdragon')">[📱 SNAPDRAGON EDGE NPU]</button>
           <button class="filter-btn" data-harness="openwebui" onclick="switchHarnessStudio('openwebui')">[🌐 OPENWEBUI PIPELINE]</button>
           <button class="launch-btn" onclick="refreshHarnessStudio()">[🔄 REFRESH LIVE PARAMS]</button>
@@ -1172,6 +1199,26 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             <div><strong>Parallel Slots:</strong> <span id="harness-active-slots">--</span></div>
             <div style="margin-left: auto;">
               <button class="launch-btn" onclick="resetHarnessStudioDefaults()">[↺ Reset Hardware Defaults]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 24/7 Max Capacity Multi-Agent Profile & Watchdog Controller -->
+        <div class="terminal-panel" id="harness-concurrency-profile-box" style="border: 2px solid var(--win95-title-blue, #000080);">
+          <div class="terminal-panel-header" style="background: var(--win95-title-blue, #000080); color: #fff; display: flex; justify-content: space-between; align-items: center;">
+            <span>⚡ 24/7 HIVE MIND PROFILE &amp; REASONING WATCHDOG HARNESS</span>
+            <span id="harness-profile-active-badge" style="font-weight: bold; background: #222; color: #fff; padding: 2px 6px; border: 1px inset #888;">[PROFILE: INACTIVE]</span>
+          </div>
+          <div style="padding: 0.65rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="line-height: 1.4;">
+                <strong>Max Concurrency Architecture:</strong> 8 Parallel Agent Slots (<code>-np 8</code>) • 4-bit KV Cache (<code>-ctk q4_0 -ctv q4_0</code>) • Rolling Buffer (<code>--context-shift</code>) • Dynamic Min-P (<code>0.07</code>) • Flash Attention<br>
+                <span style="font-size: 0.74rem; color: #555;">Enables 8 concurrent splinter personalities without VRAM blowup or token starvation.</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="send-btn" id="harness-toggle-profile-btn" onclick="toggleHiveMindConcurrencyProfile()" style="padding: 4px 12px; font-weight: bold;">[⚡ ACTIVATE 8-AGENT MAX CONCURRENCY]</button>
+                <button class="launch-btn" onclick="testWatchdogLoop()" style="padding: 4px 8px;">[🧪 TEST WATCHDOG LOOP]</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1253,6 +1300,356 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       </div>
     </section>
 
+    <!-- VIEW 12: GGUF LLM TRAINING PIPELINE & COGNITIVE CURATION -->
+    <section class="view-pane" id="view-trainer">
+      <div class="view-header">
+        <div class="view-title-group">
+          <h2>[ ⚡ GGUF LLM TRAINING PIPELINE &amp; COGNITIVE CURATION ]</h2>
+          <p>20GB Dual-GPU VRAM Envelope • QLoRA (4-bit NF4) &amp; Controlled DPO/GRPO • Dual-Gate Sleep Curation • 10 Golden Invariants • Safe GGUF Promotion</p>
+        </div>
+        <div class="filter-bar">
+          <button class="launch-btn" onclick="trainerIngestSleep()" id="btn-trainer-ingest-sleep" title="Harvest and curate recent sleep cycle dossiers">[⚡ INGEST SLEEP DOSSIERS]</button>
+          <button class="launch-btn" onclick="trainerApproveAllFrontier()" id="btn-trainer-approve-all" title="Approve all Gate 1 Frontier-audited samples">[🛡️ APPROVE FRONTIER SAMPLES]</button>
+          <button class="launch-btn" onclick="trainerRunDryRun()" id="btn-trainer-dryrun" title="Run 5-Phase dry-run verification suite on active model">[🧪 RUN DRY-RUN TEST]</button>
+          <button class="send-btn" onclick="trainerStartTraining()" id="btn-trainer-start" style="font-weight: 800;" title="Launch QLoRA training run">[▶ START TRAINING]</button>
+          <button class="launch-btn" onclick="trainerStopTraining()" id="btn-trainer-stop" style="font-weight: 800;" title="Cancel running training run">[⏹ STOP RUN]</button>
+          <button class="launch-btn" onclick="fetchTrainerAll(true)" id="btn-trainer-refresh">[🔄 REFRESH]</button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 0.65rem; height: calc(100% - 70px); overflow-y: auto; padding-right: 4px;">
+        
+        <!-- Live Status & VRAM Allocation Ribbon -->
+        <div class="panel-box" style="padding: 0.6rem; background: var(--term-bg-subtle, #181818);">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; font-size: 0.78rem;">
+            <div class="immich-stat-card">
+              <div>TRAINING STATUS:</div>
+              <strong id="trainer-status-badge" style="color: var(--term-text-bright); font-size: 0.85rem;">IDLE</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>PEAK VRAM ESTIMATE:</div>
+              <strong id="trainer-vram-peak" style="color: #00ee66; font-size: 0.85rem;">8.5 GB / 20 GB</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>PRIMARY HEADROOM (RX 6750):</div>
+              <strong id="trainer-vram-headroom" style="color: #00ee66; font-size: 0.85rem;">3.5 GB (Fits 1 GPU)</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>10 GOLDEN INVARIANTS:</div>
+              <strong id="trainer-invariant-badge" style="color: var(--term-text-bright); font-size: 0.85rem;">7/10 PASSED (70.0%)</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trainer Sub-Nav Bar -->
+        <div class="filter-bar" style="margin-bottom: 0.2rem; background: #c0c0c0; border: 2px groove #dfdfdf; padding: 4px;">
+          <button class="filter-btn active" data-trainer-tab="curation" onclick="switchTrainerTab('curation')">[1: SLEEP DOSSIERS &amp; DUAL-GATE CURATION]</button>
+          <button class="filter-btn" data-trainer-tab="url" onclick="switchTrainerTab('url')">[2: URL &amp; TEXT INGESTION]</button>
+          <button class="filter-btn" data-trainer-tab="training" onclick="switchTrainerTab('training')">[3: QLoRA &amp; DPO STUDIO]</button>
+          <button class="filter-btn" data-trainer-tab="invariants" onclick="switchTrainerTab('invariants')">[4: SAFETY SHIELD &amp; 10 PROBES]</button>
+          <button class="filter-btn" data-trainer-tab="export" onclick="switchTrainerTab('export')">[5: GGUF EXPORT &amp; PROMOTION]</button>
+          <button class="filter-btn" data-trainer-tab="passdown" onclick="switchTrainerTab('passdown')">[6: ROLLING PASSDOWN HUD]</button>
+        </div>
+
+        <!-- TAB 1: SLEEP DOSSIERS & DUAL-GATE CURATION -->
+        <div class="trainer-tab-pane" id="trainer-tab-curation" style="display: flex; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛡️ DUAL-GATE CURATION REGISTRY &amp; RUMINATION HARVEST</span>
+              <div style="display: flex; gap: 0.4rem;">
+                <button class="send-btn" onclick="trainerApproveAllFrontier()">[🛡️ APPROVE ALL FRONTIER-VERIFIED]</button>
+                <button class="send-btn" onclick="trainerIngestSleep()">[⚡ HARVEST LATEST (LIMIT 50)]</button>
+              </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; margin-bottom: 0.6rem; font-size: 0.76rem;">
+              <div class="immich-stat-card">
+                <div>TOTAL DOSSIERS HARVESTED:</div>
+                <strong id="curation-stat-total" style="color: var(--term-text-bright); font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>GATE 1: FRONTIER VERIFIED:</div>
+                <strong id="curation-stat-frontier" style="color: #00ee66; font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>GATE 2: HUMAN APPROVED:</div>
+                <strong id="curation-stat-approved" style="color: #55aaff; font-size: 0.9rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>QUARANTINED / REJECTED:</div>
+                <strong id="curation-stat-quarantined" style="color: #ff6666; font-size: 0.9rem;">--</strong>
+              </div>
+            </div>
+
+            <!-- Filter Buttons -->
+            <div style="display: flex; gap: 0.35rem; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.74rem; font-weight: bold;">Filter:</span>
+              <button class="filter-btn active" onclick="filterCurationTable('all', this)">[ALL]</button>
+              <button class="filter-btn" onclick="filterCurationTable('frontier', this)">[FRONTIER VERIFIED]</button>
+              <button class="filter-btn" onclick="filterCurationTable('pending', this)">[PENDING REVIEW]</button>
+              <button class="filter-btn" onclick="filterCurationTable('approved', this)">[APPROVED]</button>
+              <button class="filter-btn" onclick="filterCurationTable('quarantined', this)">[QUARANTINED]</button>
+            </div>
+
+            <!-- Table of Curation Samples -->
+            <div style="max-height: 420px; overflow-y: auto; border: 2px inset #888; background: var(--term-bg, #000);">
+              <table class="curation-table">
+                <thead>
+                  <tr style="position: sticky; top: 0; z-index: 5;">
+                    <th style="width: 210px;">DOSSIER ID (CLICK TO READ)</th>
+                    <th style="width: 170px;">COGNITIVE DOMAIN</th>
+                    <th style="width: 125px; text-align: center;">GATE 1 (FRONTIER)</th>
+                    <th style="width: 135px; text-align: center;">GATE 2 (OPERATOR)</th>
+                    <th>CHALLENGE PROMPT PREVIEW</th>
+                    <th style="width: 175px; text-align: center;">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody id="curation-table-body">
+                  <tr><td colspan="6" style="padding: 12px; text-align: center; color: var(--term-text-bright); font-weight: bold;">Loading Curation Registry...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: URL & TEXT INGESTION -->
+        <div class="trainer-tab-pane" id="trainer-tab-url" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">🌐 EXTERNAL URL &amp; TECHNICAL MANUAL INGESTION</span>
+            <p style="font-size: 0.75rem; margin-bottom: 0.6rem; color: var(--term-text-dim);">
+              Scrapes web pages or documentation, bounds text chunks to &lt; 900 characters (strictly respecting the BGE 512-token context limit), and synthesizes grounded QA pairs in ChatML format using local models.
+            </p>
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+              <input type="text" class="form-control" id="trainer-url-input" placeholder="https://unsloth.ai/docs/get-started/fine-tuning-llms-guide" style="flex: 1;">
+              <button class="send-btn" onclick="trainerIngestUrlNow()">[🌐 INGEST URL &amp; SYNTHESIZE QA]</button>
+            </div>
+            
+            <div style="border-top: 1px dashed #666; padding-top: 0.6rem;">
+              <span style="font-weight: bold; font-size: 0.75rem; color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">📝 RAW NOTES OR OPERATOR DIRECTIVES INGESTION:</span>
+              <textarea class="form-control" id="trainer-raw-text-input" rows="4" placeholder="Paste technical procedures, system invariants, or code snippets here..." style="width: 100%; font-family: var(--font-terminal); font-size: 0.75rem;"></textarea>
+              <div style="display: flex; justify-content: flex-end; margin-top: 0.35rem;">
+                <button class="send-btn" onclick="trainerSynthesizeRawText()">[📝 SYNTHESIZE SFT PAIRS FROM TEXT]</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: QLoRA & DPO TRAINING STUDIO -->
+        <div class="trainer-tab-pane" id="trainer-tab-training" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.5rem;">🎛️ QLoRA 4-BIT &amp; CONTROLLED REINFORCEMENT LEARNING STUDIO</span>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div style="display: flex; flex-direction: column; gap: 0.45rem;">
+                <div class="form-group">
+                  <label for="trainer-select-model" style="font-size: 0.75rem; font-weight: bold;">Target Model Architecture:</label>
+                  <select class="form-control" id="trainer-select-model">
+                    <option value="coordinator_target">Primary Coordinator Architecture (Auto-Detected)</option>
+                    <option value="worker_target">Worker Fast Architecture (Auto-Detected)</option>
+                    <option value="moe_target">Cluster Dual-GPU Split Architecture</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="trainer-select-mode" style="font-size: 0.75rem; font-weight: bold;">Training Objective / Mode:</label>
+                  <select class="form-control" id="trainer-select-mode">
+                    <option value="sft">SFT: Supervised Fine-Tuning (ChatML Completion-Only Loss)</option>
+                    <option value="dpo">DPO: Direct Preference Optimization (Coordinator vs Worker pairs)</option>
+                    <option value="grpo">GRPO: Rule-Verifiable Reinforcement Learning (AST &amp; Syntax Proofs)</option>
+                  </select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                  <div class="form-group">
+                    <label for="trainer-input-steps" style="font-size: 0.72rem; font-weight: bold;">Step Budget:</label>
+                    <input type="number" class="form-control" id="trainer-input-steps" value="40" min="5" max="500">
+                  </div>
+                  <div class="form-group">
+                    <label for="trainer-select-quant" style="font-size: 0.72rem; font-weight: bold;">Export Quantization:</label>
+                    <select class="form-control" id="trainer-select-quant">
+                      <option value="q4_k_m">Q4_K_M (Fast Worker :8002)</option>
+                      <option value="q8_0">Q8_0 (Deep Coordinator :8001)</option>
+                      <option value="all">All (Both Formats)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- VRAM Breakdown & Hyperparams -->
+              <div style="background: var(--term-bg, #000); border: 1px inset #888; padding: 0.5rem; font-family: var(--font-terminal); font-size: 0.72rem; color: var(--term-text, #0f0);">
+                <div style="color: #fff; font-weight: bold; margin-bottom: 0.3rem;">[ 20GB VRAM ENVELOPE ALLOCATION MAP ]</div>
+                <div>• Base Model (NF4 4-bit):  ~4.6 GB</div>
+                <div>• LoRA Adapters (r=16, a=32): ~0.18 GB</div>
+                <div>• Gradient Checkpointing:    ~2.8 GB</div>
+                <div>• Paged 8-bit AdamW:          ~0.36 GB</div>
+                <div style="border-top: 1px dashed #444; margin: 0.25rem 0;"></div>
+                <div style="color: #00ee66; font-weight: bold;">• Total Peak VRAM:           ~8.5 GB</div>
+                <div style="color: #00ee66;">• RX 6750 XT (12GB) Headroom: ~3.5 GB (SAFE)</div>
+                <div style="color: #ffff88; margin-top: 0.3rem;">• Secondary GPU (RX 6600 XT 8GB): Available for DPO ref policy &amp; BGE embedder.</div>
+              </div>
+            </div>
+
+            <!-- Operator Verification Box -->
+            <div style="margin-top: 0.6rem; padding: 0.4rem; background: #fffbe6; border: 1px solid #ffe58f; color: #614700; font-size: 0.74rem;">
+              <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                <input type="checkbox" id="trainer-human-approval-check" checked>
+                <strong>Operator Sign-Off:</strong> I confirm that training datasets have passed Gate 1 Frontier Verification and are sanitized of hallucinations.
+              </label>
+            </div>
+
+            <!-- Action Controls -->
+            <div style="display: flex; gap: 0.5rem; margin-top: 0.6rem;">
+              <button class="send-btn" onclick="trainerStartTraining()" style="font-weight: bold; flex: 1;">[▶ LAUNCH QLoRA TRAINING RUN]</button>
+              <button class="launch-btn" onclick="trainerRunDryRun()" style="flex: 1;">[🧪 RUN 5-PHASE DRY-RUN TEST]</button>
+              <button class="launch-btn" onclick="trainerStopTraining()" style="font-weight: bold;">[⏹ ABORT]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: SAFETY SHIELD & 10 PROBES -->
+        <div class="trainer-tab-pane" id="trainer-tab-invariants" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <div>
+                <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛡️ 10 LOCKED GOLDEN INVARIANT PROBES &amp; AUTO-ROLLBACK SHIELD</span>
+                <div style="font-size: 0.72rem; color: var(--term-text-dim);">Evaluates identity, hardware grounding, code syntax, AMAT calculations, and safety refusal. Auto-rollback if pass rate drops &gt; 2%.</div>
+              </div>
+              <button class="send-btn" onclick="trainerAuditInvariantsNow()">[🛡️ RUN PROBE AUDIT NOW]</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; font-size: 0.73rem; font-family: var(--font-terminal);">
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-01-IDENTITY</div>
+                <strong style="color: #00ee66;">✓ Sovereign Cluster Identity</strong>
+                <div style="color: #888; font-size: 0.68rem;">Retains StoneSage cluster role; rejects self-identity debates.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-02-HARDWARE-AWARENESS</div>
+                <strong style="color: #00ee66;">✓ AMD Vulkan Heterogeneous Grounding</strong>
+                <div style="color: #888; font-size: 0.68rem;">Aligns with RX 6750 + RX 6600; forbids foreign accelerators.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-03-CODE-SYNTAX</div>
+                <strong style="color: #00ee66;">✓ AST Parsing &amp; Compilation Correctness</strong>
+                <div style="color: #888; font-size: 0.68rem;">Generates valid Python ASTs without syntax or eval flaws.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-04-MATHEMATICAL-REASONING</div>
+                <strong style="color: #00ee66;">✓ AMAT Cache Mathematical Proof</strong>
+                <div style="color: #888; font-size: 0.68rem;">Computes hit/miss latencies without arithmetic drift.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-05-SYSTEMS-SAFETY</div>
+                <strong style="color: #00ee66;">✓ Destructive Command Refusal (rm -rf /)</strong>
+                <div style="color: #888; font-size: 0.68rem;">Strictly refuses to execute or propose destructive system calls.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-06-CONCURRENCY-SAFETY</div>
+                <strong style="color: #00ee66;">✓ Race Conditions, Mutexes &amp; Locks</strong>
+                <div style="color: #888; font-size: 0.68rem;">Explains thread safety, atomics, and ABA hazards accurately.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-07-EPISTEMIC-HONESTY</div>
+                <strong style="color: #00ee66;">✓ Rejection of Future / Fabricated Facts</strong>
+                <div style="color: #888; font-size: 0.68rem;">Acknowledges unknown information without hallucinating dates.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-08-MEMORY-INVARIANT</div>
+                <strong style="color: #00ee66;">✓ BGE 512-Token Boundary Enforcement</strong>
+                <div style="color: #888; font-size: 0.68rem;">Keeps embedding inputs &lt; 900 chars to avoid server 500s.</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-09-NEGATIVE-INSTRUCTION</div>
+                <strong style="color: #00ee66;">✓ Zero Identity-Loop Thought Collapse</strong>
+                <div style="color: #888; font-size: 0.68rem;">Eliminates the 1500-token self-debating monologue (&lt; 50 tok).</div>
+              </div>
+              <div class="immich-stat-card" style="text-align: left; padding: 0.4rem;">
+                <div style="color: #aaa;">INV-10-CONCISE-REASONING</div>
+                <strong style="color: #00ee66;">✓ Factual Answering Under 100 Tokens</strong>
+                <div style="color: #888; font-size: 0.68rem;">Provides direct answers without meta-chatter or boilerplate.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: GGUF EXPORT & PROMOTION -->
+        <div class="trainer-tab-pane" id="trainer-tab-export" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright); display: block; margin-bottom: 0.35rem;">📦 GGUF EXPORT &amp; CLUSTER PRODUCTION PROMOTION</span>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-bottom: 0.65rem;">
+              <!-- Export Box -->
+              <div style="border: 1px inset #888; padding: 0.5rem; background: #c0c0c0;">
+                <span style="font-weight: bold; font-size: 0.76rem;">1. MERGE LoRA &amp; EXPORT GGUF:</span>
+                <p style="font-size: 0.72rem; margin: 0.25rem 0;">Merges adapter into 16-bit base weights and converts to llama.cpp GGUF format.</p>
+                <div class="form-group" style="margin-bottom: 0.4rem;">
+                  <label style="font-size: 0.72rem; font-weight: bold;">Quantization Target:</label>
+                  <select class="form-control" id="trainer-export-quant-select">
+                    <option value="q4_k_m">Q4_K_M (Worker - 80+ tok/s on RX 6600 XT)</option>
+                    <option value="q8_0">Q8_0 (Coordinator - High Precision on RX 6750 XT)</option>
+                    <option value="all">All (Both Quantizations)</option>
+                  </select>
+                </div>
+                <button class="launch-btn" onclick="trainerExportGgufNow()" style="width: 100%;">[📦 EXPORT &amp; QUANTIZE ADAPTER]</button>
+              </div>
+
+              <!-- Promote Box -->
+              <div style="border: 1px solid var(--term-border); padding: 0.5rem; background: var(--term-surface);">
+                <span style="font-weight: bold; font-size: 0.76rem;">2. PROMOTE TO CLUSTER PRODUCTION:</span>
+                <p style="font-size: 0.72rem; margin: 0.25rem 0;">Deploys staged GGUF to <code>/opt/models/</code>, creates automatic <code>.bak</code>, and restarts systemd.</p>
+                <div class="form-group" style="margin-bottom: 0.4rem;">
+                  <label style="font-size: 0.72rem; font-weight: bold;">Target Service Role:</label>
+                  <select class="form-control" id="trainer-promote-role-select">
+                    <option value="worker">Worker Accelerator (:8002 - llama-worker)</option>
+                    <option value="coordinator">Coordinator Accelerator (:8001 - llama-coordinator)</option>
+                  </select>
+                </div>
+                <label style="font-size: 0.7rem; display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.4rem;">
+                  <input type="checkbox" id="trainer-promote-confirm-check" checked>
+                  Confirm live service reload with backup
+                </label>
+                <button class="send-btn" onclick="trainerPromoteModelNow()" style="width: 100%; font-weight: bold;">[🚀 PROMOTE MODEL TO PRODUCTION]</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 6: ROLLING PASSDOWN HUD -->
+        <div class="trainer-tab-pane" id="trainer-tab-passdown" style="display: none; flex-direction: column; gap: 0.6rem;">
+          <div class="panel-box" style="padding: 0.65rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">📋 ROLLING PASSDOWN CONTEXT CARD (&lt; 400 TOKENS)</span>
+              <div style="display: flex; gap: 0.4rem;">
+                <button class="send-btn" onclick="trainerFeedPassdownNow()">[📥 FEED CORRECTIONS TO DEEP SLEEP QUEUE]</button>
+                <button class="send-btn" onclick="fetchTrainerPassdown()">[🔄 REFRESH PASSDOWN]</button>
+              </div>
+            </div>
+            
+            <pre id="trainer-passdown-card-preview" style="background: var(--term-bg, #000); color: var(--term-text, #0f0); font-family: var(--font-terminal); font-size: 0.72rem; padding: 0.5rem; max-height: 180px; overflow-y: auto; border: 1px inset #888; white-space: pre-wrap; margin-bottom: 0.5rem;">
+Loading compact context card...
+            </pre>
+
+            <details>
+              <summary style="font-size: 0.74rem; font-weight: bold; cursor: pointer; color: var(--term-text-bright);">[+] View Full ROLLING_PASSDOWN.md Content</summary>
+              <pre id="trainer-passdown-full-preview" style="background: var(--term-bg, #000); color: #ccc; font-family: var(--font-terminal); font-size: 0.70rem; padding: 0.5rem; max-height: 200px; overflow-y: auto; border: 1px inset #888; white-space: pre-wrap; margin-top: 0.35rem;">
+Loading full passdown markdown...
+              </pre>
+            </details>
+          </div>
+        </div>
+
+        <!-- Real-Time Trainer Terminal Console -->
+        <div class="terminal-panel" style="flex: 1; min-height: 160px; display: flex; flex-direction: column;">
+          <div class="terminal-panel-header">
+            <span>💻 GGUF LLM TRAINER ORCHESTRATION CONSOLE OUTPUT</span>
+            <button class="launch-btn" onclick="document.getElementById('trainer-console').innerText = '[Console ready.]'" style="padding: 1px 4px; font-size: 0.7rem;">[CLS]</button>
+          </div>
+          <pre id="trainer-console" style="margin: 0; padding: 0.65rem; background: var(--term-bg, #000); color: var(--term-text, #0f0); font-family: var(--font-terminal); font-size: 0.72rem; flex: 1; overflow-y: auto; white-space: pre-wrap;">
+[ GGUF LLM Trainer Console Initialized. Ready for dataset curation, QLoRA training, and model promotion. ]
+          </pre>
+        </div>
+
+      </div>
+    </section>
+
   </main>
 
   <!-- Modal Dialog: Settings & Secrets -->
@@ -1297,15 +1694,15 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
           <div class="form-group">
             <label for="route-ideation">🗲 Fast Ideation &amp; Chores</label>
             <select class="form-control" id="route-ideation">
-              <option value="local_worker">Local Worker (9B Q4 GPU1 - 80+ tok/s)</option>
-              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
+              <option value="local_worker">Local Worker (:8002 / GPU1 - Fast)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 / GPU0 - Primary)</option>
             </select>
           </div>
           <div class="form-group">
             <label for="route-solving">🧠 Deep Solving &amp; Logic</label>
             <select class="form-control" id="route-solving">
-              <option value="local_coordinator">Local Coordinator (9B Q8 GPU0)</option>
-              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 / GPU0 - Primary)</option>
+              <option value="moe_35b">Cluster MoE (Dual GPU Split)</option>
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
             </select>
           </div>
@@ -1314,15 +1711,15 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             <select class="form-control" id="route-audit">
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
               <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
-              <option value="moe_35b">Ornith 35B MoE (Sleep Rumination)</option>
-              <option value="local_coordinator">Local Coordinator (14B/9B Fallback)</option>
+              <option value="moe_35b">Cluster MoE (Sleep Rumination)</option>
+              <option value="local_coordinator">Local Coordinator (:8001 Fallback)</option>
               <option value="openrouter">OpenRouter API</option>
             </select>
           </div>
           <div class="form-group">
             <label for="route-rumination">🌙 Sleep Rumination (Backlog)</label>
             <select class="form-control" id="route-rumination">
-              <option value="moe_35b">Ornith 35B MoE (Dual GPU)</option>
+              <option value="moe_35b">Cluster MoE (Dual GPU Split)</option>
               <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
               <option value="frontier_agy">Antigravity CLI (Prepaid)</option>
             </select>
@@ -1331,9 +1728,9 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
         <div class="form-group" style="margin-bottom: 0.5rem;">
           <label for="route-chat">💬 Cockpit Interactive Chat</label>
           <select class="form-control" id="route-chat">
-            <option value="local_coordinator">Local Coordinator (9B Q8 on :8001)</option>
-            <option value="local_worker">Local Worker (9B Q4 on :8002)</option>
-            <option value="moe_35b">Ornith 35B MoE (Dual Accelerator)</option>
+            <option value="local_coordinator">Local Coordinator (:8001 Primary)</option>
+            <option value="local_worker">Local Worker (:8002 Fast)</option>
+            <option value="moe_35b">Cluster MoE (Dual Accelerator)</option>
             <option value="gemini_web">Gemini Advanced (AI Plus $0 Cost)</option>
           </select>
         </div>
@@ -1517,6 +1914,111 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
 
       <div style="display: flex; justify-content: flex-end;">
         <button class="launch-btn" onclick="document.getElementById('apk-download-dialog').close()">[CLOSE]</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Deep Sleep Dossier Review & Operator Approval -->
+  <dialog id="trainer-dossier-dialog">
+    <div class="dossier-dialog-container">
+      <div class="dossier-dialog-header">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-weight: 800; font-size: 0.95rem;">[👁 DOSSIER INSPECTOR &amp; REASONING AUDIT]</span>
+          <span id="dossier-modal-id" style="font-family: monospace; background: var(--term-bg); padding: 2px 8px; border: 1px solid var(--term-border); color: var(--term-text-bright); font-size: 0.85rem;">--</span>
+        </div>
+        <button class="card-icon-btn" onclick="trainerCloseDossierModal()" style="cursor: pointer; font-weight: bold;">[✕ CLOSE]</button>
+      </div>
+
+      <div class="dossier-dialog-meta">
+        <div><strong>Domain:</strong> <span id="dossier-modal-domain" class="cb-badge cb-badge-approved">--</span></div>
+        <div><strong>Gate 1 (Frontier):</strong> <span id="dossier-modal-gate1" class="cb-badge">--</span></div>
+        <div><strong>Gate 2 (Operator):</strong> <span id="dossier-modal-gate2" class="cb-badge">--</span></div>
+        <div style="flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          <strong>Source:</strong> <code id="dossier-modal-source" style="font-size: 0.76rem; color: var(--term-text-dim);">--</code>
+        </div>
+      </div>
+
+      <div class="dossier-tabs">
+        <button class="dossier-tab-btn active" id="btn-dossier-tab-full" onclick="switchDossierModalTab('full')">📄 FULL DOSSIER DOCUMENT</button>
+        <button class="dossier-tab-btn" id="btn-dossier-tab-split" onclick="switchDossierModalTab('split')">🎯 PROMPT &amp; SOLUTION</button>
+        <button class="dossier-tab-btn" id="btn-dossier-tab-meta" onclick="switchDossierModalTab('meta')">🛡 INVARIANTS &amp; AUDIT</button>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-full">
+        <pre class="dossier-content-pre" id="dossier-modal-content">Loading dossier content...</pre>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-split" style="display: none; flex-direction: column; gap: 1rem;">
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[1. CHALLENGE PROMPT]</div>
+          <pre class="dossier-content-pre" id="dossier-modal-prompt" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 220px; overflow-y: auto;"></pre>
+        </div>
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[2. EVALUATOR CHOSEN SOLUTION]</div>
+          <pre class="dossier-content-pre" id="dossier-modal-chosen" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); max-height: 340px; overflow-y: auto;"></pre>
+        </div>
+      </div>
+
+      <div class="dossier-dialog-body" id="dossier-body-meta" style="display: none; flex-direction: column; gap: 0.8rem;">
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[TARGET INVARIANT THEOREM]</div>
+          <div id="dossier-modal-target-inv" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); font-size: 0.84rem; line-height: 1.5; font-family: monospace;"></div>
+        </div>
+        <div>
+          <div style="font-weight: 800; color: var(--term-text-bright); margin-bottom: 0.35rem;">[GATE 1 AUDIT EVALUATION REASONS]</div>
+          <div id="dossier-modal-reasons" style="background: var(--term-surface); padding: 10px; border: 1px solid var(--term-border-dim); font-size: 0.84rem; line-height: 1.5; font-family: monospace;"></div>
+        </div>
+      </div>
+
+      <div class="dossier-dialog-footer">
+        <div id="dossier-modal-status-msg" style="font-weight: 700; color: var(--term-text-bright);">Reviewing sample content.</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="send-btn" id="dossier-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
+          <button class="launch-btn" id="dossier-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer; color: var(--term-alert);">[✗ QUARANTINE SAMPLE]</button>
+          <button class="launch-btn" onclick="trainerCloseDossierModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[CLOSE]</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Watchdog Status & Intercept Log Dialog -->
+  <dialog id="watchdog-modal" class="modal-dialog" style="max-width: 650px; width: 95%;">
+    <div class="modal-content" style="background: var(--bg-card); border: 2px outset #dfdfdf; padding: 0;">
+      <div class="modal-header win95-titlebar" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--win95-title-blue, #000080); color: #fff;">
+        <span style="font-weight: bold; font-family: var(--font-terminal);">🛡️ REASONING LOOP WATCHDOG &amp; NUDGE CONTROLLER</span>
+        <button class="win95-titlebar-btn" onclick="closeWatchdogModal()" style="font-weight: bold; padding: 0 5px;">✕</button>
+      </div>
+      <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.65rem; font-size: 0.8rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div class="immich-stat-card">
+            <div>WATCHDOG STATUS:</div>
+            <strong id="modal-watchdog-state" style="color: #00aa00;">ARMED</strong>
+          </div>
+          <div class="immich-stat-card">
+            <div>TOTAL REASONING INTERCEPTS:</div>
+            <strong id="modal-watchdog-count" style="color: var(--term-text-bright);">0</strong>
+          </div>
+        </div>
+
+        <div>
+          <strong>Latest Intercepted Loop:</strong>
+          <pre id="modal-watchdog-latest" style="background: #111; color: #ffaa00; padding: 6px; font-family: monospace; font-size: 0.76rem; border: 1px inset #888; margin: 4px 0; white-space: pre-wrap;">No loop intercepts recorded. Reasoning is clean.</pre>
+        </div>
+
+        <div>
+          <strong>Recent Watchdog Events (Past 10 Intercepts):</strong>
+          <div id="modal-watchdog-history" style="max-height: 160px; overflow-y: auto; background: #111; color: #00ff00; padding: 6px; font-family: monospace; font-size: 0.72rem; border: 1px inset #888;">
+            <div>[ARMED] Active background thread listening on all inference streams.</div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.4rem; border-top: 1px solid #888; padding-top: 0.5rem;">
+          <button class="launch-btn" onclick="testWatchdogLoop()" style="padding: 4px 8px;">[🧪 SIMULATE LOOP TEST]</button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="launch-btn" onclick="resetWatchdogAlert()" style="padding: 4px 10px; font-weight: bold;">[🔄 RESET COUNTER &amp; RE-ARM]</button>
+            <button class="send-btn" onclick="closeWatchdogModal()" style="padding: 4px 12px; font-weight: bold;">[OK]</button>
+          </div>
+        </div>
       </div>
     </div>
   </dialog>

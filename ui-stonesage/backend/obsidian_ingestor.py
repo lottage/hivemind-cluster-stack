@@ -143,7 +143,7 @@ class ObsidianIngestor:
         # Personal profile, home info, vehicle, wedding, education
         if any(k in lower_path for k in ["home info", "bmw", "accounting", "wedding", "gifts", "continuing education"]):
             return "companion_profile"
-        if any(k in lower_content for k in ["profile", "personal", "user", "credentials"]):
+        if any(k in lower_content for k in ["vin:", "austin", "f30", "328i", "wife", "marriage", "degree", "wgu"]):
             return "companion_profile"
 
         # Tasks, jots, todos

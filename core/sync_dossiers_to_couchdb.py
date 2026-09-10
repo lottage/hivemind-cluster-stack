@@ -63,7 +63,7 @@ def sync_to_couchdb(verbose: bool = True) -> dict:
     os.makedirs(assembly_dir, exist_ok=True)
     # Pull any moments from VM 102
     try:
-        remote_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "user@127.0.0.1", "ls /opt/cluster-bridge/assembly_moments/*.md 2>/dev/null"]
+        remote_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1", "ls /opt/cluster-bridge/assembly_moments/*.md 2>/dev/null"]
         res = subprocess.run(remote_cmd, capture_output=True, text=True, timeout=5)
         if res.returncode == 0 and res.stdout.strip():
             for rpath in res.stdout.strip().splitlines():
@@ -72,7 +72,7 @@ def sync_to_couchdb(verbose: bool = True) -> dict:
                     fname = os.path.basename(rpath)
                     lpath = os.path.join(assembly_dir, fname)
                     if not os.path.exists(lpath):
-                        cat_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "user@127.0.0.1", f"cat '{rpath}'"]
+                        cat_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1", f"cat '{rpath}'"]
                         cres = subprocess.run(cat_cmd, capture_output=True, text=True, timeout=5)
                         if cres.returncode == 0:
                             with open(lpath, "w", encoding="utf-8") as lf:

@@ -12,6 +12,15 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional, Generator, Tuple
 
+try:
+    from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
+except ImportError:
+    try:
+        from .reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
+    except ImportError:
+        GLOBAL_WATCHDOG = None
+        ReasoningLoopDetector = None
+
 class ClusterClient:
     def __init__(self, config: Dict[str, Any]):
         self.cluster_cfg = config.get("cluster", {})
@@ -321,6 +330,7 @@ class ClusterClient:
 
         req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
         has_done = False
+        loop_detector = ReasoningLoopDetector(min_repeats=3) if ReasoningLoopDetector else None
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
                 for line in resp:
@@ -328,6 +338,25 @@ class ClusterClient:
                     if decoded.strip():
                         if "[DONE]" in decoded:
                             has_done = True
+                            yield decoded
+                            break
+                        if loop_detector and decoded.startswith("data: "):
+                            try:
+                                delta = json.loads(decoded[6:])["choices"][0]["delta"].get("content", "")
+                                if delta:
+                                    is_loop, phrase = loop_detector.ingest_chunk(delta)
+                                    if is_loop:
+                                        if GLOBAL_WATCHDOG:
+                                            GLOBAL_WATCHDOG.record_intercept(phrase, model=model_name)
+                                        alert_payload = {
+                                            "choices": [{"delta": {"content": f"\n\n> [!WARNING]\n> **[WATCHDOG INTERCEPT]**: Repetition loop detected on '{phrase}'. Aborted GPU stream & dispatched agent nudge.\n\n"}}],
+                                            "watchdog_intercept": True,
+                                            "intercept_phrase": phrase
+                                        }
+                                        yield f"data: {json.dumps(alert_payload)}\n\n"
+                                        break
+                            except Exception:
+                                pass
                         yield decoded
         except Exception as e:
             err_obj = {"error": {"message": str(e), "type": "backend_error"}}

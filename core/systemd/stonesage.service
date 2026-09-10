@@ -1,0 +1,17 @@
+[Unit]
+Description=StoneSage Homelab Command Cockpit & AI Harness
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/stonesage/backend
+ExecStart=/usr/bin/python3 -u server.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

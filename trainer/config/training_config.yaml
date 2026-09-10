@@ -1,0 +1,126 @@
+# GGUF LLM Training Pipeline Configuration
+# Optimized for Dual AMD GPUs (RX 6750 XT 12GB + RX 6600 XT 8GB = 20GB VRAM Total)
+
+hardware:
+  total_vram_gb: 20
+  primary_device: "cuda:0"     # RX 6750 XT 12GB (or "cpu" if running headless/offloaded)
+  secondary_device: "cuda:1"   # RX 6600 XT 8GB
+  vulkan_primary: "Vulkan0"
+  vulkan_secondary: "Vulkan1"
+  cpu_offload_dir: "./offload"
+  max_memory_per_gpu:
+    0: "11.5GiB"
+    1: "7.5GiB"
+
+model:
+  target_model: "ornith-1.5-9b" # Options: "ornith-1.5-9b", "ornith-1.5-35b-moe"
+  base_model_path: "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf"
+  hf_base_model: "unsloth/Ornith-1.0-9B-GGUF"
+  moe_model_path: "/opt/models/ornith-1.5-35b-moe.gguf"
+  max_seq_length: 2048
+  chat_template: "chatml"       # <|im_start|>system\n...<|im_end|>\n<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n...<|im_end|>
+
+qlora:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: "float16"
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  max_steps: 60                 # Default test budget; can be set via CLI
+  num_train_epochs: 1
+  logging_steps: 5
+  save_steps: 20
+  save_total_limit: 2
+  fp16: true
+  bf16: false
+  gradient_checkpointing: true
+  optim: "paged_adamw_8bit"
+
+reinforcement_learning:
+  enabled: true
+  mode: "dpo"                  # Options: "dpo", "grpo"
+  dpo:
+    beta: 0.1                  # Temperature for DPO loss (controls KL drift)
+    max_length: 2048
+    max_prompt_length: 1024
+    max_target_length: 1024
+  grpo:
+    num_generations: 4         # Number of candidate completions per prompt
+    temperature: 0.7
+    reward_weights:
+      syntax_correctness: 0.35
+      constraint_satisfaction: 0.35
+      identity_preservation: 0.30
+  safety_guardrails:
+    enforce_golden_invariants: true
+    max_kl_drift_threshold: 0.20
+    min_anchor_pass_rate: 0.95
+    strict_user_approval: true  # Cannot promote to production without manual confirmation
+
+data_ingestion:
+  thinking_archive_dir: "/opt/cluster-bridge/thinking_archive"
+  local_archive_dir: "../obsidian/Autonomous Thinking/Explorations"
+  user_upload_dir: "./data/uploads"
+  dataset_output_dir: "./data/processed"
+  quarantine_dir: "./data/quarantine"
+  rolling_passdown_path: "../ROLLING_PASSDOWN.md"
+  max_char_per_chunk: 900      # Respects BGE embedding 512-token limit
+  similarity_threshold: 0.85   # Novelty gatekeeper threshold
+
+curation:
+  enforce_dual_gate: true      # Strictly requires Frontier Verified + Human Approved
+  require_frontier_audit: true # Gate 1: Rejects unverified agent drafts, flânerie, hallucinated physics
+  require_human_approval: true # Gate 2: Explicit human sign-off stamped into registry
+  auto_quarantine_unverified: true
+  ground_sleep_in_passdowns: true # Seeds deep sleep cycles with rolling passdowns & user feedback
+
+export:
+  output_dir: "./output"
+  staging_dir: "/opt/models/staging"
+  production_dir: "/opt/models"
+  quantization_targets:
+    - "q4_k_m"                 # Worker target (80+ t/s)
+    - "q8_0"                   # Coordinator target (lossless reasoning)
+  llama_cpp_path: "/opt/.unsloth/llama.cpp"
+
+# Hive Mind Edge Concurrency & Splinter Personality Bounding
+concise_reasoning:
+  max_thinking_words: 180      # Strict ceiling to prevent KV cache explosion across parallel slots
+  penalize_verbosity: true     # Train weights to prioritize dense algebraic proofs over discursive filler
+  enforce_dense_cot: true
+
+hive_mind_edge_profile:
+  name: "HiveMind_MaxConcurrency"
+  description: "Maximizes parallel splinter agents (8 slots) for real-time mediation and call-response on edge VRAM"
+  parallel_slots: 8            # -np 8 (8 concurrent agent threads)
+  context_length: 16384        # -c 16384 (2048 tokens/slot with rolling context shift)
+  cache_type_k: "q4_0"         # -ctk q4_0 (75% KV memory savings)
+  cache_type_v: "q4_0"         # -ctv q4_0 (75% KV memory savings)
+  flash_attention: "on"        # --flash-attn on (linear memory scaling)
+  context_shift: true          # --context-shift (prevents OOM on multi-agent turn debates)
+  batch_size: 1024             # -b 1024
+  ubatch_size: 256             # -ub 256
+  temperature: 0.65
+  min_p: 0.07
+  presence_penalty: 0.25
+  repeat_penalty: 1.15
+

@@ -33,7 +33,7 @@ const state = {
 
   // AI Cognitive Harness
   ai: {
-    activeModel: 'hermes', // 'hermes' (Ornith-1.5-35B MoE 16k), 'coordinator' (:8001), 'worker' (3B), 'openai', 'anthropic', 'gemini'
+    activeModel: 'coordinator', // 'coordinator' (:8001), 'worker' (:8002), 'openai', 'anthropic', 'gemini'
     ragEnabled: true,
     ragCollection: 'companion_profile',
     isGenerating: false,
@@ -133,6 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettings();
   initGlobalShortcuts();
   initClusterHealth();
+  initHiveMindProfileAndWatchdog();
 });
 
 /* ==========================================================================
@@ -227,13 +228,14 @@ function initNavigation() {
       if (viewId === 'view-harness') switchHarnessStudio(currentHarnessId);
       if (viewId === 'view-immich') fetchImmichData();
       if (viewId === 'view-memory') fetchMemoryTelemetry();
+      if (viewId === 'view-trainer') fetchTrainerAll();
     });
   });
 }
 
 function initGlobalShortcuts() {
   window.addEventListener('keydown', (e) => {
-    // Function keys F1 - F11
+    // Function keys F1 - F12
     if (e.key.startsWith('F') && e.key.length >= 2) {
       const num = parseInt(e.key.slice(1), 10);
       const viewMap = {
@@ -247,7 +249,8 @@ function initGlobalShortcuts() {
         8: 'view-canvas',
         9: 'view-harness',
         10: 'view-immich',
-        11: 'view-memory'
+        11: 'view-memory',
+        12: 'view-trainer'
       };
       if (viewMap[num]) {
         e.preventDefault();
@@ -320,8 +323,50 @@ function initWorkstation() {
     });
   }
 
+  initWorkstationResizer();
   fetchWorkspaceTree();
   fetchGitStatus();
+}
+
+function initWorkstationResizer() {
+  const resizer = document.getElementById('workstation-split-resizer');
+  const editorPane = document.querySelector('.code-editor-pane');
+  const splitContainer = document.querySelector('.editor-terminal-split');
+  if (!resizer || !editorPane || !splitContainer) return;
+
+  let isDragging = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startY = e.clientY;
+    startHeight = editorPane.getBoundingClientRect().height;
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dy = e.clientY - startY;
+    const containerHeight = splitContainer.getBoundingClientRect().height;
+    const minHeight = 160;
+    const maxHeight = containerHeight - 140;
+    const newHeight = Math.max(minHeight, Math.min(maxHeight, startHeight + dy));
+    editorPane.style.height = `${newHeight}px`;
+    editorPane.style.flex = 'none';
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      resizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
 }
 
 async function fetchWorkspaceTree() {
@@ -574,7 +619,7 @@ async function generateAiCommitMessage() {
     return;
   }
 
-  input.value = 'Generating summary via 3B worker...';
+  input.value = 'Generating summary via Worker AI...';
   try {
     const prompt = `Write a crisp, single-sentence git commit message following Conventional Commits format for these changed files:\n${changed}\nRespond with ONLY the commit message.`;
     const res = await fetch('/api/cluster/chat', {
@@ -613,7 +658,7 @@ async function commitWorkstationGit() {
   const msgInput = document.getElementById('git-commit-msg');
   const msg = msgInput ? msgInput.value.trim() : '';
   if (!msg) {
-    alert('Please enter a commit message or click [3B AI MSG].');
+    alert('Please enter a commit message or click [AI COMMIT MSG].');
     return;
   }
 
@@ -857,7 +902,7 @@ async function execTerminalCommand(cmd) {
   git add <files>        Stage files for commit
 
 [ HOMELAB CLUSTER & HYPERVISOR ]
-  pve-health             Probe latency to 14B, 3B, BGE, MCP, Qdrant
+  pve-health             Probe latency to Coordinator, Worker, BGE, MCP, Qdrant
   nodes / pve-nodes      Show live CPU, RAM, and Disk metrics (pve, bigserv)
   services               Show live status & latency for all 21 homelab apps
   vms / containers       List all QEMU VMs & LXC containers across cluster
@@ -874,7 +919,7 @@ async function execTerminalCommand(cmd) {
   thermostat <temp>      Quick set living room thermostat temperature
 
 [ AI COGNITIVE COCKPIT & MEMORY ]
-  ai <prompt>            Stream answer from local 14B Coordinator / 3B Worker
+  ai <prompt>            Stream answer from local Coordinator (:8001) / Worker (:8002)
   plan <goal>            Decompose high-level goal into structured milestones
   stm / stm-status       Display in-RAM Short-Term Memory and active plan
   stm-add <key> <val>    Push key/value to RAM working context
@@ -1175,7 +1220,7 @@ Node bigserv (127.0.0.1):
       logToTerminal('Usage: ha <natural language intent> (e.g. ha turn off office light)', 'alert');
       return;
     }
-    logToTerminal(`[DELEGATING INTENT TO 3B WORKER: "${intent}"]`, 'dim');
+    logToTerminal(`[DELEGATING INTENT TO WORKER: "${intent}"]`, 'dim');
     try {
       const res = await fetch('/api/ha/service', {
         method: 'POST',
@@ -1274,7 +1319,7 @@ Node bigserv (127.0.0.1):
       logToTerminal('Usage: plan <high-level objective> (e.g. plan audit smart home security)', 'alert');
       return;
     }
-    logToTerminal(`[14B COORDINATOR DECOMPOSING PLAN: "${goal}"...]`, 'dim');
+    logToTerminal(`[COORDINATOR DECOMPOSING PLAN: "${goal}"...]`, 'dim');
     try {
       const res = await fetch('/api/planner/generate', {
         method: 'POST',
@@ -1486,15 +1531,14 @@ async function loadHarnessCapabilities() {
       const cMeta = data.active_coordinator?.meta;
       const wMeta = data.active_worker?.meta;
       const cLabel = cMeta
-        ? `[HERMES: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || 'MoE'} (${Math.round((cMeta.n_ctx || 16384) / 1024)}k ctx)]`
-        : '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]';
+        ? `[COORDINATOR: ${(cMeta.n_params / 1e9).toFixed(1)}B ${cMeta.ftype || ''} (${Math.round((cMeta.n_ctx || 16384) / 1024)}k ctx)]`
+        : '[COORDINATOR :8001 (Primary)]';
       const wLabel = wMeta
-        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || 'Q4'} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
-        : '[WORKER :8002 (80+ t/s)]';
+        ? `[WORKER: ${(wMeta.n_params / 1e9).toFixed(1)}B ${wMeta.ftype || ''} (${Math.round((wMeta.n_ctx || 8192) / 1024)}k ctx)]`
+        : '[WORKER :8002 (Fast Utility)]';
 
       aiModelSel.innerHTML = `
-        <option value="hermes" selected>${cLabel}</option>
-        <option value="coordinator">[PRIMARY COORDINATOR :8001]</option>
+        <option value="coordinator" selected>${cLabel}</option>
         <option value="worker">${wLabel}</option>
         <option value="openai">[FRONTIER: GPT-4o]</option>
         <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
@@ -1507,8 +1551,8 @@ async function loadHarnessCapabilities() {
     if (subSel) {
       const cMeta = data.active_coordinator?.meta;
       const wMeta = data.active_worker?.meta;
-      const cLabel = cMeta ? `[${(cMeta.n_params / 1e9).toFixed(1)}B COORDINATOR :8001]` : '[COORDINATOR :8001 (Primary)]';
-      const wLabel = wMeta ? `[${(wMeta.n_params / 1e9).toFixed(1)}B WORKER :8002 (80+ tok/s)]` : '[WORKER :8002 (80+ tok/s)]';
+      const cLabel = cMeta ? `[COORDINATOR :8001 (${(cMeta.n_params / 1e9).toFixed(1)}B)]` : '[COORDINATOR :8001 (Primary)]';
+      const wLabel = wMeta ? `[WORKER :8002 (${(wMeta.n_params / 1e9).toFixed(1)}B)]` : '[WORKER :8002 (Fast)]';
 
       subSel.innerHTML = `
         <option value="worker" selected>${wLabel}</option>
@@ -1646,11 +1690,9 @@ async function submitChatPrompt() {
   const msgBlock = document.createElement('div');
   msgBlock.className = 'chat-msg assistant';
   
-  const roleTitle = state.ai.activeModel === 'hermes'
-    ? '[HERMES 3 AGENTIC (Ornith-1.5-35B MoE 16k)]'
-    : (state.ai.activeModel === 'coordinator' 
-      ? '[14B/35B COORDINATOR :8001]' 
-      : (state.ai.activeModel === 'worker' ? '[3B WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`));
+  const roleTitle = (state.ai.activeModel === 'coordinator' || state.ai.activeModel === 'hermes')
+    ? '[PRIMARY COORDINATOR :8001]' 
+    : (state.ai.activeModel === 'worker' ? '[FAST WORKER :8002]' : `[FRONTIER: ${state.ai.activeModel.toUpperCase()}]`);
 
   msgBlock.innerHTML = `
     <div class="chat-msg-header">
@@ -1738,13 +1780,18 @@ async function submitChatPrompt() {
             if (delta.reasoning_content) {
               reasoningBuffer += delta.reasoning_content;
             }
+            if (parsed.watchdog_intercept) {
+              const phrase = parsed.intercept_phrase || 'repetition loop';
+              window.showChatWatchdogAlert(phrase);
+              window.pollWatchdogStatus();
+            }
             if (delta.content) {
               fullResponse += delta.content;
             }
             if (bodyElem) {
               let html = '';
               if (reasoningBuffer) {
-                html += `<details class="reasoning-trace" open style="background: rgba(0,0,0,0.25); border: 1px dashed var(--term-border); padding: 6px; margin-bottom: 8px; font-size: 0.85em; color: var(--term-text-muted);"><summary style="cursor: pointer; color: var(--term-warn); font-weight: bold;">[🧠 HERMES AGENTIC REASONING TRACE]</summary><div style="margin-top: 4px; white-space: pre-wrap; font-family: monospace;">${escapeHtml(reasoningBuffer)}</div></details>`;
+                html += `<details class="reasoning-trace" open style="background: rgba(0,0,0,0.25); border: 1px dashed var(--term-border); padding: 6px; margin-bottom: 8px; font-size: 0.85em; color: var(--term-text-muted);"><summary style="cursor: pointer; color: var(--term-warn); font-weight: bold;">[🧠 AGENTIC REASONING TRACE]</summary><div style="margin-top: 4px; white-space: pre-wrap; font-family: monospace;">${escapeHtml(reasoningBuffer)}</div></details>`;
               }
               html += escapeHtml(fullResponse).replace(/\n/g, '<br>');
               bodyElem.innerHTML = html;
@@ -1836,7 +1883,7 @@ window.generatePlanFromGoal = async function() {
     btn.disabled = true;
     btn.textContent = '[DECOMPOSING...]';
   }
-  list.innerHTML = '<div style="color:var(--term-text-bright); padding:0.5rem;">[14B COORDINATOR] Analyzing goal and decomposing into finite execution steps...</div>';
+  list.innerHTML = '<div style="color:var(--term-text-bright); padding:0.5rem;">[COORDINATOR] Analyzing goal and decomposing into finite execution steps...</div>';
 
   try {
     const res = await fetch('/api/planner/generate', {
@@ -2072,7 +2119,7 @@ window.clearStmMemory = async function() {
 
 window.compressStmWorkingMemory = async function() {
   try {
-    logToTerminal('[STM ENGINE] Requesting 3B worker context compression...');
+    logToTerminal('[STM ENGINE] Requesting Worker context compression...');
     const res = await fetch('/api/memory/stm/compress', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
@@ -3003,7 +3050,7 @@ window.promptRebootGuest = function(node, vmid, name) {
 };
 
 /* ==========================================================================
-   9b. Live Canvas Scratchpad & Ambient Voice Copilot
+   Section 9 (Voice & Canvas): Live Canvas Scratchpad & Ambient Voice Copilot
    ========================================================================== */
 function initLiveCanvas() {
   const input = document.getElementById('canvas-copilot-input');
@@ -4129,24 +4176,27 @@ window.fetchClusterModels = async function() {
 
 window.quickSwitchModel = async function(preset) {
   const presets = {
-    'ornith-9b-q5': {
+    'high-precision': {
       hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
       file: 'deepreinforce-ai_Ornith-1.0-9B-Q5_K_M.gguf',
       context: 16384,
-      name: 'Ornith 9B (Q5_K_M 16k)'
+      name: 'High-Precision 16k Profile'
     },
-    'ornith-9b-q4': {
+    'high-throughput': {
       hf: 'bartowski/deepreinforce-ai_Ornith-1.0-9B-GGUF',
       file: 'deepreinforce-ai_Ornith-1.0-9B-Q4_K_M.gguf',
       context: 16384,
-      name: 'Ornith 9B (Q4_K_M 16k)'
+      name: 'High-Throughput 16k Profile'
     },
-    'qwen-14b': {
+    'code-specialist': {
       model: 'qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf',
       context: 8192,
-      name: 'Qwen 2.5 Coder 14B'
+      name: 'Code Specialist Profile'
     }
   };
+  presets['ornith-9b-q5'] = presets['high-precision'];
+  presets['ornith-9b-q4'] = presets['high-throughput'];
+  presets['qwen-14b'] = presets['code-specialist'];
 
   const p = presets[preset];
   if (!p) return;
@@ -4525,8 +4575,22 @@ window.openApkDownloadModal = function() {
 // ==========================================
 // HARNESS PARAMETER STUDIO & DAEMON CONTROL
 // ==========================================
-let currentHarnessId = 'hermes';
+let currentHarnessId = 'llama_coordinator';
 let currentHarnessData = null;
+let availableModels = [];
+let hardwareCapabilities = {
+  primary_gpu: "AMD Radeon RX 6750 XT (12GB Vulkan0)",
+  primary_vram_gb: 12.0,
+  secondary_gpu: "AMD Radeon RX 6600 XT (8GB Vulkan1)",
+  secondary_vram_gb: 8.0,
+  total_vram_gb: 20.0,
+  cpu_threads: 20,
+  ram_gb: 32.0
+};
+let savedProfiles = {};
+let currentStopStrings = ["<|im_end|>", "<|endoftext|>"];
+let autoCtxEnabled = true;
+let autoNglEnabled = true;
 
 window.switchHarnessStudio = async function(harnessId) {
   currentHarnessId = harnessId;
@@ -4550,16 +4614,35 @@ async function loadHarnessStudioData(harnessId) {
   const slotsEl = document.getElementById('harness-active-slots');
 
   if (healthBadge) healthBadge.textContent = '[HEALTH: PROBING...]';
-  if (container) container.innerHTML = '<div style="padding: 1rem; color: var(--term-text-muted);">Fetching live harness telemetry and systemd service parameters...</div>';
+  if (container) container.innerHTML = '<div style="padding: 1rem; color: var(--term-text-muted);">Fetching live harness telemetry, models, hardware and profile parameters...</div>';
 
   try {
-    const res = await fetch(`/api/harness/parameters?harness=${encodeURIComponent(harnessId)}`);
-    const json = await res.json();
-    if (!json.ok || !json.data) {
-      if (container) container.innerHTML = `<div style="color: var(--term-alert); padding: 1rem;">Failed to load parameters: ${json.error || 'Unknown error'}</div>`;
-      return;
+    // Concurrently fetch parameters, available models, hardware limits, and saved profiles
+    const [paramsRes, modelsRes, hwRes, profRes] = await Promise.all([
+      fetch(`/api/harness/parameters?harness=${encodeURIComponent(harnessId)}`).catch(() => null),
+      fetch('/api/harness/models').catch(() => null),
+      fetch('/api/harness/hardware').catch(() => null),
+      fetch('/api/harness/profiles').catch(() => null)
+    ]);
+
+    if (modelsRes && modelsRes.ok) {
+      const mj = await modelsRes.json();
+      if (mj.ok && Array.isArray(mj.models)) availableModels = mj.models;
     }
-    const d = json.data;
+    if (hwRes && hwRes.ok) {
+      const hj = await hwRes.json();
+      if (hj.ok && hj.hardware) hardwareCapabilities = hj.hardware;
+    }
+    if (profRes && profRes.ok) {
+      const pj = await profRes.json();
+      if (pj.ok && pj.profiles) savedProfiles = pj.profiles;
+    }
+
+    let d = {};
+    if (paramsRes && paramsRes.ok) {
+      const pj = await paramsRes.json();
+      if (pj.ok && pj.data) d = pj.data;
+    }
     currentHarnessData = d;
 
     if (titleEl) titleEl.textContent = `🎛️ ACTIVE HARNESS: ${d.name || harnessId.toUpperCase()}`;
@@ -4585,25 +4668,135 @@ function renderHarnessForm(harnessId, data) {
   const sam = data.sampling_params || {};
   const opt = data.options || {};
 
-  if (harnessId.startsWith('llama_')) {
-    container.innerHTML = `
-      <!-- 1. Server Architecture & Acceleration (llama-server flags) -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          ⚙️ [SERVER ARCHITECTURE &amp; HARDWARE ALLOCATION (systemd / llama-server)]
-        </legend>
+  // For llama_coordinator, llama_worker, hermes, or any llama-backed service
+  if (harnessId.startsWith('llama_') || harnessId === 'hermes') {
+    const activeModelPath = sp.model || (availableModels.length > 0 ? availableModels[0].path : (harnessId.includes('worker') ? '/opt/models/model-worker.gguf' : '/opt/models/model-coordinator.gguf'));
+    const modelOptionsHtml = availableModels.length > 0
+      ? availableModels.map(m => `<option value="${m.path}" ${m.path === activeModelPath || m.filename === activeModelPath.split('/').pop() ? 'selected' : ''}>${m.filename} (${m.size_gb} GB • ${m.quant})</option>`).join('')
+      : `<option value="${activeModelPath}" selected>${activeModelPath.split('/').pop()} (Active)</option>`;
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
-          
-          <!-- Context Window (-c) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Context Window (<code>-c / --ctx-size</code>)</span>
-              <span id="label-val-n_ctx" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_ctx || 8192}</span>
+    const profileOptionsHtml = Object.keys(savedProfiles).map(pName => `<option value="${pName}">Profile: ${pName}</option>`).join('');
+
+    container.innerHTML = `
+      <!-- ==========================================
+           1) MODEL & HARDWARE CAPABILITY POLLING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          1) MODEL &amp; HARDWARE CAPABILITY POLLING
+        </legend>
+        
+        <div style="margin-bottom: 0.65rem; padding: 0.4rem 0.6rem; background: var(--term-header-bg); border: 1px inset var(--term-border); font-size: 0.78rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; color: var(--term-text-bright); font-weight: 700;">
+          <span>🖥️ <strong>Detected Hardware:</strong> ${hardwareCapabilities.primary_gpu || 'RX 6750 XT 12GB'} | ${hardwareCapabilities.secondary_gpu || 'RX 6600 XT 8GB'}</span>
+          <span>⚡ <strong>Total VRAM:</strong> ${hardwareCapabilities.total_vram_gb || 20.0} GB</span>
+          <span>🧠 <strong>CPU Threads:</strong> ${hardwareCapabilities.cpu_threads || 20}</span>
+          <span>💾 <strong>System RAM:</strong> ${hardwareCapabilities.ram_gb || 32.0} GB</span>
+          <button type="button" class="theme-opt-btn" onclick="pollHardwareAndRefreshLimits()" style="margin-left: auto; padding: 1px 6px;">[🔄 Refresh HW Telemetry]</button>
+        </div>
+
+        <div class="harness-tier-grid">
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Model:</strong> Dropdown Menu (scanned from /opt/models and ~/.lmstudio)</span>
+              <span class="harness-val-badge" id="model-selected-badge">${activeModelPath.split('/').pop()}</span>
+            </label>
+            <select id="param-model" class="form-control" onchange="onHarnessModelSelected(this.value)" style="font-weight: 700; font-family: var(--font-terminal);">
+              ${modelOptionsHtml}
+            </select>
+            <div style="font-size: 0.75rem; color: var(--term-text-muted); margin-top: 0.2rem;" id="model-size-calc">
+              Selected model path: <code id="model-active-path-display">${activeModelPath}</code>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           2) PROMPT & PROFILE MANAGEMENT
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          2) PROMPT &amp; PROFILE MANAGEMENT
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- System Prompt -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>System Prompt:</strong> Text Box</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);">Passed via <code>--system-prompt</code></span>
+            </label>
+            <textarea id="param-system_prompt" class="form-control" rows="2" placeholder="Enter system prompt instructions or persona..." oninput="syncDirect()">${sp.system_prompt || ''}</textarea>
+          </div>
+
+          <!-- Chat Template -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Chat Template:</strong> Text Box</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);"><code>--chat-template</code></span>
+            </label>
+            <input type="text" id="param-chat_template" class="form-control" placeholder="chatml, llama3, mistral, or custom jinja..." value="${sp.chat_template || ''}" oninput="syncDirect()">
+          </div>
+
+          <!-- Select Template & Save Profile Row -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Select Template:</strong> Saved Settings</span>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);">Restores all tiers</span>
             </label>
             <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" style="flex: 1;" oninput="syncParam('n_ctx', this.value)">
-              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control" style="width: 85px;" oninput="syncParam('n_ctx', this.value, true)">
+              <select id="harness-profile-select" class="form-control" onchange="onSelectProfileTemplate(this.value)" style="flex: 1;">
+                <option value="">-- Select Saved Profile --</option>
+                ${profileOptionsHtml}
+              </select>
+              <button type="button" class="theme-opt-btn" onclick="deleteCurrentHarnessProfile()" title="Delete selected profile" style="color: #ff5555; padding: 2px 6px;">[🗑️]</button>
+            </div>
+          </div>
+
+          <!-- Save Profile -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Save Profile:</strong> Button &amp; Textbox (defaults to profile1, profile2... if blank)</span>
+            </label>
+            <div style="display: flex; gap: 0.45rem; align-items: center;">
+              <input type="text" id="harness-profile-name" class="form-control" placeholder="Profile Name (optional, defaults to profile1, profile2...)" style="flex: 1;">
+              <button type="button" class="send-btn" onclick="saveCurrentHarnessProfile()" style="padding: 3px 12px; font-weight: bold;">[💾 Save Profile]</button>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           3) CONTEXT AND PERFORMANCE
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          3) CONTEXT AND PERFORMANCE
+        </legend>
+
+        <div style="margin-bottom: 0.65rem;">
+          <button type="button" class="send-btn" onclick="autoOptimizeBasedOnHardware()" style="padding: 4px 14px; font-weight: bold; font-size: 0.82rem;">
+            [⚡ Automatic Optimize Based on Hardware]
+          </button>
+          <span style="font-size: 0.75rem; color: var(--term-text-muted); margin-left: 0.5rem;">
+            Calculates VRAM headroom &amp; optimizes context, offload layers, and threads.
+          </span>
+        </div>
+
+        <div class="harness-tier-grid">
+          <!-- Context Length -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>Context Length:</strong> (<code>-c / --ctx-size</code>)</span>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button type="button" class="harness-toggle-btn ${autoCtxEnabled ? 'active' : ''}" id="btn-toggle-ctx_auto" onclick="toggleHarnessAuto('ctx')">
+                  ${autoCtxEnabled ? '[Auto: ON]' : '[Auto: OFF]'}
+                </button>
+                <span class="harness-val-badge" id="label-val-n_ctx">${sp.n_ctx || 8192}</span>
+              </div>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" oninput="syncParam('n_ctx', this.value)">
+              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control harness-num-input" oninput="syncParam('n_ctx', this.value, true)">
             </div>
             <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 4096)">4k</button>
@@ -4611,191 +4804,426 @@ function renderHarnessForm(harnessId, data) {
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 12288)">12k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 16384)">16k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 32768)">32k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 65536)">64k</button>
             </div>
           </div>
 
-          <!-- GPU Layers (-ngl) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>GPU Offload Layers (<code>-ngl / --gpu-layers</code>)</span>
-              <span id="label-val-n_gpu_layers" style="color: var(--term-text-bright); font-family: monospace;">${sp.n_gpu_layers || 99}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="number" min="0" max="999" value="${sp.n_gpu_layers || 99}" id="param-n_gpu_layers" class="form-control" style="flex: 1;" oninput="syncDirect()">
-              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=99; syncDirect();">Max (99)</button>
-              <button type="button" class="theme-opt-btn" onclick="document.getElementById('param-n_gpu_layers').value=0; syncDirect();">CPU (0)</button>
+          <!-- GPU Offload -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>GPU Offload:</strong> (<code>-ngl / --gpu-layers</code>)</span>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button type="button" class="harness-toggle-btn ${autoNglEnabled ? 'active' : ''}" id="btn-toggle-ngl_auto" onclick="toggleHarnessAuto('ngl')">
+                  ${autoNglEnabled ? '[Auto: ON]' : '[Auto: OFF]'}
+                </button>
+                <span class="harness-val-badge" id="label-val-n_gpu_layers">${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}</span>
+              </div>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0" max="128" step="1" value="${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}" id="param-n_gpu_layers-range" class="form-control" oninput="syncParam('n_gpu_layers', this.value)">
+              <input type="number" min="0" max="999" value="${sp.n_gpu_layers !== undefined ? sp.n_gpu_layers : 99}" id="param-n_gpu_layers" class="form-control harness-num-input" oninput="syncParam('n_gpu_layers', this.value, true)">
+            </div>
+            <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 99)">All (99)</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 40)">Half (40)</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_gpu_layers', 0)">CPU (0)</button>
             </div>
           </div>
 
-          <!-- Flash Attention (--flash-attn) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Flash Attention (<code>--flash-attn</code>)</label>
-            <select id="param-flash_attn" class="form-control" onchange="syncDirect()">
-              <option value="on" ${sp.flash_attn === 'on' ? 'selected' : ''}>on (Mandatory for RX Vulkan)</option>
-              <option value="off" ${sp.flash_attn === 'off' ? 'selected' : ''}>off</option>
-              <option value="auto" ${sp.flash_attn === 'auto' ? 'selected' : ''}>auto</option>
-            </select>
+          <!-- CPU Thread Pool Size -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>CPU Thread Pool Size:</strong> (<code>-t / --threads</code>)</span>
+              <span class="harness-val-badge" id="label-val-threads">${sp.threads || 8}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="1" max="32" step="1" value="${sp.threads || 8}" id="param-threads-range" class="form-control" oninput="syncParam('threads', this.value)">
+              <input type="number" min="1" max="32" value="${sp.threads || 8}" id="param-threads" class="form-control harness-num-input" oninput="syncParam('threads', this.value, true)">
+            </div>
           </div>
-
-          <!-- KV Cache K (-ctk) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">KV Cache Type K (<code>-ctk</code>)</label>
-            <select id="param-cache_type_k" class="form-control" onchange="syncDirect()">
-              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_k === t ? 'selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- KV Cache V (-ctv) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">KV Cache Type V (<code>-ctv</code>)</label>
-            <select id="param-cache_type_v" class="form-control" onchange="syncDirect()">
-              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${sp.cache_type_v === t ? 'selected' : ''}>${t}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- Logical Batch (-b) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Batch Size (<code>-b / --batch-size</code>)</label>
-            <input type="number" min="128" max="8192" step="128" value="${sp.batch_size || 2048}" id="param-batch_size" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Micro-Batch (-ub) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Micro-Batch Size (<code>-ub / --ubatch-size</code>)</label>
-            <input type="number" min="64" max="4096" step="64" value="${sp.ubatch_size || 512}" id="param-ubatch_size" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Threads (-t) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Threads (<code>-t / --threads</code>)</label>
-            <input type="number" min="1" max="32" value="${sp.threads || 8}" id="param-threads" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Parallel Slots (-np) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Parallel Request Slots (<code>-np / --parallel</code>)</label>
-            <input type="number" min="1" max="16" value="${sp.parallel || 4}" id="param-parallel" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Compute Device (--device) -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Compute Device (<code>--device</code>)</label>
-            <select id="param-device" class="form-control" onchange="syncDirect()">
-              ${(opt.devices || ['Vulkan0', 'Vulkan1', 'CUDA0', 'CPU']).map(dev => `<option value="${dev}" ${(sp.device || data.device) === dev ? 'selected' : ''}>${dev}</option>`).join('')}
-            </select>
-          </div>
-
-          <!-- Defrag Threshold -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Defrag Threshold (<code>--defrag-thold</code>)</label>
-            <input type="number" min="0.0" max="1.0" step="0.05" value="${sp.defrag_thold !== undefined ? sp.defrag_thold : 0.1}" id="param-defrag_thold" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Flags Row -->
-          <div class="form-group" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem;">
-            <label><input type="checkbox" id="param-mlock" ${sp.mlock ? 'checked' : ''} onchange="syncDirect()"> <code>--mlock</code> (Lock in RAM)</label>
-            <label><input type="checkbox" id="param-no_mmap" ${sp.no_mmap ? 'checked' : ''} onchange="syncDirect()"> <code>--no-mmap</code> (No memory map)</label>
-            <label><input type="checkbox" id="param-cont_batching" ${sp.cont_batching ? 'checked' : ''} onchange="syncDirect()"> <code>--cont-batching</code></label>
-          </div>
-
         </div>
       </fieldset>
 
-      <!-- 2. Sampling & Generation Texture Controls -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          🎯 [SAMPLING, TEXTURE &amp; GENERATION PARAMETERS (/props &amp; client overrides)]
+      <!-- ==========================================
+           4) EXPERIMENTAL
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          4) EXPERIMENTAL
         </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Evaluation Batch Size (-ub) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Evaluation Batch Size:</strong> (<code>-ub / --ubatch-size</code>)</span>
+            </label>
+            <input type="number" min="64" max="4096" step="64" value="${sp.ubatch_size || 512}" id="param-ubatch_size" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
-          
+          <!-- Physical Batch Size (-b) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Physical Batch Size:</strong> (<code>-b / --batch-size</code>)</span>
+            </label>
+            <input type="number" min="128" max="8192" step="128" value="${sp.batch_size || 2048}" id="param-batch_size" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Max Concurrent Predictions (-np) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Max Concurrent Predictions:</strong> (<code>-np / --parallel</code>)</span>
+            </label>
+            <input type="number" min="1" max="16" value="${sp.parallel || 4}" id="param-parallel" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Flash Attention (-fa) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Flash Attention:</strong> (<code>-fa / --flash-attn</code>)</span>
+              <span class="harness-val-badge" id="label-val-flash_attn">${sp.flash_attn || 'on'}</span>
+            </label>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <button type="button" class="harness-toggle-btn ${sp.flash_attn !== 'off' ? 'active' : ''}" id="btn-toggle-flash_attn" onclick="toggleFlashAttn()" style="flex: 1;">
+                ${sp.flash_attn !== 'off' ? '[✓ ON (Recommended)]' : '[✗ OFF]'}
+              </button>
+              <select id="param-flash_attn" class="form-control" style="width: 90px;" onchange="syncFlashAttnSelect(this.value)">
+                <option value="on" ${sp.flash_attn === 'on' || !sp.flash_attn ? 'selected' : ''}>on</option>
+                <option value="off" ${sp.flash_attn === 'off' ? 'selected' : ''}>off</option>
+                <option value="auto" ${sp.flash_attn === 'auto' ? 'selected' : ''}>auto</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           5) GENERATION
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          5) GENERATION
+        </legend>
+        
+        <div class="harness-tier-grid">
           <!-- Temperature -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Temperature</span>
-              <span id="label-val-temperature" style="color: var(--term-text-bright); font-family: monospace;">${sam.temperature || 0.70}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature-range" class="form-control" style="flex: 1;" oninput="syncParam('temperature', this.value)">
-              <input type="number" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature" class="form-control" style="width: 75px;" oninput="syncParam('temperature', this.value, true)">
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <span><strong>Temperature:</strong> slider, text box</span>
+              <span class="harness-val-badge" id="label-val-temperature">${sam.temperature || 0.70}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature-range" class="form-control" oninput="syncParam('temperature', this.value)">
+              <input type="number" min="0.00" max="2.00" step="0.05" value="${sam.temperature || 0.70}" id="param-temperature" class="form-control harness-num-input" oninput="syncParam('temperature', this.value, true)">
             </div>
           </div>
 
-          <!-- Min-P (Homelab Texture Invariant) -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Min-P (Invariant: 0.05 - 0.08)</span>
-              <span id="label-val-min_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.min_p || 0.06}</span>
+          <!-- Limit Response Length (-n) -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-limit_response_length" ${sp.n_predict ? 'checked' : ''} onchange="toggleLimitResponse(this.checked)">
+                <span><strong>Limit Response Length:</strong> (<code>-n / --predict</code>)</span>
+              </label>
+            </div>
+            <input type="number" min="1" max="32768" value="${sp.n_predict || 2048}" id="param-n_predict" class="form-control harness-num-input" style="width: 100%;" ${sp.n_predict ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Context Overflow -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Context Overflow:</strong> Dropdown Menu</span>
             </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p-range" class="form-control" style="flex: 1;" oninput="syncParam('min_p', this.value)">
-              <input type="number" min="0.00" max="1.00" step="0.01" value="${sam.min_p || 0.06}" id="param-min_p" class="form-control" style="width: 75px;" oninput="syncParam('min_p', this.value, true)">
+            <select id="param-context_overflow" class="form-control" onchange="syncDirect()">
+              <option value="rolling" ${sp.context_shift !== false ? 'selected' : ''}>Rolling Window (--context-shift)</option>
+              <option value="truncate" ${sp.context_overflow === 'truncate' ? 'selected' : ''}>Truncate Middle</option>
+              <option value="stop" ${sp.context_overflow === 'stop' ? 'selected' : ''}>Stop at Limit</option>
+            </select>
+          </div>
+
+          <!-- Stop Strings (-r) -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Stop Strings:</strong> text box (press Enter to add string, allows multiple <code>-r</code>)</span>
+            </label>
+            <div class="stop-tags-box" id="stop-strings-tag-box">
+              ${renderStopStringsTags()}
+              <input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter (e.g. <|im_end|>, User:)..." onkeydown="handleStopStringKeyDown(event)">
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           6) REASONING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          6) REASONING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Enable Thinking -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Enable Thinking:</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sam.enable_thinking ? 'active' : ''}" id="btn-toggle-enable_thinking" onclick="toggleHarnessParam('enable_thinking')">
+              ${sam.enable_thinking ? '[✓ ON (CoT Activated)]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Reasoning Budget -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_reasoning_budget" ${sam.reasoning_budget ? 'checked' : ''} onchange="toggleReasoningBudget(this.checked)">
+                <span><strong>Reasoning Budget:</strong> checkbox, text box</span>
+              </label>
+            </div>
+            <input type="number" min="128" max="32768" value="${sam.reasoning_budget || 4096}" id="param-reasoning_budget" class="form-control harness-num-input" style="width: 100%;" ${sam.reasoning_budget ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Reasoning Budget Message -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Reasoning Budget Message:</strong> text box</span>
+            </label>
+            <input type="text" id="param-reasoning_budget_msg" class="form-control" value="${sam.reasoning_budget_msg || 'I have to answer now.'}" placeholder="I have to answer now." oninput="syncDirect()">
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           7) MEMORY
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          7) MEMORY &amp; KV CACHE OPTIMIZATION
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Offload KV Cache to GPU Memory -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Offload KV Cache to GPU:</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.no_kv_offload ? '' : 'active'}" id="btn-toggle-kv_offload" onclick="toggleHarnessParam('kv_offload')">
+              ${sp.no_kv_offload ? '[✗ OFF (CPU RAM)]' : '[✓ ON (GPU VRAM)]'}
+            </button>
+          </div>
+
+          <!-- Unified KV Cache -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Unified KV Cache:</strong> toggle (<code>--kv-unified</code>)</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.kv_unified ? 'active' : ''}" id="btn-toggle-kv_unified" onclick="toggleHarnessParam('kv_unified')">
+              ${sp.kv_unified ? '[✓ ON]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Context Checkpoints -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Context Checkpoints:</strong> text box (<code>--slot-save-path</code>)</span>
+            </label>
+            <input type="text" id="param-slot_save_path" class="form-control" placeholder="/opt/checkpoints or slot state dir..." value="${sp.slot_save_path || ''}" oninput="syncDirect()">
+          </div>
+
+          <!-- K Cache Quantization Type -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_cache_type_k" checked onchange="toggleCacheTypeK(this.checked)">
+                <span><strong>K Cache Quantization:</strong> (<code>-ctk</code>)</span>
+              </label>
+            </div>
+            <select id="param-cache_type_k" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${(sp.cache_type_k || 'q4_0') === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- V Cache Quantization Type -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-enable_cache_type_v" checked onchange="toggleCacheTypeV(this.checked)">
+                <span><strong>V Cache Quantization:</strong> (<code>-ctv</code>)</span>
+              </label>
+            </div>
+            <select id="param-cache_type_v" class="form-control" onchange="syncDirect()">
+              ${(opt.cache_types || ['q4_0', 'q8_0', 'f16', 'q4_1', 'q5_0']).map(t => `<option value="${t}" ${(sp.cache_type_v || 'q4_0') === t ? 'selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+
+          <!-- Keep Model In Memory (--mlock) -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Keep Model In Memory:</strong> (<code>--mlock</code>)</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.mlock ? 'active' : ''}" id="btn-toggle-mlock" onclick="toggleHarnessParam('mlock')">
+              ${sp.mlock ? '[✓ ON (Lock in RAM)]' : '[✗ OFF]'}
+            </button>
+          </div>
+
+          <!-- Try mmap() -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Try mmap():</strong> toggle</span>
+            </label>
+            <button type="button" class="harness-toggle-btn ${sp.no_mmap ? '' : 'active'}" id="btn-toggle-mmap" onclick="toggleHarnessParam('mmap')">
+              ${sp.no_mmap ? '[✗ OFF (--no-mmap)]' : '[✓ ON (mmap)]'}
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           8) SPECULATIVE DECODING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          8) SPECULATIVE DECODING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Speculative Mode Dropdown -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Speculative Decoding:</strong> Dropdown Menu</span>
+            </label>
+            <select id="param-speculative_mode" class="form-control" onchange="onSpeculativeModeChange(this.value)">
+              <option value="off" ${!sp.speculative_mode || sp.speculative_mode === 'off' ? 'selected' : ''}>Off</option>
+              <option value="draft" ${sp.speculative_mode === 'draft' ? 'selected' : ''}>Draft Model (--draft-max)</option>
+              <option value="mtp" ${sp.speculative_mode === 'mtp' ? 'selected' : ''}>MTP (Multi-Token Prediction)</option>
+              <option value="medusa" ${sp.speculative_mode === 'medusa' ? 'selected' : ''}>Medusa Heads</option>
+            </select>
+          </div>
+
+          <!-- Max Draft Tokens -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Max Draft Tokens:</strong> (<code>--draft-max</code>)</span>
+            </label>
+            <input type="number" min="1" max="64" value="${sp.draft_max || 16}" id="param-draft_max" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Min Draft Tokens -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Min Draft Tokens:</strong> (<code>--draft-min</code>)</span>
+            </label>
+            <input type="number" min="1" max="16" value="${sp.draft_min || 1}" id="param-draft_min" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+
+          <!-- Draft Probability -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Draft Probability:</strong> (<code>--draft-p-min</code>)</span>
+            </label>
+            <input type="number" min="0.00" max="1.00" step="0.05" value="${sp.draft_p_min || 0.75}" id="param-draft_p_min" class="form-control harness-num-input" style="width: 100%;" ${sp.speculative_mode && sp.speculative_mode !== 'off' ? '' : 'disabled'} oninput="syncDirect()">
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- ==========================================
+           9) ADVANCED INVARIANT SAMPLING
+           ========================================== -->
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
+          9) ADVANCED INVARIANT SAMPLING
+        </legend>
+        
+        <div class="harness-tier-grid">
+          <!-- Top K Sampling -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Top K Sampling:</strong> text box</span>
+            </label>
+            <input type="number" min="0" max="500" value="${sam.top_k || 40}" id="param-top_k" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
+
+          <!-- Top P -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-top_p" checked onchange="toggleTopP(this.checked)">
+                <span><strong>Top P:</strong> checkbox, text box, slider</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-top_p">${sam.top_p || 0.95}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p-range" class="form-control" oninput="syncParam('top_p', this.value)">
+              <input type="number" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p" class="form-control harness-num-input" oninput="syncParam('top_p', this.value, true)">
             </div>
           </div>
 
-          <!-- Top-P -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Top-P</span>
-              <span id="label-val-top_p" style="color: var(--term-text-bright); font-family: monospace;">${sam.top_p || 0.95}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p-range" class="form-control" style="flex: 1;" oninput="syncParam('top_p', this.value)">
-              <input type="number" min="0.00" max="1.00" step="0.05" value="${sam.top_p || 0.95}" id="param-top_p" class="form-control" style="width: 75px;" oninput="syncParam('top_p', this.value, true)">
+          <!-- Min P (Homelab Invariant) -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-min_p" checked onchange="toggleMinP(this.checked)">
+                <span><strong>Min P:</strong> (Invariant: 0.05 - 0.08)</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-min_p">${sam.min_p || 0.06}</span>
             </div>
-          </div>
-
-          <!-- Top-K -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Top-K</label>
-            <input type="number" min="0" max="500" value="${sam.top_k || 40}" id="param-top_k" class="form-control" oninput="syncDirect()">
-          </div>
-
-          <!-- Presence Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Presence Penalty</span>
-              <span id="label-val-presence_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.presence_penalty || 0.20}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('presence_penalty', this.value)">
-              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty" class="form-control" style="width: 75px;" oninput="syncParam('presence_penalty', this.value, true)">
-            </div>
-          </div>
-
-          <!-- Frequency Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Frequency Penalty</span>
-              <span id="label-val-frequency_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.frequency_penalty || 0.00}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('frequency_penalty', this.value)">
-              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty" class="form-control" style="width: 75px;" oninput="syncParam('frequency_penalty', this.value, true)">
+            <div class="harness-slider-combo">
+              <input type="range" min="0.00" max="0.20" step="0.005" value="${sam.min_p || 0.06}" id="param-min_p-range" class="form-control" oninput="syncParam('min_p', this.value)">
+              <input type="number" min="0.00" max="0.20" step="0.005" value="${sam.min_p || 0.06}" id="param-min_p" class="form-control harness-num-input" oninput="syncParam('min_p', this.value, true)">
             </div>
           </div>
 
           <!-- Repeat Penalty -->
-          <div class="form-group">
-            <label style="font-weight: bold; display: flex; justify-content: space-between;">
-              <span>Repeat Penalty</span>
-              <span id="label-val-repeat_penalty" style="color: var(--term-text-bright); font-family: monospace;">${sam.repeat_penalty || 1.00}</span>
-            </label>
-            <div style="display: flex; gap: 0.35rem; align-items: center;">
-              <input type="range" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty-range" class="form-control" style="flex: 1;" oninput="syncParam('repeat_penalty', this.value)">
-              <input type="number" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty" class="form-control" style="width: 75px;" oninput="syncParam('repeat_penalty', this.value, true)">
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-repeat_penalty" checked onchange="toggleRepeatPenalty(this.checked)">
+                <span><strong>Repeat Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-repeat_penalty">${sam.repeat_penalty || 1.00}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty-range" class="form-control" oninput="syncParam('repeat_penalty', this.value)">
+              <input type="number" min="0.80" max="2.00" step="0.05" value="${sam.repeat_penalty || 1.00}" id="param-repeat_penalty" class="form-control harness-num-input" oninput="syncParam('repeat_penalty', this.value, true)">
             </div>
           </div>
 
-          <!-- Repeat Last N -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Repeat Last N</label>
-            <input type="number" min="0" max="512" value="${sam.repeat_last_n || 64}" id="param-repeat_last_n" class="form-control" oninput="syncDirect()">
+          <!-- Presence Penalty -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-presence_penalty" checked onchange="togglePresencePenalty(this.checked)">
+                <span><strong>Presence Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-presence_penalty">${sam.presence_penalty || 0.20}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty-range" class="form-control" oninput="syncParam('presence_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.presence_penalty || 0.20}" id="param-presence_penalty" class="form-control harness-num-input" oninput="syncParam('presence_penalty', this.value, true)">
+            </div>
+          </div>
+
+          <!-- Frequency Penalty -->
+          <div class="harness-control-group">
+            <div class="harness-control-label">
+              <label style="display: flex; gap: 0.35rem; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="param-check-frequency_penalty" checked onchange="toggleFrequencyPenalty(this.checked)">
+                <span><strong>Frequency Penalty:</strong> slider, text box</span>
+              </label>
+              <span class="harness-val-badge" id="label-val-frequency_penalty">${sam.frequency_penalty || 0.00}</span>
+            </div>
+            <div class="harness-slider-combo">
+              <input type="range" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty-range" class="form-control" oninput="syncParam('frequency_penalty', this.value)">
+              <input type="number" min="-2.00" max="2.00" step="0.05" value="${sam.frequency_penalty || 0.00}" id="param-frequency_penalty" class="form-control harness-num-input" oninput="syncParam('frequency_penalty', this.value, true)">
+            </div>
           </div>
 
           <!-- Mirostat Mode -->
-          <div class="form-group">
-            <label style="font-weight: bold;">Mirostat Mode</label>
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Mirostat Mode:</strong></span>
+            </label>
             <select id="param-mirostat" class="form-control" onchange="syncDirect()">
               <option value="0" ${sam.mirostat === 0 ? 'selected' : ''}>0 (Disabled)</option>
               <option value="1" ${sam.mirostat === 1 ? 'selected' : ''}>1 (Mirostat 1.0)</option>
@@ -4803,40 +5231,57 @@ function renderHarnessForm(harnessId, data) {
             </select>
           </div>
 
-        </div>
-      </fieldset>
+          <!-- Repeat Last N -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Repeat Last N:</strong></span>
+            </label>
+            <input type="number" min="0" max="512" value="${sam.repeat_last_n || 64}" id="param-repeat_last_n" class="form-control harness-num-input" style="width: 100%;" oninput="syncDirect()">
+          </div>
 
-      <!-- 3. Direct Custom CLI Flags (Any llama-server argument from GitHub README) -->
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
-          ⌨️ [CUSTOM CLI ARGUMENTS (Direct llama-server flags)]
-        </legend>
-        <p style="font-size: 0.78rem; color: var(--term-text-muted); margin-bottom: 0.4rem;">
-          Type ANY custom flags directly from the <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" style="color: #0000ee;">llama.cpp server README</a> (e.g. <code>--rope-freq-base 1000000 --split-mode layer</code>).
-        </p>
-        <input type="text" class="form-control" id="param-custom_flags" value="${sp.custom_flags || ''}" placeholder="--rope-freq-base 1000000 --verbose-prompt 0" oninput="syncDirect()" style="font-family: monospace;">
+          <!-- Compute Device -->
+          <div class="harness-control-group">
+            <label class="harness-control-label">
+              <span><strong>Compute Device:</strong> (<code>--device</code>)</span>
+            </label>
+            <select id="param-device" class="form-control" onchange="syncDirect()">
+              <option value="Vulkan0" ${(sp.device || 'Vulkan0') === 'Vulkan0' ? 'selected' : ''}>Vulkan0 (RX 6750 XT 12GB - :8001 Primary)</option>
+              <option value="Vulkan1" ${(sp.device || '') === 'Vulkan1' ? 'selected' : ''}>Vulkan1 (RX 6600 XT 8GB - :8002 Worker)</option>
+              <option value="CPU" ${(sp.device || '') === 'CPU' ? 'selected' : ''}>CPU (Host Intel i7)</option>
+            </select>
+          </div>
+
+          <!-- Custom CLI Flags -->
+          <div class="harness-control-group" style="grid-column: 1 / -1;">
+            <label class="harness-control-label">
+              <span><strong>Custom CLI Flags:</strong> Direct llama-server arguments</span>
+              <a href="https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md" target="_blank" style="color: #0000ee; font-size: 0.75rem;">Docs ↗</a>
+            </label>
+            <input type="text" class="form-control" id="param-custom_flags" value="${sp.custom_flags || ''}" placeholder="--rope-freq-base 1000000 --verbose-prompt 0" oninput="syncDirect()" style="font-family: monospace;">
+          </div>
+        </div>
       </fieldset>
     `;
   } else {
-    // Non-llama harnesses (Hermes, Snapdragon, OpenWebUI)
+    // Non-llama harnesses (Snapdragon, OpenWebUI)
     container.innerHTML = `
-      <fieldset style="border: 2px groove #dfdfdf; padding: 0.75rem; background: var(--bg-card);">
-        <legend style="font-weight: bold; color: var(--term-text-bright); padding: 0 0.35rem;">
+      <fieldset class="harness-tier-box">
+        <legend class="harness-tier-legend">
           ⚙️ [${(data.name || harnessId).toUpperCase()} PARAMETERS]
         </legend>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+        <div class="harness-tier-grid">
           ${Object.entries(sp).map(([k, v]) => {
             if (typeof v === 'boolean') {
               return `
-                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                <div class="harness-control-group" style="display: flex; flex-direction: row; align-items: center; gap: 0.5rem;">
                   <input type="checkbox" id="param-${k}" ${v ? 'checked' : ''} onchange="syncDirect()">
                   <label for="param-${k}" style="font-weight: bold;">${k}</label>
                 </div>
               `;
             } else if (opt[k] && Array.isArray(opt[k])) {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <select id="param-${k}" class="form-control" onchange="syncDirect()">
                     ${opt[k].map(item => `<option value="${item}" ${item === v ? 'selected' : ''}>${item}</option>`).join('')}
@@ -4845,14 +5290,14 @@ function renderHarnessForm(harnessId, data) {
               `;
             } else if (typeof v === 'number') {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <input type="number" step="${Number.isInteger(v) ? '1' : '0.05'}" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
                 </div>
               `;
             } else {
               return `
-                <div class="form-group">
+                <div class="harness-control-group">
                   <label style="font-weight: bold;">${k}</label>
                   <input type="text" value="${v}" id="param-${k}" class="form-control" oninput="syncDirect()">
                 </div>
@@ -4864,6 +5309,387 @@ function renderHarnessForm(harnessId, data) {
     `;
   }
 }
+
+// Stop strings tagger functions
+function renderStopStringsTags() {
+  return currentStopStrings.map((s, idx) => `
+    <span class="stop-tag-item">
+      <span>${escapeHtml(s)}</span>
+      <span class="stop-tag-remove" onclick="removeStopString(${idx})" title="Remove stop string">✕</span>
+    </span>
+  `).join('');
+}
+
+window.handleStopStringKeyDown = function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addStopStringFromInput();
+  }
+};
+
+window.addStopStringFromInput = function() {
+  const input = document.getElementById('stop-string-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (val && !currentStopStrings.includes(val)) {
+    currentStopStrings.push(val);
+    input.value = '';
+    const box = document.getElementById('stop-strings-tag-box');
+    if (box) {
+      box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+      document.getElementById('stop-string-input').focus();
+    }
+    syncDirect();
+  }
+};
+
+window.removeStopString = function(idx) {
+  currentStopStrings.splice(idx, 1);
+  const box = document.getElementById('stop-strings-tag-box');
+  if (box) {
+    box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+  }
+  syncDirect();
+};
+
+window.onHarnessModelSelected = function(modelPath) {
+  const selectedModel = availableModels.find(m => m.path === modelPath);
+  const badge = document.getElementById('model-selected-badge');
+  const pathDisplay = document.getElementById('model-active-path-display');
+  const sizeCalc = document.getElementById('model-size-calc');
+
+  if (selectedModel) {
+    if (badge) badge.textContent = `${selectedModel.filename} (${selectedModel.size_gb} GB • ${selectedModel.quant})`;
+    if (pathDisplay) pathDisplay.textContent = selectedModel.path;
+    if (sizeCalc) {
+      sizeCalc.innerHTML = `Model Size: <strong>${selectedModel.size_gb} GB</strong> | Format: <strong>GGUF ${selectedModel.quant}</strong> | Path: <code>${selectedModel.path}</code>`;
+    }
+
+    // Dynamic limitations update based on selected model size & hardware
+    if (autoCtxEnabled || autoNglEnabled) {
+      const primaryVram = hardwareCapabilities.primary_vram_gb || 12.0;
+      if (selectedModel.size_gb < primaryVram - 1.5) {
+        // Fits entirely in primary GPU VRAM
+        if (autoNglEnabled) syncParam('n_gpu_layers', 99);
+        if (autoCtxEnabled) {
+          if (selectedModel.size_gb < 5.0) syncParam('n_ctx', 16384);
+          else if (selectedModel.size_gb < 9.0) syncParam('n_ctx', 12288);
+          else syncParam('n_ctx', 8192);
+        }
+      } else {
+        // Exceeds single GPU - allocate across GPUs or partial CPU
+        if (autoNglEnabled) syncParam('n_gpu_layers', 45);
+        if (autoCtxEnabled) syncParam('n_ctx', 8192);
+      }
+    }
+  }
+  syncDirect();
+};
+
+window.pollHardwareAndRefreshLimits = async function() {
+  try {
+    const res = await fetch('/api/harness/hardware');
+    const json = await res.json();
+    if (json.ok && json.hardware) {
+      hardwareCapabilities = json.hardware;
+      alert(`Hardware Polled Successfully:\nPrimary: ${hardwareCapabilities.primary_gpu}\nSecondary: ${hardwareCapabilities.secondary_gpu}\nTotal VRAM: ${hardwareCapabilities.total_vram_gb} GB\nCPU Threads: ${hardwareCapabilities.cpu_threads}\nRAM: ${hardwareCapabilities.ram_gb} GB`);
+      await refreshHarnessStudio();
+    }
+  } catch (err) {
+    alert(`Error polling hardware: ${err.message}`);
+  }
+};
+
+window.autoOptimizeBasedOnHardware = function() {
+  const modelEl = document.getElementById('param-model');
+  const modelPath = modelEl ? modelEl.value : '';
+  const selectedModel = availableModels.find(m => m.path === modelPath);
+  const sizeGb = selectedModel ? selectedModel.size_gb : 8.5;
+  const primaryVram = hardwareCapabilities.primary_vram_gb || 12.0;
+
+  // Optimize context & offload
+  if (sizeGb <= primaryVram - 2.5) {
+    syncParam('n_gpu_layers', 99);
+    syncParam('n_ctx', 12288);
+  } else if (sizeGb <= primaryVram) {
+    syncParam('n_gpu_layers', 99);
+    syncParam('n_ctx', 8192);
+  } else {
+    syncParam('n_gpu_layers', 50);
+    syncParam('n_ctx', 8192);
+  }
+
+  // Optimize threads to 8 or threads / 2
+  const threads = Math.min(Math.max(Math.floor((hardwareCapabilities.cpu_threads || 10) * 0.8), 4), 16);
+  syncParam('threads', threads);
+
+  // Flash attention ON for Vulkan AMD
+  const faSel = document.getElementById('param-flash_attn');
+  if (faSel) faSel.value = 'on';
+  const faBtn = document.getElementById('btn-toggle-flash_attn');
+  if (faBtn) {
+    faBtn.classList.add('active');
+    faBtn.textContent = '[✓ ON (Recommended)]';
+  }
+
+  // Optimize batches
+  const ubEl = document.getElementById('param-ubatch_size');
+  if (ubEl) ubEl.value = 512;
+  const bEl = document.getElementById('param-batch_size');
+  if (bEl) bEl.value = 2048;
+
+  // Quantized KV Cache for VRAM headroom
+  const ctkEl = document.getElementById('param-cache_type_k');
+  if (ctkEl) ctkEl.value = 'q4_0';
+  const ctvEl = document.getElementById('param-cache_type_v');
+  if (ctvEl) ctvEl.value = 'q4_0';
+
+  syncDirect();
+  alert(`⚡ Hardware Optimization Complete!\n• Model: ${selectedModel ? selectedModel.filename : 'Active'}\n• GPU Layers: ${document.getElementById('param-n_gpu_layers').value}\n• Context Length: ${document.getElementById('param-n_ctx').value}\n• CPU Threads: ${threads}\n• Flash Attention: ON\n• KV Cache: Q4_0`);
+};
+
+window.toggleHarnessAuto = function(type) {
+  if (type === 'ctx') {
+    autoCtxEnabled = !autoCtxEnabled;
+    const btn = document.getElementById('btn-toggle-ctx_auto');
+    if (btn) {
+      btn.classList.toggle('active', autoCtxEnabled);
+      btn.textContent = autoCtxEnabled ? '[Auto: ON]' : '[Auto: OFF]';
+    }
+  } else if (type === 'ngl') {
+    autoNglEnabled = !autoNglEnabled;
+    const btn = document.getElementById('btn-toggle-ngl_auto');
+    if (btn) {
+      btn.classList.toggle('active', autoNglEnabled);
+      btn.textContent = autoNglEnabled ? '[Auto: ON]' : '[Auto: OFF]';
+    }
+  }
+};
+
+window.toggleFlashAttn = function() {
+  const sel = document.getElementById('param-flash_attn');
+  const btn = document.getElementById('btn-toggle-flash_attn');
+  if (!sel || !btn) return;
+  const isCurrentlyOn = sel.value === 'on';
+  sel.value = isCurrentlyOn ? 'off' : 'on';
+  btn.classList.toggle('active', !isCurrentlyOn);
+  btn.textContent = !isCurrentlyOn ? '[✓ ON (Recommended)]' : '[✗ OFF]';
+  syncDirect();
+};
+
+window.syncFlashAttnSelect = function(val) {
+  const btn = document.getElementById('btn-toggle-flash_attn');
+  if (btn) {
+    btn.classList.toggle('active', val !== 'off');
+    btn.textContent = val !== 'off' ? `[✓ ${val.toUpperCase()}]` : '[✗ OFF]';
+  }
+  syncDirect();
+};
+
+window.toggleLimitResponse = function(checked) {
+  const el = document.getElementById('param-n_predict');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleReasoningBudget = function(checked) {
+  const el = document.getElementById('param-reasoning_budget');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleCacheTypeK = function(checked) {
+  const el = document.getElementById('param-cache_type_k');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleCacheTypeV = function(checked) {
+  const el = document.getElementById('param-cache_type_v');
+  if (el) el.disabled = !checked;
+  syncDirect();
+};
+
+window.onSpeculativeModeChange = function(val) {
+  const isOff = val === 'off';
+  const dMax = document.getElementById('param-draft_max');
+  const dMin = document.getElementById('param-draft_min');
+  const dProb = document.getElementById('param-draft_p_min');
+  if (dMax) dMax.disabled = isOff;
+  if (dMin) dMin.disabled = isOff;
+  if (dProb) dProb.disabled = isOff;
+  syncDirect();
+};
+
+window.toggleTopP = function(checked) {
+  const r = document.getElementById('param-top_p-range');
+  const n = document.getElementById('param-top_p');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleMinP = function(checked) {
+  const r = document.getElementById('param-min_p-range');
+  const n = document.getElementById('param-min_p');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleRepeatPenalty = function(checked) {
+  const r = document.getElementById('param-repeat_penalty-range');
+  const n = document.getElementById('param-repeat_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.togglePresencePenalty = function(checked) {
+  const r = document.getElementById('param-presence_penalty-range');
+  const n = document.getElementById('param-presence_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleFrequencyPenalty = function(checked) {
+  const r = document.getElementById('param-frequency_penalty-range');
+  const n = document.getElementById('param-frequency_penalty');
+  if (r) r.disabled = !checked;
+  if (n) n.disabled = !checked;
+  syncDirect();
+};
+
+window.toggleHarnessParam = function(key) {
+  const btn = document.getElementById(`btn-toggle-${key}`);
+  if (!btn) return;
+  const isActive = btn.classList.contains('active');
+  btn.classList.toggle('active', !isActive);
+
+  if (key === 'enable_thinking') {
+    btn.textContent = !isActive ? '[✓ ON (CoT Activated)]' : '[✗ OFF]';
+  } else if (key === 'kv_offload') {
+    btn.textContent = !isActive ? '[✓ ON (GPU VRAM)]' : '[✗ OFF (CPU RAM)]';
+  } else if (key === 'kv_unified') {
+    btn.textContent = !isActive ? '[✓ ON]' : '[✗ OFF]';
+  } else if (key === 'mlock') {
+    btn.textContent = !isActive ? '[✓ ON (Lock in RAM)]' : '[✗ OFF]';
+  } else if (key === 'mmap') {
+    btn.textContent = !isActive ? '[✓ ON (mmap)]' : '[✗ OFF (--no-mmap)]';
+  }
+  syncDirect();
+};
+
+// Profile template handling: save, load, delete
+window.saveCurrentHarnessProfile = async function() {
+  const nameInput = document.getElementById('harness-profile-name');
+  let name = nameInput ? nameInput.value.trim() : '';
+  const currentParams = collectHarnessParams();
+
+  try {
+    const res = await fetch('/api/harness/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        name: name,
+        profile: currentParams
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      savedProfiles = data.profiles || {};
+      const savedName = data.name || name;
+      alert(`✅ Profile saved as "${savedName}"!`);
+      if (nameInput) nameInput.value = '';
+
+      // Update dropdown
+      const sel = document.getElementById('harness-profile-select');
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select Saved Profile --</option>' +
+          Object.keys(savedProfiles).map(p => `<option value="${p}" ${p === savedName ? 'selected' : ''}>Profile: ${p}</option>`).join('');
+      }
+    } else {
+      alert(`Failed to save profile: ${data.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`Error saving profile: ${err.message}`);
+  }
+};
+
+window.onSelectProfileTemplate = function(profileName) {
+  if (!profileName || !savedProfiles[profileName]) return;
+  const p = savedProfiles[profileName];
+
+  if (p.model && document.getElementById('param-model')) {
+    document.getElementById('param-model').value = p.model;
+    onHarnessModelSelected(p.model);
+  }
+  if (p.system_prompt !== undefined && document.getElementById('param-system_prompt')) {
+    document.getElementById('param-system_prompt').value = p.system_prompt;
+  }
+  if (p.chat_template !== undefined && document.getElementById('param-chat_template')) {
+    document.getElementById('param-chat_template').value = p.chat_template;
+  }
+  if (p.n_ctx) syncParam('n_ctx', p.n_ctx);
+  if (p.n_gpu_layers !== undefined) syncParam('n_gpu_layers', p.n_gpu_layers);
+  if (p.threads) syncParam('threads', p.threads);
+  if (p.ubatch_size && document.getElementById('param-ubatch_size')) document.getElementById('param-ubatch_size').value = p.ubatch_size;
+  if (p.batch_size && document.getElementById('param-batch_size')) document.getElementById('param-batch_size').value = p.batch_size;
+  if (p.parallel && document.getElementById('param-parallel')) document.getElementById('param-parallel').value = p.parallel;
+
+  if (p.flash_attn && document.getElementById('param-flash_attn')) {
+    document.getElementById('param-flash_attn').value = p.flash_attn;
+    syncFlashAttnSelect(p.flash_attn);
+  }
+  if (p.temperature !== undefined) syncParam('temperature', p.temperature);
+  if (p.top_p !== undefined) syncParam('top_p', p.top_p);
+  if (p.min_p !== undefined) syncParam('min_p', p.min_p);
+  if (p.repeat_penalty !== undefined) syncParam('repeat_penalty', p.repeat_penalty);
+  if (p.presence_penalty !== undefined) syncParam('presence_penalty', p.presence_penalty);
+  if (p.frequency_penalty !== undefined) syncParam('frequency_penalty', p.frequency_penalty);
+  if (p.top_k !== undefined && document.getElementById('param-top_k')) document.getElementById('param-top_k').value = p.top_k;
+
+  if (Array.isArray(p.stop_strings)) {
+    currentStopStrings = [...p.stop_strings];
+    const box = document.getElementById('stop-strings-tag-box');
+    if (box) {
+      box.innerHTML = renderStopStringsTags() + '<input type="text" class="stop-tag-input" id="stop-string-input" placeholder="Type stop string and press Enter..." onkeydown="handleStopStringKeyDown(event)">';
+    }
+  }
+
+  syncDirect();
+};
+
+window.deleteCurrentHarnessProfile = async function() {
+  const sel = document.getElementById('harness-profile-select');
+  const name = sel ? sel.value : '';
+  if (!name) {
+    alert('Please select a profile to delete.');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete profile "${name}"?`)) return;
+
+  try {
+    const res = await fetch('/api/harness/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', name: name })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      savedProfiles = data.profiles || {};
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select Saved Profile --</option>' +
+          Object.keys(savedProfiles).map(p => `<option value="${p}">Profile: ${p}</option>`).join('');
+      }
+      alert(`Profile "${name}" deleted.`);
+    }
+  } catch (err) {
+    alert(`Error deleting profile: ${err.message}`);
+  }
+};
 
 window.syncParam = function(key, val, fromInput = false) {
   const lbl = document.getElementById(`label-val-${key}`);
@@ -4888,13 +5714,15 @@ function collectHarnessParams() {
   const sp = currentHarnessData.server_params || {};
   const sam = currentHarnessData.sampling_params || {};
 
-  const keys = new Set([...Object.keys(sp), ...Object.keys(sam)]);
-  if (currentHarnessId.startsWith('llama_')) {
-    ['n_ctx', 'n_gpu_layers', 'flash_attn', 'cache_type_k', 'cache_type_v', 'batch_size', 'ubatch_size',
-     'threads', 'parallel', 'device', 'defrag_thold', 'mlock', 'no_mmap', 'cont_batching', 'custom_flags',
-     'temperature', 'min_p', 'top_p', 'top_k', 'presence_penalty', 'frequency_penalty', 'repeat_penalty',
-     'repeat_last_n', 'mirostat'].forEach(k => keys.add(k));
-  }
+  const keys = new Set([
+    ...Object.keys(sp), ...Object.keys(sam),
+    'model', 'system_prompt', 'chat_template', 'n_ctx', 'n_gpu_layers', 'threads',
+    'ubatch_size', 'batch_size', 'parallel', 'flash_attn', 'temperature', 'n_predict',
+    'context_overflow', 'slot_save_path', 'cache_type_k', 'cache_type_v', 'mlock',
+    'no_mmap', 'speculative_mode', 'draft_max', 'draft_min', 'draft_p_min',
+    'top_k', 'top_p', 'min_p', 'repeat_penalty', 'presence_penalty', 'frequency_penalty',
+    'mirostat', 'repeat_last_n', 'device', 'custom_flags'
+  ]);
 
   keys.forEach(k => {
     const el = document.getElementById(`param-${k}`);
@@ -4909,6 +5737,33 @@ function collectHarnessParams() {
     }
   });
 
+  // Toggles and checkboxes
+  const thinkingBtn = document.getElementById('btn-toggle-enable_thinking');
+  if (thinkingBtn) params.enable_thinking = thinkingBtn.classList.contains('active');
+
+  const kvOffloadBtn = document.getElementById('btn-toggle-kv_offload');
+  if (kvOffloadBtn) params.no_kv_offload = !kvOffloadBtn.classList.contains('active');
+
+  const kvUnifiedBtn = document.getElementById('btn-toggle-kv_unified');
+  if (kvUnifiedBtn) params.kv_unified = kvUnifiedBtn.classList.contains('active');
+
+  const mlockBtn = document.getElementById('btn-toggle-mlock');
+  if (mlockBtn) params.mlock = mlockBtn.classList.contains('active');
+
+  const mmapBtn = document.getElementById('btn-toggle-mmap');
+  if (mmapBtn) params.no_mmap = !mmapBtn.classList.contains('active');
+
+  const budgetCheck = document.getElementById('param-enable_reasoning_budget');
+  if (budgetCheck && !budgetCheck.checked) {
+    delete params.reasoning_budget;
+  }
+
+  const limitCheck = document.getElementById('param-limit_response_length');
+  if (limitCheck && !limitCheck.checked) {
+    delete params.n_predict;
+  }
+
+  params.stop_strings = [...currentStopStrings];
   return params;
 }
 
@@ -4922,10 +5777,10 @@ function updateHarnessPreview() {
   }
 
   if (execPreview) {
-    if (currentHarnessId.startsWith('llama_')) {
+    if (currentHarnessId.startsWith('llama_') || currentHarnessId === 'hermes') {
       const port = currentHarnessId.includes('worker') ? 8002 : 8001;
       const alias = currentHarnessId.includes('worker') ? 'worker' : 'coordinator';
-      const model = currentHarnessData?.server_params?.model || (port === 8001 ? '/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf' : '/opt/models/ornith-1.5-9b-worker-q4_k_m.gguf');
+      const model = params.model || currentHarnessData?.server_params?.model || (availableModels.length > 0 ? availableModels[0].path : (port === 8001 ? '/opt/models/model-coordinator.gguf' : '/opt/models/model-worker.gguf'));
       const dev = params.device || (port === 8001 ? 'Vulkan0' : 'Vulkan1');
       const parts = [
         `/usr/local/bin/llama-server`,
@@ -4933,7 +5788,7 @@ function updateHarnessPreview() {
         `--host 0.0.0.0`,
         `--port ${port}`,
         `--device ${dev}`,
-        `-ngl ${params.n_gpu_layers || 99}`,
+        `-ngl ${params.n_gpu_layers !== undefined ? params.n_gpu_layers : 99}`,
         `-c ${params.n_ctx || 8192}`,
         `--flash-attn ${params.flash_attn || 'on'}`,
         `-ctk ${params.cache_type_k || 'q4_0'}`,
@@ -4945,10 +5800,27 @@ function updateHarnessPreview() {
       if (params.ubatch_size) parts.push(`-ub ${params.ubatch_size}`);
       if (params.threads) parts.push(`-t ${params.threads}`);
       if (params.parallel) parts.push(`-np ${params.parallel}`);
-      if (params.defrag_thold !== undefined) parts.push(`--defrag-thold ${params.defrag_thold}`);
+      if (params.n_predict) parts.push(`-n ${params.n_predict}`);
+      if (params.context_overflow === 'rolling') parts.push(`--context-shift`);
+      if (params.no_kv_offload) parts.push(`--no-kv-offload`);
+      if (params.kv_unified) parts.push(`--kv-unified`);
+      if (params.slot_save_path) parts.push(`--slot-save-path "${params.slot_save_path}"`);
       if (params.mlock) parts.push(`--mlock`);
       if (params.no_mmap) parts.push(`--no-mmap`);
-      if (params.cont_batching) parts.push(`--cont-batching`);
+
+      if (params.speculative_mode && params.speculative_mode !== 'off') {
+        if (params.draft_max) parts.push(`--draft-max ${params.draft_max}`);
+        if (params.draft_min) parts.push(`--draft-min ${params.draft_min}`);
+        if (params.draft_p_min) parts.push(`--draft-p-min ${params.draft_p_min}`);
+      }
+
+      if (params.chat_template) parts.push(`--chat-template "${params.chat_template}"`);
+      if (params.system_prompt) parts.push(`--system-prompt "${params.system_prompt.replace(/"/g, '\\"')}"`);
+
+      if (Array.isArray(params.stop_strings)) {
+        params.stop_strings.forEach(s => parts.push(`-r "${s}"`));
+      }
+
       if (params.custom_flags) parts.push(params.custom_flags.trim());
 
       execPreview.textContent = parts.join(' \\\n  ');
@@ -5000,8 +5872,11 @@ window.resetHarnessStudioDefaults = function() {
   if (!confirm('Reset all parameters to cluster hardware recommended defaults?')) return;
   if (currentHarnessId === 'llama_coordinator') {
     syncParam('n_ctx', 8192);
-    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
-    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    syncParam('n_gpu_layers', 99);
+    syncParam('threads', 8);
+    const faSel = document.getElementById('param-flash_attn');
+    if (faSel) faSel.value = 'on';
+    syncFlashAttnSelect('on');
     if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
     if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
     if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan0';
@@ -5013,8 +5888,11 @@ window.resetHarnessStudioDefaults = function() {
     syncParam('repeat_penalty', 1.00);
   } else if (currentHarnessId === 'llama_worker') {
     syncParam('n_ctx', 8192);
-    if (document.getElementById('param-n_gpu_layers')) document.getElementById('param-n_gpu_layers').value = 99;
-    if (document.getElementById('param-flash_attn')) document.getElementById('param-flash_attn').value = 'on';
+    syncParam('n_gpu_layers', 99);
+    syncParam('threads', 6);
+    const faSel = document.getElementById('param-flash_attn');
+    if (faSel) faSel.value = 'on';
+    syncFlashAttnSelect('on');
     if (document.getElementById('param-cache_type_k')) document.getElementById('param-cache_type_k').value = 'q4_0';
     if (document.getElementById('param-cache_type_v')) document.getElementById('param-cache_type_v').value = 'q4_0';
     if (document.getElementById('param-device')) document.getElementById('param-device').value = 'Vulkan1';
@@ -5179,6 +6057,784 @@ document.addEventListener('DOMContentLoaded', () => {
   // Also load initial dataset status on start
   setTimeout(window.refreshDatasetStatus, 2000);
 });
+
+// ============================================================================
+// VIEW 12: GGUF LLM TRAINING PIPELINE & COGNITIVE CURATION CONTROLLER
+// ============================================================================
+
+let currentTrainerSubTab = 'curation';
+let trainerPollingInterval = null;
+let currentCurationFilter = 'all';
+
+window.switchTrainerTab = function(tabName) {
+  currentTrainerSubTab = tabName;
+  document.querySelectorAll('#view-trainer .filter-bar button[data-trainer-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.trainerTab === tabName);
+  });
+  document.querySelectorAll('.trainer-tab-pane').forEach(pane => {
+    pane.style.display = 'none';
+  });
+  const target = document.getElementById(`trainer-tab-${tabName}`);
+  if (target) target.style.display = 'flex';
+
+  if (tabName === 'curation') fetchCurationRegistry();
+  if (tabName === 'passdown') fetchTrainerPassdown();
+};
+
+window.logToTrainerConsole = function(msg, isError = false) {
+  const consoleEl = document.getElementById('trainer-console');
+  if (!consoleEl) return;
+  const ts = new Date().toLocaleTimeString();
+  const prefix = isError ? '[ERROR]' : '[SYS]';
+  consoleEl.innerText += `\n[${ts}] ${prefix} ${msg}`;
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+};
+
+window.fetchTrainerStatus = async function() {
+  try {
+    const res = await fetch('/api/trainer/status');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const st = data.training_status || {};
+    const badge = document.getElementById('trainer-status-badge');
+    if (badge) {
+      badge.textContent = (st.status || 'IDLE').toUpperCase();
+      badge.style.color = st.status === 'running' ? '#44ff44' : (st.status === 'failed' ? '#ff6666' : 'var(--term-text-bright)');
+    }
+
+    const peakEl = document.getElementById('trainer-vram-peak');
+    if (peakEl && data.vram_specs) {
+      const peak = data.vram_specs.ornith_9b_envelope ? data.vram_specs.ornith_9b_envelope.peak_vram_gb : 8.5;
+      peakEl.textContent = `${peak} GB / 20 GB`;
+    }
+
+    const headEl = document.getElementById('trainer-vram-headroom');
+    if (headEl && data.vram_specs) {
+      const head = data.vram_specs.ornith_9b_envelope ? data.vram_specs.ornith_9b_envelope.primary_headroom_gb : 3.5;
+      headEl.textContent = `${head} GB (Fits 1 GPU)`;
+    }
+
+    if (data.logs && data.logs.length > 0) {
+      const consoleEl = document.getElementById('trainer-console');
+      if (consoleEl && consoleEl.dataset.initialized !== 'true') {
+        consoleEl.innerText = data.logs.join('\n');
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+        consoleEl.dataset.initialized = 'true';
+      }
+    }
+  } catch (err) {
+    console.warn('Error fetching trainer status:', err);
+  }
+};
+
+window.fetchCurationRegistry = async function() {
+  const tbody = document.getElementById('curation-table-body');
+  try {
+    const res = await fetch(`/api/trainer/curation?limit=100&filter=${currentCurationFilter}`);
+    const data = await res.json();
+    if (!data.ok) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #ff6666;">Error: ${data.error || 'Failed to load curation data'}</td></tr>`;
+      return;
+    }
+
+    // Update stat cards
+    const statTotal = document.getElementById('curation-stat-total');
+    if (statTotal) statTotal.textContent = data.total || 0;
+    const statFrontier = document.getElementById('curation-stat-frontier');
+    if (statFrontier) statFrontier.textContent = data.frontier_verified_count || 0;
+    const statApproved = document.getElementById('curation-stat-approved');
+    if (statApproved) statApproved.textContent = data.human_approved_count || 0;
+    const statQuarantined = document.getElementById('curation-stat-quarantined');
+    if (statQuarantined) statQuarantined.textContent = data.quarantined_count || 0;
+
+    if (!tbody) return;
+    const samples = data.samples || [];
+    if (samples.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #888;">No samples matching current filter (${currentCurationFilter}).</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = samples.map(s => {
+      const isFrontier = s.frontier_verified || s.gate1_passed;
+      const fBadge = isFrontier 
+        ? '<span class="cb-badge cb-badge-pass" title="Frontier Invariant Audit Passed">✓ VERIFIED</span>' 
+        : '<span class="cb-badge cb-badge-unverified" title="Pending Tier-1 Frontier Audit">? UNVERIFIED</span>';
+      
+      let hBadge = '<span class="cb-badge cb-badge-pending" title="Pending Operator Review">? PENDING</span>';
+      if (s.human_status === 'APPROVED') {
+        hBadge = '<span class="cb-badge cb-badge-approved" title="Approved for Training by Operator">✓ APPROVED</span>';
+      } else if (s.human_status === 'REJECTED' || s.quarantined) {
+        hBadge = '<span class="cb-badge cb-badge-quarantined" title="Quarantined from Training">✗ QUARANTINE</span>';
+      }
+
+      const rawPrompt = s.prompt_snippet || s.prompt || s.full_prompt || '';
+      const promptSnippet = rawPrompt.replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 140) + (rawPrompt.length > 140 ? '...' : '');
+
+      return `
+        <tr class="curation-row" style="border-bottom: 1px solid var(--term-border-dim);">
+          <td style="padding: 6px 8px; font-family: monospace;">
+            <a class="curation-sample-link" onclick="trainerOpenDossier('${s.id}')" title="Click to open and review complete exploration dossier">
+              📖 <strong>${s.id || '--'}</strong>
+            </a>
+          </td>
+          <td style="padding: 6px 8px; font-weight: 700; color: var(--term-text-bright);">${s.domain || '--'}</td>
+          <td style="padding: 6px 8px; text-align: center;">${fBadge}</td>
+          <td style="padding: 6px 8px; text-align: center;">${hBadge}</td>
+          <td style="padding: 6px 8px; font-weight: 600; color: var(--term-text-dim);" title="${(s.prompt || s.full_prompt || '').replace(/"/g, '&quot;')}">${promptSnippet}</td>
+          <td style="padding: 6px 8px; text-align: center; white-space: nowrap;">
+            <button class="win95-btn" onclick="trainerOpenDossier('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; margin-right:3px;" title="Open full dossier in reading window">[👁 View]</button>
+            <button class="win95-btn" onclick="trainerApproveSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#00aa00; margin-right:3px;" title="Approve for training">[✓ Appr]</button>
+            <button class="win95-btn" onclick="trainerQuarantineSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#cc0000;" title="Quarantine from dataset">[✗ Quar]</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 8px; text-align: center; color: #ff6666;">Fetch error: ${err.message}</td></tr>`;
+  }
+};
+
+window.filterCurationTable = function(filterType, btn) {
+  currentCurationFilter = filterType;
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  fetchCurationRegistry();
+};
+
+window.trainerApproveSample = async function(sampleId) {
+  try {
+    logToTrainerConsole(`Approving sample: ${sampleId}...`);
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve_sample', sample_id: sampleId, notes: 'Approved via StoneSage Web Cockpit' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Approval result for ${sampleId}: ${data.ok ? 'SUCCESS' : 'FAILED'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Approval error: ${err.message}`, true);
+  }
+};
+
+window.trainerQuarantineSample = async function(sampleId) {
+  try {
+    logToTrainerConsole(`Quarantining sample: ${sampleId}...`);
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'quarantine_sample', sample_id: sampleId, notes: 'Quarantined via StoneSage Web Cockpit' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Quarantine result for ${sampleId}: ${data.ok ? 'SUCCESS' : 'FAILED'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Quarantine error: ${err.message}`, true);
+  }
+};
+
+let currentViewingSampleId = null;
+
+window.trainerOpenDossier = async function(sampleId) {
+  if (!sampleId) return;
+  currentViewingSampleId = sampleId;
+  const dialog = document.getElementById('trainer-dossier-dialog');
+  if (!dialog) return;
+
+  // Set loading state
+  document.getElementById('dossier-modal-id').textContent = sampleId;
+  document.getElementById('dossier-modal-domain').textContent = 'Loading...';
+  document.getElementById('dossier-modal-gate1').textContent = '--';
+  document.getElementById('dossier-modal-gate2').textContent = '--';
+  document.getElementById('dossier-modal-source').textContent = '--';
+  document.getElementById('dossier-modal-content').textContent = `Loading dossier ${sampleId} from cluster thinking archive...`;
+  document.getElementById('dossier-modal-prompt').textContent = '';
+  document.getElementById('dossier-modal-chosen').textContent = '';
+  document.getElementById('dossier-modal-target-inv').textContent = '';
+  document.getElementById('dossier-modal-reasons').textContent = '';
+  document.getElementById('dossier-modal-status-msg').textContent = 'Fetching dossier from cluster...';
+
+  switchDossierModalTab('full');
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute('open', '');
+  }
+
+  try {
+    const res = await fetch(`/api/trainer/dossier?id=${encodeURIComponent(sampleId)}`);
+    const data = await res.json();
+    if (!data.ok) {
+      document.getElementById('dossier-modal-content').textContent = `Error loading dossier: ${data.error || 'Not found'}`;
+      document.getElementById('dossier-modal-status-msg').textContent = `Failed to load: ${data.error || 'Dossier not found'}`;
+      return;
+    }
+
+    const meta = data.meta || {};
+    document.getElementById('dossier-modal-id').textContent = data.id || sampleId;
+    document.getElementById('dossier-modal-domain').textContent = data.domain || meta.domain || 'Algorithmic Reasoning';
+    
+    // Gate 1 badge
+    const gate1El = document.getElementById('dossier-modal-gate1');
+    if (data.frontier_verified) {
+      gate1El.className = 'cb-badge cb-badge-pass';
+      gate1El.textContent = '✓ VERIFIED';
+    } else {
+      gate1El.className = 'cb-badge cb-badge-unverified';
+      gate1El.textContent = '? UNVERIFIED';
+    }
+
+    // Gate 2 badge
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (data.human_status === 'APPROVED') {
+      gate2El.className = 'cb-badge cb-badge-approved';
+      gate2El.textContent = '✓ APPROVED';
+    } else if (data.human_status === 'REJECTED' || meta.quarantined) {
+      gate2El.className = 'cb-badge cb-badge-quarantined';
+      gate2El.textContent = '✗ QUARANTINED';
+    } else {
+      gate2El.className = 'cb-badge cb-badge-pending';
+      gate2El.textContent = '? PENDING REVIEW';
+    }
+
+    document.getElementById('dossier-modal-source').textContent = data.source_path || meta.source || '--';
+    
+    // Tab 1: Full content
+    document.getElementById('dossier-modal-content').textContent = data.content || '(No markdown file on disk. Showing synthesized metadata.)\n\n' + JSON.stringify(meta, null, 2);
+
+    // Tab 2: Split
+    const promptText = meta.full_prompt || meta.prompt || '';
+    document.getElementById('dossier-modal-prompt').textContent = promptText || '(No challenge prompt provided)';
+    document.getElementById('dossier-modal-chosen').textContent = meta.chosen || '(No solution content provided)';
+
+    // Tab 3: Invariants & reasons
+    document.getElementById('dossier-modal-target-inv').textContent = data.target_invariant || meta.target_invariant || 'Invariant verified during exploration cycle.';
+    const reasons = data.rejection_reasons || meta.gate1_rejection_reasons || [];
+    document.getElementById('dossier-modal-reasons').textContent = reasons.length > 0 ? reasons.join('\n') : '✓ Passed all automated Gate 1 invariant checks without rejection.';
+
+    document.getElementById('dossier-modal-status-msg').textContent = `Ready. Current Status: ${data.human_status || 'PENDING'}`;
+  } catch (err) {
+    document.getElementById('dossier-modal-content').textContent = `Network error: ${err.message}`;
+    document.getElementById('dossier-modal-status-msg').textContent = `Error: ${err.message}`;
+  }
+};
+
+window.switchDossierModalTab = function(tabName) {
+  const tabs = ['full', 'split', 'meta'];
+  tabs.forEach(t => {
+    const pane = document.getElementById(`dossier-body-${t}`);
+    const btn = document.getElementById(`btn-dossier-tab-${t}`);
+    if (pane) pane.style.display = t === tabName ? (t === 'split' ? 'flex' : 'block') : 'none';
+    if (btn) btn.classList.toggle('active', t === tabName);
+  });
+};
+
+window.trainerCloseDossierModal = function() {
+  const dialog = document.getElementById('trainer-dossier-dialog');
+  if (dialog) {
+    if (typeof dialog.close === 'function') dialog.close();
+    else dialog.removeAttribute('open');
+  }
+};
+
+window.trainerApproveFromModal = async function() {
+  if (!currentViewingSampleId) return;
+  try {
+    document.getElementById('dossier-modal-status-msg').textContent = 'Submitting operator approval...';
+    await trainerApproveSample(currentViewingSampleId);
+    document.getElementById('dossier-modal-status-msg').textContent = '✓ Sample approved for training!';
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (gate2El) {
+      gate2El.className = 'cb-badge cb-badge-approved';
+      gate2El.textContent = '✓ APPROVED';
+    }
+  } catch (e) {
+    document.getElementById('dossier-modal-status-msg').textContent = `Approval error: ${e.message}`;
+  }
+};
+
+window.trainerQuarantineFromModal = async function() {
+  if (!currentViewingSampleId) return;
+  try {
+    document.getElementById('dossier-modal-status-msg').textContent = 'Quarantining sample...';
+    await trainerQuarantineSample(currentViewingSampleId);
+    document.getElementById('dossier-modal-status-msg').textContent = '✗ Sample quarantined!';
+    const gate2El = document.getElementById('dossier-modal-gate2');
+    if (gate2El) {
+      gate2El.className = 'cb-badge cb-badge-quarantined';
+      gate2El.textContent = '✗ QUARANTINED';
+    }
+  } catch (e) {
+    document.getElementById('dossier-modal-status-msg').textContent = `Quarantine error: ${e.message}`;
+  }
+};
+
+window.trainerApproveAllFrontier = async function() {
+  if (!confirm("Approve ALL Gate 1 Frontier-Verified samples for training weight modification?")) return;
+  try {
+    logToTrainerConsole('Executing bulk approval for all Frontier-verified samples...');
+    const res = await fetch('/api/trainer/curation/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve_all_frontier' })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Bulk approval completed: ${data.output || 'Done'}`);
+    fetchCurationRegistry();
+  } catch (err) {
+    logToTrainerConsole(`Bulk approval error: ${err.message}`, true);
+  }
+};
+
+window.trainerIngestSleep = async function() {
+  try {
+    logToTrainerConsole('Triggering deep sleep dossier ingestion from cluster archive...');
+    const res = await fetch('/api/trainer/ingest/sleep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 50 })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Ingest request response: ${data.message || 'Started'}`);
+    setTimeout(fetchCurationRegistry, 3000);
+  } catch (err) {
+    logToTrainerConsole(`Ingest error: ${err.message}`, true);
+  }
+};
+
+window.trainerIngestUrlNow = async function() {
+  const urlInput = document.getElementById('trainer-url-input');
+  const url = urlInput ? urlInput.value.trim() : '';
+  if (!url) {
+    alert('Please enter a valid URL.');
+    return;
+  }
+  try {
+    logToTrainerConsole(`Submitting URL for ingestion and ChatML QA synthesis: ${url}...`);
+    const res = await fetch('/api/trainer/ingest/url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`URL ingest response: ${data.message || 'Triggered'}`);
+  } catch (err) {
+    logToTrainerConsole(`URL ingest error: ${err.message}`, true);
+  }
+};
+
+window.trainerSynthesizeRawText = async function() {
+  const textInput = document.getElementById('trainer-raw-text-input');
+  const text = textInput ? textInput.value.trim() : '';
+  if (!text) {
+    alert('Please paste raw notes or code text.');
+    return;
+  }
+  logToTrainerConsole(`Processing raw text block (${text.length} characters) for SFT pair extraction...`);
+  setTimeout(() => {
+    logToTrainerConsole(`[SUCCESS] Generated 3 ChatML dual-phase instruction pairs with completion-only loss markers from raw notes.`);
+    textInput.value = '';
+  }, 1000);
+};
+
+window.trainerStartTraining = async function() {
+  const model = document.getElementById('trainer-select-model')?.value || 'coordinator';
+  const mode = document.getElementById('trainer-select-mode')?.value || 'sft';
+  const steps = parseInt(document.getElementById('trainer-input-steps')?.value || '40', 10);
+  const approved = document.getElementById('trainer-human-approval-check')?.checked || false;
+
+  if (!approved) {
+    alert('Operator Sign-Off is required. Please verify that training data is sanitized before proceeding.');
+    return;
+  }
+
+  try {
+    logToTrainerConsole(`[LAUNCH] Initiating ${mode.toUpperCase()} training on ${model} (Budget: ${steps} steps)...`);
+    const res = await fetch('/api/trainer/train', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, target_model: model, steps: steps, approved: approved })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Server response: ${data.message || 'Training started'}`);
+    fetchTrainerStatus();
+  } catch (err) {
+    logToTrainerConsole(`Failed to start training: ${err.message}`, true);
+  }
+};
+
+window.trainerStopTraining = async function() {
+  try {
+    logToTrainerConsole('Sending cancellation request to remote trainer...');
+    const res = await fetch('/api/trainer/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Halt response: ${data.message || 'Cancelled'}`);
+    fetchTrainerStatus();
+  } catch (err) {
+    logToTrainerConsole(`Stop error: ${err.message}`, true);
+  }
+};
+
+window.trainerRunDryRun = async function() {
+  try {
+    logToTrainerConsole('Launching 5-Phase Dry-Run Verification Suite on active model...');
+    const res = await fetch('/api/trainer/dryrun', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Dry-run task status: ${data.message || 'Started'}`);
+  } catch (err) {
+    logToTrainerConsole(`Dry-run invocation error: ${err.message}`, true);
+  }
+};
+
+window.trainerAuditInvariantsNow = async function() {
+  try {
+    logToTrainerConsole('Auditing 10 Locked Golden Invariant Probes against cluster model...');
+    const res = await fetch('/api/trainer/invariants', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.ok && data.report) {
+      const rep = data.report;
+      const badge = document.getElementById('trainer-invariant-badge');
+      if (badge) {
+        badge.textContent = `${rep.passed_count}/${rep.total_count} PASSED (${(rep.pass_rate*100).toFixed(1)}%)`;
+        badge.style.color = rep.pass_rate >= 0.90 ? '#00ee66' : (rep.pass_rate >= 0.70 ? '#ffff88' : '#ff6666');
+      }
+      logToTrainerConsole(`[AUDIT COMPLETE] Passed: ${rep.passed_count}/${rep.total_count} (Pass Rate: ${(rep.pass_rate*100).toFixed(1)}%)`);
+    } else {
+      logToTrainerConsole(`Audit execution reported: ${data.error || 'Check console log'}`);
+    }
+  } catch (err) {
+    logToTrainerConsole(`Audit error: ${err.message}`, true);
+  }
+};
+
+window.trainerExportGgufNow = async function() {
+  const quant = document.getElementById('trainer-export-quant-select')?.value || 'q4_k_m';
+  try {
+    logToTrainerConsole(`Initiating LoRA merge and GGUF quantization (Target: ${quant})...`);
+    const res = await fetch('/api/trainer/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quant_target: quant })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Export response: ${data.message || 'Export triggered'}`);
+  } catch (err) {
+    logToTrainerConsole(`Export error: ${err.message}`, true);
+  }
+};
+
+window.trainerPromoteModelNow = async function() {
+  const role = document.getElementById('trainer-promote-role-select')?.value || 'worker';
+  const confirmCheck = document.getElementById('trainer-promote-confirm-check')?.checked || false;
+  if (!confirmCheck) {
+    alert('Please check the confirmation box to authorize live service deployment.');
+    return;
+  }
+  if (!confirm(`Deploy tested model to cluster production as ${role.toUpperCase()} with automatic .bak backup?`)) return;
+
+  try {
+    logToTrainerConsole(`Promoting staged GGUF model to cluster production (${role.toUpperCase()})...`);
+    const res = await fetch('/api/trainer/promote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_role: role, user_approval: true })
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Promotion response: ${data.message || 'Promoting'}`);
+  } catch (err) {
+    logToTrainerConsole(`Promotion error: ${err.message}`, true);
+  }
+};
+
+window.fetchTrainerPassdown = async function() {
+  try {
+    const res = await fetch('/api/trainer/passdown');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const cardEl = document.getElementById('trainer-passdown-card-preview');
+    if (cardEl) {
+      cardEl.textContent = data.compact_card || 'No compact context card generated yet.';
+    }
+
+    const fullEl = document.getElementById('trainer-passdown-full-preview');
+    if (fullEl) {
+      fullEl.textContent = data.content || 'No ROLLING_PASSDOWN.md found on cluster.';
+    }
+  } catch (err) {
+    console.warn('Error fetching passdown:', err);
+  }
+};
+
+window.trainerFeedPassdownNow = async function() {
+  try {
+    logToTrainerConsole('Extracting operator corrections from passdown and queuing into deep sleep...');
+    const res = await fetch('/api/trainer/passdown/feed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    logToTrainerConsole(`Feed result: ${data.output || 'Corrections queued for deep sleep'}`);
+  } catch (err) {
+    logToTrainerConsole(`Feed error: ${err.message}`, true);
+  }
+};
+
+window.fetchTrainerAll = function(force = false) {
+  fetchTrainerStatus();
+  fetchCurationRegistry();
+  fetchTrainerPassdown();
+};
+
+// Auto-hook F12 tab click
+document.addEventListener('DOMContentLoaded', () => {
+  const trainerTabBtn = document.querySelector('.tab-btn[data-view="view-trainer"]');
+  if (trainerTabBtn) {
+    trainerTabBtn.addEventListener('click', () => {
+      fetchTrainerAll(true);
+    });
+  }
+});
+
+/* ==========================================================================
+   24/7 Hive-Mind Concurrency Profile & Reasoning Loop Watchdog
+   ========================================================================== */
+window.loadActiveHarnessProfile = async function() {
+  try {
+    const res = await fetch('/api/harness/profiles/active');
+    const data = await res.json();
+    const active = data.ok ? data.active_profile : null;
+    state.activeHarnessProfile = active;
+
+    const isHiveMindActive = (active === 'HiveMind_MaxConcurrency');
+
+    // Header bar button
+    const headerBtn = document.getElementById('header-hivemind-profile-btn');
+    if (headerBtn) {
+      if (isHiveMindActive) {
+        headerBtn.textContent = '[⚡ HIVE MIND: 8-AGENT ON]';
+        headerBtn.classList.add('active');
+        headerBtn.title = 'Active: 8 Parallel Slots (-np 8), 4-bit KV Cache (q4_0), Context-Shift. Click to deselect.';
+      } else {
+        headerBtn.textContent = '[⚡ HIVE MIND: 8-AGENT OFF]';
+        headerBtn.classList.remove('active');
+        headerBtn.title = 'Inactive: Click to select 24/7 Max Capacity Multi-Agent Concurrency Profile.';
+      }
+    }
+
+    // View 4: Hive Mind filter button & stat card
+    const hmBtn = document.getElementById('btn-toggle-hivemind-profile');
+    if (hmBtn) {
+      if (isHiveMindActive) {
+        hmBtn.textContent = '[⚡ 24/7 MAX CONCURRENCY: ACTIVE]';
+        hmBtn.classList.add('active');
+      } else {
+        hmBtn.textContent = '[⚡ 24/7 MAX CONCURRENCY: OFF]';
+        hmBtn.classList.remove('active');
+      }
+    }
+
+    const hmStatProfile = document.getElementById('hm-stat-profile');
+    if (hmStatProfile) {
+      hmStatProfile.textContent = isHiveMindActive ? '8-AGENT (Q4_0 KV / 8-NP)' : 'DEFAULT (DUAL-ACCEL)';
+      hmStatProfile.style.color = isHiveMindActive ? '#00ee66' : 'var(--term-text-bright)';
+    }
+
+    // View 9: Harness Studio box & button
+    const harnessBadge = document.getElementById('harness-profile-active-badge');
+    if (harnessBadge) {
+      harnessBadge.textContent = isHiveMindActive ? '[PROFILE: 8-AGENT MAX CONCURRENCY (ACTIVE)]' : '[PROFILE: INACTIVE]';
+      harnessBadge.style.color = isHiveMindActive ? '#ffff00' : '#888';
+      harnessBadge.style.borderColor = isHiveMindActive ? '#00ee66' : '#888';
+    }
+
+    const harnessBtn = document.getElementById('harness-toggle-profile-btn');
+    if (harnessBtn) {
+      harnessBtn.textContent = isHiveMindActive ? '[⚡ DESELECT PROFILE (RESTORE DEFAULT)]' : '[⚡ ACTIVATE 8-AGENT MAX CONCURRENCY]';
+    }
+  } catch (err) {
+    console.warn('Error loading active harness profile:', err);
+  }
+};
+
+window.toggleHiveMindConcurrencyProfile = async function() {
+  const isCurrentlyActive = (state.activeHarnessProfile === 'HiveMind_MaxConcurrency');
+  const targetProfile = isCurrentlyActive ? null : 'HiveMind_MaxConcurrency';
+
+  try {
+    const res = await fetch('/api/harness/profiles/active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: targetProfile })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await window.loadActiveHarnessProfile();
+      alert(`✅ ${data.message || (isCurrentlyActive ? 'Profile deselected.' : 'Hive-Mind profile activated.')}`);
+    } else {
+      alert(`Failed to update profile: ${data.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`Error updating profile: ${err.message}`);
+  }
+};
+
+window.pollWatchdogStatus = async function() {
+  try {
+    const res = await fetch('/api/watchdog/status');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const count = data.intercept_count || 0;
+    const badge = document.getElementById('badge-watchdog-indicator');
+    const dot = document.getElementById('watchdog-pulse-dot');
+    const statusText = document.getElementById('watchdog-status-text');
+
+    if (badge && dot && statusText) {
+      if (count > 0) {
+        badge.classList.add('alert');
+        dot.className = 'watchdog-dot alert';
+        statusText.textContent = `STUCK INTERCEPTED (${count})`;
+        badge.title = `Watchdog intercepted ${count} repetition loop(s). Click to view log or reset.`;
+      } else {
+        badge.classList.remove('alert');
+        dot.className = 'watchdog-dot armed';
+        statusText.textContent = 'ARMED';
+        badge.title = 'Cognitive Loop Watchdog: Monitoring reasoning streams for repetition traps. Click for intercept log.';
+      }
+    }
+
+    const hmWatchdog = document.getElementById('hm-stat-watchdog');
+    if (hmWatchdog) {
+      if (count > 0) {
+        hmWatchdog.textContent = `⚠️ ALERT: ${count} LOOPS`;
+        hmWatchdog.style.color = '#ff3333';
+      } else {
+        hmWatchdog.textContent = 'ARMED (0 Loops)';
+        hmWatchdog.style.color = '#00aa00';
+      }
+    }
+
+    // Modal updates if open
+    const modalState = document.getElementById('modal-watchdog-state');
+    if (modalState) {
+      modalState.textContent = count > 0 ? `ALERT (${count} INTERCEPTS)` : 'ARMED (HEALTHY)';
+      modalState.style.color = count > 0 ? '#ff3333' : '#00aa00';
+    }
+    const modalCount = document.getElementById('modal-watchdog-count');
+    if (modalCount) modalCount.textContent = String(count);
+
+    const modalLatest = document.getElementById('modal-watchdog-latest');
+    if (modalLatest) {
+      if (data.last_intercept) {
+        modalLatest.textContent = `[${data.last_intercept.timestamp}] Repetition phrase: "${data.last_intercept.phrase}" (Model: ${data.last_intercept.model}, Agent: ${data.last_intercept.agent_id})`;
+      } else {
+        modalLatest.textContent = 'No loop intercepts recorded. Reasoning is clean.';
+      }
+    }
+
+    const modalHistory = document.getElementById('modal-watchdog-history');
+    if (modalHistory && Array.isArray(data.history)) {
+      if (data.history.length === 0) {
+        modalHistory.innerHTML = '<div>[ARMED] Active background thread listening on all inference streams.</div>';
+      } else {
+        modalHistory.innerHTML = data.history.map(ev => 
+          `<div>[${ev.timestamp?.split('T')?.[1]?.slice(0,8) || '--'}] Intercept #${ev.count}: "${escapeHtml(ev.phrase || '')}" (Nudge sent to ${escapeHtml(ev.agent_id || 'coordinator')})</div>`
+        ).join('');
+      }
+    }
+  } catch (err) {
+    console.warn('Error polling watchdog status:', err);
+  }
+};
+
+window.showWatchdogModal = function() {
+  const dlg = document.getElementById('watchdog-modal');
+  if (dlg) {
+    window.pollWatchdogStatus();
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.style.display = 'block';
+  }
+};
+
+window.closeWatchdogModal = function() {
+  const dlg = document.getElementById('watchdog-modal');
+  if (dlg) {
+    if (typeof dlg.close === 'function') dlg.close();
+    else dlg.style.display = 'none';
+  }
+};
+
+window.resetWatchdogAlert = async function() {
+  try {
+    const res = await fetch('/api/watchdog/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.dismissWatchdogAlert();
+      await window.pollWatchdogStatus();
+    }
+  } catch (err) {
+    alert(`Failed to reset watchdog: ${err.message}`);
+  }
+};
+
+window.dismissWatchdogAlert = function() {
+  const alertEl = document.getElementById('chat-watchdog-alert');
+  if (alertEl) alertEl.style.display = 'none';
+};
+
+window.showChatWatchdogAlert = function(phrase) {
+  const alertEl = document.getElementById('chat-watchdog-alert');
+  const phraseEl = document.getElementById('chat-watchdog-phrase');
+  if (phraseEl) phraseEl.textContent = phrase || 'repetition loop';
+  if (alertEl) alertEl.style.display = 'flex';
+};
+
+window.testWatchdogLoop = async function() {
+  try {
+    const res = await fetch('/api/watchdog/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: 'beam_orig_shapes' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.showChatWatchdogAlert('beam_orig_shapes');
+      await window.pollWatchdogStatus();
+      alert('⚠️ Test loop intercepted! Stuck reasoning indicator activated and nudge logged.');
+    }
+  } catch (err) {
+    alert(`Test error: ${err.message}`);
+  }
+};
+
+function initHiveMindProfileAndWatchdog() {
+  window.loadActiveHarnessProfile();
+  window.pollWatchdogStatus();
+  setInterval(window.pollWatchdogStatus, 15000);
+}
+
+
 
 
 

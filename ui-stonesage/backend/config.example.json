@@ -1,14 +1,677 @@
 {
-  "coordinator_url": "http://127.0.0.1:8001",
-  "worker_url": "http://127.0.0.1:8002",
-  "embed_url": "http://127.0.0.1:8003",
-  "qdrant_url": "http://127.0.0.1:6333",
-  "ha_url": "http://127.0.0.1:8123",
-  "ha_token": "YOUR_HOME_ASSISTANT_TOKEN",
-  "proxmox_host": "https://127.0.0.1:8006",
-  "proxmox_token_id": "USER@REALM!TOKENID",
-  "proxmox_token_secret": "YOUR_UUID_SECRET",
-  "couchdb_url": "http://127.0.0.1:5984",
-  "immich_url": "http://127.0.0.1:9000",
-  "port": 8080
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "lan_ip": "127.0.0.1",
+    "theme": "win95"
+  },
+  "cluster": {
+    "coordinator_url": "http://127.0.0.1:8001/v1",
+    "worker_url": "http://127.0.0.1:8002/v1",
+    "embedder_url": "http://127.0.0.1:8003/v1",
+    "mcp_url": "http://127.0.0.1:8765",
+    "vision_url": "http://127.0.0.1:8004/v1",
+    "qdrant_url": "http://127.0.0.1:6333",
+    "default_model": "hermes",
+    "default_context": 16384
+  },
+  "homeassistant": {
+    "url": "http://127.0.0.1:8123",
+    "token": "your_home_assistant_long_lived_token"
+  },
+  "proxmox": {
+    "host": "127.0.0.1",
+    "port": 8006,
+    "cluster_url": "https://127.0.0.1:8006",
+    "pve_node": {
+      "name": "pve",
+      "host": "127.0.0.1",
+      "port": 8006,
+      "token_id": "root@pam!StoneSage",
+      "token_secret": "your_proxmox_token_secret",
+      "verify_ssl": false
+    },
+    "bigserv_node": {
+      "name": "bigserv",
+      "host": "127.0.0.1",
+      "port": 8006,
+      "token_id": "root@pam!StoneSage",
+      "token_secret": "your_proxmox_token_secret",
+      "verify_ssl": false
+    },
+    "token_value": "root@pam!StoneSage=your_proxmox_token_secret"
+  },
+  "obsidian": {
+    "user_vault_path": "C:\\Users\\operator\\OneDrive\\Documents\\obsidian",
+    "vault_path": "vault_backup",
+    "allow_delete": false,
+    "archive_folder": "_archive",
+    "auto_git_snapshot": true,
+    "auto_sync_qdrant": true
+  },
+  "couchdb": {
+    "url": "http://127.0.0.1:5984",
+    "username": "austin",
+    "password": "your_couchdb_password",
+    "database": "obsidiannotes"
+  },
+  "immich": {
+    "url": "http://127.0.0.1:9000",
+    "api_key": "",
+    "demo_fallback": true
+  },
+  "gemini_web": {
+    "enabled": false,
+    "psid": "g.a000CQndO5qLr4R86WSv6mhKvwJ0sUvRh1c77aP3YqoFpQJDq7pfqL-3O3jz5Uji_9_acfbZlQACgYKAVwSARQSFQHGX2Mirbcj1ZZzG7482bQD_TDm2hoVAUF8yKrqQbt5ZHWMdINvTlxzEg6D0076",
+    "psidts": "sidts-CjEBXMw41R1opgLTQur_gf2HEuMprLB7Pvfxra-wIvFpmwRlzuySz5XehyPG34ZgNy_6EAA",
+    "endpoint": "http://127.0.0.1:8087"
+  },
+  "task_routing": {
+    "interactive_chat": "hermes",
+    "autonomous_ideation": "local_worker",
+    "autonomous_solving": "hermes",
+    "frontier_audit": "frontier_agy",
+    "sleep_rumination": "moe_35b",
+    "subagent_default": "local_worker"
+  },
+  "external_providers": {
+    "openrouter": {
+      "enabled": false,
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "",
+      "models": [
+        "anthropic/claude-3.5-sonnet",
+        "deepseek/deepseek-r1",
+        "meta-llama/llama-3.3-70b-instruct"
+      ]
+    },
+    "openai": {
+      "enabled": false,
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "models": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "o1",
+        "o3-mini"
+      ]
+    },
+    "anthropic": {
+      "enabled": false,
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "",
+      "models": [
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-haiku-20241022"
+      ]
+    },
+    "gemini": {
+      "enabled": false,
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "api_key": "",
+      "models": [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash"
+      ]
+    }
+  },
+  "harness_settings": {
+    "default_harness": "hermes",
+    "hermes": {
+      "name": "Hermes 3 Agentic Loop",
+      "model_target": "moe",
+      "model_file": "/opt/models/ornith-1.5-35b-moe.gguf",
+      "context_window": 16384,
+      "max_iterations": 10,
+      "temperature": 0.7,
+      "min_p": 0.06,
+      "presence_penalty": 0.25,
+      "timeout_sec": 60,
+      "system_prompt_mode": "agentic",
+      "tool_call_retries": 3,
+      "divergence_threshold": 0.85,
+      "reflection_enabled": true,
+      "device": "Vulkan0,Vulkan1 (Dual AMD GPU)",
+      "tensor_split": "12,8"
+    }
+  },
+  "services": [
+    {
+      "id": "coordinator",
+      "name": "Hermes 3 Agentic (Ornith-1.5-35B MoE 16k)",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://127.0.0.1:8001/v1/models",
+      "display_url": "http://127.0.0.1:8001",
+      "description": "24/7 Primary Uncensored MoE Reasoning, Coding & Hermes Agentic Harness (Dual RX 6750XT + 6600XT - 16k Ctx)",
+      "icon": "brain"
+    },
+    {
+      "id": "worker",
+      "name": "Ornith-1.5-9B Q4 Worker (:8002)",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://127.0.0.1:8002/v1/models",
+      "display_url": "http://127.0.0.1:8002",
+      "description": "Fast Divergent Ideation, Utility, Linter & NLP Dispatcher (Q4_K_M)",
+      "icon": "zap"
+    },
+    {
+      "id": "embedder",
+      "name": "BGE-Large Embedder (:8003)",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://127.0.0.1:8003/v1/models",
+      "display_url": "http://127.0.0.1:8003",
+      "description": "Continuous 1024-dim Vector Ingestion Engine",
+      "icon": "database"
+    },
+    {
+      "id": "vision",
+      "name": "Gemma-4 Vision Provider (CPU/VLM)",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://127.0.0.1:8004/v1/models",
+      "display_url": "http://127.0.0.1:8004",
+      "description": "24/7 LLM Vision & Camera Perception Engine (:8004)",
+      "icon": "eye"
+    },
+    {
+      "id": "qdrant",
+      "name": "Qdrant Vector Database",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "117",
+      "url": "http://127.0.0.1:6333/readyz",
+      "display_url": "http://127.0.0.1:6333/dashboard",
+      "description": "Persistent 5-Collection Homelab Vector Brain",
+      "icon": "layers"
+    },
+    {
+      "id": "cluster_mcp",
+      "name": "Cluster MCP Bridge",
+      "category": "ai",
+      "node": "pve",
+      "vmid": "102",
+      "url": "http://127.0.0.1:8765/health",
+      "display_url": "http://127.0.0.1:8765",
+      "description": "Universal JSON-RPC / SSE FastMCP Gateway",
+      "icon": "cpu"
+    },
+    {
+      "id": "openwebui",
+      "name": "Open WebUI",
+      "category": "ai",
+      "node": "bigserv",
+      "vmid": "119",
+      "url": "http://127.0.0.1:8080",
+      "display_url": "http://127.0.0.1:8080",
+      "description": "ChatGPT-Style Multi-Model Web Interface (127.0.0.1:8080)",
+      "icon": "message-square"
+    },
+    {
+      "id": "kokoro_tts",
+      "name": "Kokoro Neural TTS",
+      "category": "ai",
+      "node": "bigserv",
+      "vmid": "121",
+      "url": "http://127.0.0.1:8300/web/",
+      "display_url": "http://127.0.0.1:8300/web/",
+      "description": "OpenAI-Compatible Local TTS: 68 Natural Voices, 82M ONNX Model",
+      "icon": "volume-2"
+    },
+    {
+      "id": "faster_whisper",
+      "name": "Faster Whisper STT",
+      "category": "ai",
+      "node": "bigserv",
+      "vmid": "121",
+      "url": "http://127.0.0.1:8200/health",
+      "display_url": "http://127.0.0.1:8200",
+      "description": "OpenAI-Compatible Local STT: CTranslate2 Whisper Base.en",
+      "icon": "mic"
+    },
+    {
+      "id": "homeassistant",
+      "name": "Home Assistant OS",
+      "category": "smarthome",
+      "node": "bigserv",
+      "vmid": "103",
+      "url": "http://127.0.0.1:8123",
+      "display_url": "http://127.0.0.1:8123",
+      "description": "Smart Home Hub, Climate (Nest), Lighting & Sensors",
+      "icon": "home"
+    },
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin Media",
+      "category": "media",
+      "node": "bigserv",
+      "vmid": "104",
+      "url": "http://127.0.0.1:8096",
+      "display_url": "http://127.0.0.1:8096",
+      "description": "Hardware-Accelerated Media Streaming (127.0.0.1)",
+      "icon": "film"
+    },
+    {
+      "id": "immich",
+      "name": "Immich Photos",
+      "category": "media",
+      "node": "bigserv",
+      "vmid": "107",
+      "url": "http://127.0.0.1:9000",
+      "display_url": "http://127.0.0.1:9000",
+      "description": "Self-Hosted Photo & Video Vault (127.0.0.1)",
+      "icon": "image"
+    },
+    {
+      "id": "kavita",
+      "name": "Kavita Reader",
+      "category": "media",
+      "node": "bigserv",
+      "vmid": "100",
+      "url": "http://127.0.0.1:5000",
+      "display_url": "http://127.0.0.1:5000",
+      "description": "Digital Library, Books & Manga (127.0.0.1)",
+      "icon": "book-open"
+    },
+    {
+      "id": "adguard",
+      "name": "AdGuard Home",
+      "category": "infra",
+      "node": "bigserv",
+      "vmid": "101",
+      "url": "http://127.0.0.1",
+      "display_url": "http://127.0.0.1",
+      "description": "Network-Wide DNS Sinkhole & Privacy (127.0.0.1)",
+      "icon": "shield",
+      "emoji": "\ud83d\udee1\ufe0f"
+    },
+    {
+      "id": "freshrss",
+      "name": "FreshRSS",
+      "category": "media",
+      "node": "bigserv",
+      "vmid": "108",
+      "url": "http://127.0.0.1",
+      "display_url": "http://127.0.0.1",
+      "description": "Self-Hosted RSS Feed Aggregator (127.0.0.1)",
+      "icon": "rss"
+    },
+    {
+      "id": "prowlarr",
+      "name": "Prowlarr",
+      "category": "automation",
+      "node": "bigserv",
+      "vmid": "109",
+      "url": "http://127.0.0.1:9696",
+      "display_url": "http://127.0.0.1:9696",
+      "description": "Indexer & Torrent Aggregator Manager (127.0.0.1:9696)",
+      "icon": "search"
+    },
+    {
+      "id": "sonarr",
+      "name": "Sonarr",
+      "category": "automation",
+      "node": "bigserv",
+      "vmid": "110",
+      "url": "http://127.0.0.1:8989",
+      "display_url": "http://127.0.0.1:8989",
+      "description": "Automated Television Series Management (127.0.0.1:8989)",
+      "icon": "tv"
+    },
+    {
+      "id": "radarr",
+      "name": "Radarr",
+      "category": "automation",
+      "node": "bigserv",
+      "vmid": "111",
+      "url": "http://127.0.0.1:7878",
+      "display_url": "http://127.0.0.1:7878",
+      "description": "Automated Movie Collection Management (127.0.0.1:7878)",
+      "icon": "video"
+    },
+    {
+      "id": "lidarr",
+      "name": "Lidarr",
+      "category": "automation",
+      "node": "bigserv",
+      "vmid": "112",
+      "url": "http://127.0.0.1:8686",
+      "display_url": "http://127.0.0.1:8686",
+      "description": "Automated Music Collection Management (127.0.0.1:8686)",
+      "icon": "music"
+    },
+    {
+      "id": "qbittorrent",
+      "name": "qBittorrent",
+      "category": "automation",
+      "node": "bigserv",
+      "vmid": "114",
+      "url": "http://127.0.0.1:8090",
+      "display_url": "http://127.0.0.1:8090",
+      "description": "Automated Torrent Client (127.0.0.1:8090)",
+      "icon": "download"
+    },
+    {
+      "id": "flaresolverr",
+      "name": "FlareSolverr",
+      "category": "automation",
+      "node": "bigserv",
+      "url": "http://127.0.0.1:8191",
+      "display_url": "http://127.0.0.1:8191",
+      "description": "Cloudflare Challenge Solver Proxy (127.0.0.1:8191)",
+      "icon": "shield"
+    },
+    {
+      "id": "obsidian_sync",
+      "name": "Obsidian LiveSync",
+      "category": "infra",
+      "node": "bigserv",
+      "vmid": "116",
+      "url": "http://127.0.0.1:5984",
+      "display_url": "http://127.0.0.1:5984",
+      "description": "Self-Hosted CouchDB Sync for Obsidian (127.0.0.1:5984)",
+      "icon": "edit-3"
+    },
+    {
+      "id": "docker_portainer",
+      "name": "Docker / Portainer",
+      "category": "infra",
+      "node": "bigserv",
+      "vmid": "105",
+      "url": "https://127.0.0.1:9443",
+      "display_url": "https://127.0.0.1:9443",
+      "description": "Container Management UI (127.0.0.1:9443)",
+      "icon": "package"
+    },
+    {
+      "id": "nas",
+      "name": "NAS Storage",
+      "category": "infra",
+      "node": "bigserv",
+      "vmid": "115",
+      "url": "http://127.0.0.1",
+      "display_url": "http://127.0.0.1",
+      "description": "Network Attached Storage Volume",
+      "icon": "hard-drive"
+    },
+    {
+      "id": "proxmox_pve",
+      "name": "Proxmox VE (Node: pve)",
+      "category": "infra",
+      "node": "pve",
+      "url": "https://127.0.0.1:8006/#v1:0:=node/pve",
+      "display_url": "https://127.0.0.1:8006/#v1:0:=node/pve",
+      "description": "Intel i7-12700K AI Node Hypervisor",
+      "icon": "server"
+    },
+    {
+      "id": "proxmox_bigserv",
+      "name": "Proxmox VE (Node: bigserv)",
+      "category": "infra",
+      "node": "bigserv",
+      "url": "https://127.0.0.1:8006/#v1:0:=node/bigserv",
+      "display_url": "https://127.0.0.1:8006/#v1:0:=node/bigserv",
+      "description": "Application & Automation Hypervisor",
+      "icon": "server"
+    }
+  ],
+  "network_devices": [
+    {
+      "name": "pve",
+      "ip": "127.0.0.1",
+      "category": "hypervisor",
+      "notes": "Node 1 - i7-12700K Dual GPU"
+    },
+    {
+      "name": "bigserv",
+      "ip": "127.0.0.1",
+      "category": "hypervisor",
+      "notes": "Node 2 - Services & HAOS"
+    },
+    {
+      "name": "ubu",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-94-EA-3C",
+      "category": "compute",
+      "notes": "VM 102 - LLM & Embedder"
+    },
+    {
+      "name": "qdrant",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-66-B7-44",
+      "category": "ai",
+      "notes": "LXC 117 - Vector Database"
+    },
+    {
+      "name": "homeassistant",
+      "ip": "127.0.0.1",
+      "mac": "02-0E-76-0D-65-4A",
+      "category": "smarthome",
+      "notes": "VM 103 - HAOS 17.3"
+    },
+    {
+      "name": "kavita",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-53-B7-8F",
+      "category": "media",
+      "notes": "LXC 100 - Port 5000"
+    },
+    {
+      "name": "jellyfin",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-0D-74-EC",
+      "category": "media",
+      "notes": "LXC 104 - Port 8096"
+    },
+    {
+      "name": "immich",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-92-9A-D9",
+      "category": "media",
+      "notes": "LXC 107 - Port 9000"
+    },
+    {
+      "name": "freshrss",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-20-A7-2A",
+      "category": "media",
+      "notes": "LXC 108 - Port 80"
+    },
+    {
+      "name": "qbittorrent",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-B0-CA-09",
+      "category": "automation",
+      "notes": "LXC 114 - Port 8090"
+    },
+    {
+      "name": "flaresolverr",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-80-89-BC",
+      "category": "automation",
+      "notes": "Port 8191"
+    },
+    {
+      "name": "docker",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-85-2C-F2",
+      "category": "infra",
+      "notes": "LXC 105 - Port 9443"
+    },
+    {
+      "name": "openwebui",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-2F-AE-D4",
+      "category": "ai",
+      "notes": "LXC 119 - Port 8080"
+    },
+    {
+      "name": "prowlarr",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-E4-D0-74",
+      "category": "automation",
+      "notes": "LXC 109 - Port 9696"
+    },
+    {
+      "name": "sonarr",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-D0-19-BE",
+      "category": "automation",
+      "notes": "LXC 110 - Port 8989"
+    },
+    {
+      "name": "radarr",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-C2-FD-3C",
+      "category": "automation",
+      "notes": "LXC 111 - Port 7878"
+    },
+    {
+      "name": "lidarr",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-AD-C2-A3",
+      "category": "automation",
+      "notes": "LXC 112 - Port 8686"
+    },
+    {
+      "name": "bhyve-bh1g2-2f0a22",
+      "ip": "127.0.0.1",
+      "mac": "44-67-55-2F-0A-22",
+      "category": "storage",
+      "notes": "TrueNAS / FreeBSD"
+    },
+    {
+      "name": "Nest-Thermostat-9A6E",
+      "ip": "127.0.0.1",
+      "mac": "B4-23-A2-1B-9A-6E",
+      "category": "iot",
+      "notes": "Matter / Google SDM HVAC"
+    },
+    {
+      "name": "KP125",
+      "ip": "127.0.0.1",
+      "mac": "10-27-F5-8F-36-73",
+      "category": "iot",
+      "notes": "Kasa Energy Monitoring Plug"
+    },
+    {
+      "name": "GE_Plug_B0BC",
+      "ip": "127.0.0.1",
+      "mac": "34-13-43-BF-B0-BC",
+      "category": "iot",
+      "notes": "Smart Plug"
+    },
+    {
+      "name": "GE_Plug_1FB4",
+      "ip": "127.0.0.1",
+      "mac": "34-13-43-F0-1F-B4",
+      "category": "iot",
+      "notes": "Smart Plug"
+    },
+    {
+      "name": "GE_Plug_EAF0",
+      "ip": "127.0.0.1",
+      "mac": "34-13-43-BF-EA-F0",
+      "category": "iot",
+      "notes": "Smart Plug"
+    },
+    {
+      "name": "LG_Smart_Dryer2_open",
+      "ip": "127.0.0.1",
+      "mac": "14-7F-67-FD-DB-7C",
+      "category": "appliance",
+      "notes": "LG ThinQ Smart Dryer"
+    },
+    {
+      "name": "Petkit_T4",
+      "ip": "127.0.0.1",
+      "mac": "08-3A-8D-BF-50-B8",
+      "category": "iot",
+      "notes": "Pet Feeder / Fountain"
+    },
+    {
+      "name": "Mobile-Device",
+      "ip": "127.0.0.1",
+      "mac": "DA-DB-17-7E-58-DD",
+      "category": "client",
+      "notes": "Primary Mobile / Cockpit"
+    },
+    {
+      "name": "Laptop",
+      "ip": "127.0.0.1",
+      "mac": "48-45-E6-4A-DF-BD",
+      "category": "client",
+      "notes": "Dev Workstation"
+    },
+    {
+      "name": "adguard",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-C3-5F-AE",
+      "category": "infra",
+      "notes": "LXC 101 - AdGuard Home DNS Sinkhole (Port 80/53)"
+    },
+    {
+      "name": "network-device-217",
+      "ip": "127.0.0.1",
+      "mac": "5C-E7-53-4F-3E-CA",
+      "category": "network",
+      "notes": "AP / Router"
+    },
+    {
+      "name": "obsidian-live-sync",
+      "ip": "127.0.0.1",
+      "mac": "BC-24-11-4C-50-5E",
+      "category": "infra",
+      "notes": "LXC 116 - CouchDB Port 5984"
+    },
+    {
+      "name": "none-2",
+      "ip": "127.0.0.1",
+      "mac": "08-6A-E5-C4-E0-C2",
+      "category": "network",
+      "notes": "Auxiliary Gateway"
+    }
+  ],
+  "frontier_models": {
+    "openai_api_key": "",
+    "anthropic_api_key": "",
+    "gemini_api_key": ""
+  },
+  "sampling": {
+    "temperature": 0.68,
+    "min_p": 0.06,
+    "presence_penalty": 0.25,
+    "repeat_penalty": 1.12
+  },
+  "harness_profiles": {
+    "HiveMind_MaxConcurrency": {
+      "name": "HiveMind_MaxConcurrency",
+      "description": "Maximizes concurrent parallel splinter agents (8 slots) with 4-bit KV cache and context shifting on dual-GPU cluster",
+      "model_path": "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf",
+      "context_length": 16384,
+      "parallel_slots": 8,
+      "gpu_layers": 128,
+      "threads": 16,
+      "batch_size": 1024,
+      "ubatch_size": 256,
+      "flash_attention": "on",
+      "cache_type_k": "q4_0",
+      "cache_type_v": "q4_0",
+      "context_shift": true,
+      "mlock": true,
+      "temperature": 0.65,
+      "min_p": 0.07,
+      "presence_penalty": 0.25,
+      "repeat_penalty": 1.15,
+      "reasoning_budget_words": 180,
+      "system_prompt": "You are a sovereign splinter personality operating within the hive mind cluster. Reason with algebraic precision and maximum density inside <think>...</think> (under 180 words). Deliver verified, complete solutions immediately.",
+      "cli_args_template": "-m {model_path} -c 16384 -ngl 128 -t 16 -b 1024 -ub 256 -np 8 --flash-attn on -ctk q4_0 -ctv q4_0 --context-shift --mlock --temp 0.65 --min-p 0.07 --presence-penalty 0.25 --repeat-penalty 1.15"
+    }
+  }
 }

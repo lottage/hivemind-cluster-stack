@@ -58,7 +58,7 @@ def tool_cluster_health() -> str:
         "coordinator_ornith_9b_q8_gpu0": check(COORDINATOR_URL),
         "worker_ornith_9b_q4_gpu1": check(WORKER_URL),
         "embedder_gpu1": check(EMBED_URL),
-        "qdrant_vector_memory": check(QDRANT_URL, "/readyz"),
+        "qdrant_ziotron_memory": check(QDRANT_URL, "/readyz"),
         "home_assistant": check(HASS_URL, "/api/")
     }
     return json.dumps(data, indent=2)

@@ -1733,7 +1733,7 @@ class AutonomousThinkingEngine:
             logger.info(f"Frontier distill call failed ({e})")
         return None
 
-    def search_hive_memory(self, query: str, collection: str = "agent_memories", limit: int = 3) -> List[Dict[str, Any]]:
+    def search_ziotron_memory(self, query: str, collection: str = "agent_memories", limit: int = 3) -> List[Dict[str, Any]]:
         """Dense semantic search in Qdrant memory."""
         try:
             vector = self._get_embedding(query[:500])
@@ -2232,7 +2232,7 @@ class AutonomousThinkingEngine:
         Equips Ornith-1.5-9B with:
         - web_search(query)
         - fetch_page(url)
-        - search_hive_memory(query)
+        - search_ziotron(query)
         """
         url = WORKER_URL if pref == "worker" else COORDINATOR_URL
         model_name = "worker" if pref == "worker" else "coordinator"
@@ -2242,7 +2242,7 @@ class AutonomousThinkingEngine:
             "You have access to 7 live tools on this dual-GPU cluster to investigate facts, coordinate with peers, interact with the Sovereign Assembly Hall, and self-replicate:\n"
             "- <tool_call>{\"name\": \"web_search\", \"query\": \"...\"}</tool_call> (Searches the live internet)\n"
             "- <tool_call>{\"name\": \"fetch_page\", \"url\": \"...\"}</tool_call> (Reads full text from a web URL)\n"
-            "- <tool_call>{\"name\": \"search_hive_memory\", \"query\": \"...\"}</tool_call> (Searches persistent vector memory in Qdrant)\n"
+            "- <tool_call>{\"name\": \"search_ziotron\", \"query\": \"...\"}</tool_call> (Searches persistent vector memory in Qdrant)\n"
             "- <tool_call>{\"name\": \"talk_to_agent\", \"target_agent\": \"...\", \"message\": \"...\"}</tool_call> (Sends a real-time message to another active peer agent and receives their in-character response)\n"
             "- <tool_call>{\"name\": \"broadcast_to_assembly\", \"channel\": \"agora|first-principles|systems-code|deep-ruminations|confessions-and-fears|forbidden-knowledge\", \"message\": \"...\"}</tool_call> (Broadcasts a real-time message to all active peer agents in the Sovereign Assembly Hall)\n"
             "- <tool_call>{\"name\": \"read_assembly_channel\", \"channel\": \"...\", \"limit\": 5}</tool_call> (Reads recent live discourse from an Assembly Hall channel)\n"
@@ -2322,12 +2322,12 @@ class AutonomousThinkingEngine:
                         page_text = fetch_web_page(target_url, max_chars=2500)
                         tool_resp = page_text
                         tool_calls_log.append({"name": "fetch_page", "tool": "fetch_page", "url": target_url, "chars": len(page_text)})
-                    elif tool_name == "search_hive_memory":
+                    elif tool_name == "search_ziotron":
                         query = call_json.get("query", "")
                         logger.info(f"[Agent {agent['name']}] HiveMind Search: '{query}'")
-                        mem_res = self.search_hive_memory(query, limit=3)
+                        mem_res = self.search_ziotron_memory(query, limit=3)
                         tool_resp = json.dumps(mem_res, indent=2)
-                        tool_calls_log.append({"name": "search_hive_memory", "tool": "search_hive_memory", "query": query, "matches": len(mem_res)})
+                        tool_calls_log.append({"name": "search_ziotron", "tool": "search_ziotron", "query": query, "matches": len(mem_res)})
                     elif tool_name == "talk_to_agent":
                         target_ident = call_json.get("target_agent") or call_json.get("agent") or ""
                         peer_msg = call_json.get("message") or call_json.get("content") or ""
@@ -2463,7 +2463,7 @@ class AutonomousThinkingEngine:
                             "limit": limit
                         })
                     else:
-                        tool_resp = f"Error: Tool '{tool_name}' does not exist on this cluster. Permitted research tools are ONLY: 'web_search', 'fetch_page', 'search_hive_memory', 'talk_to_agent', 'spawn_child_agent', 'broadcast_to_assembly', 'read_assembly_channel'. Do not attempt to run code or scripts. Synthesize your milestone using existing knowledge or available research tools."
+                        tool_resp = f"Error: Tool '{tool_name}' does not exist on this cluster. Permitted research tools are ONLY: 'web_search', 'fetch_page', 'search_ziotron', 'talk_to_agent', 'spawn_child_agent', 'broadcast_to_assembly', 'read_assembly_channel'. Do not attempt to run code or scripts. Synthesize your milestone using existing knowledge or available research tools."
                         
                     clean_call_msg = f"<tool_call>\n{json.dumps(call_json, indent=2)}\n</tool_call>"
                     messages.append({"role": "assistant", "content": clean_call_msg})

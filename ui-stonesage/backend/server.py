@@ -78,6 +78,8 @@ from obsidian_ingestor import ObsidianIngestor
 from couchdb_client import CouchDBClient
 from stm_engine import ShortTermMemoryEngine
 from dataset_compiler import DatasetCompiler
+from trainer_client import TrainerClient
+from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/javascript", ".js")
@@ -110,6 +112,7 @@ obsidian_ingestor = ObsidianIngestor(config)
 couchdb = CouchDBClient(config.get("couchdb", {}))
 stm = ShortTermMemoryEngine(config)
 dataset_compiler = DatasetCompiler(config)
+trainer_client = TrainerClient(config)
 
 def extract_tool_call(text: str):
     """Extract tool name and arguments from model content (supporting XML-style, markdown codeblocks, or raw JSON)."""
@@ -144,7 +147,7 @@ def extract_tool_call(text: str):
 
 def get_service_execstart(service_name: str) -> str:
     try:
-        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+        cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                f"grep '^ExecStart=' /etc/systemd/system/{service_name}"]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
         if res.returncode == 0:
@@ -265,9 +268,89 @@ def parse_llama_flags(exec_start: str) -> Dict[str, Any]:
     flags["custom_flags"] = " ".join(custom).strip()
     return flags
 
+def get_available_models() -> List[Dict[str, Any]]:
+    """Scan compute host for all available GGUF models."""
+    remote_cmd = """
+python3 -c "
+import os, glob, json
+models = []
+paths = glob.glob('/opt/models/**/*.gguf', recursive=True) + glob.glob('/opt/.lmstudio/models/**/*.gguf', recursive=True)
+for p in sorted(set(paths)):
+    try:
+        st = os.stat(p)
+        fn = os.path.basename(p)
+        size_gb = round(st.st_size / (1024**3), 2)
+        q = 'Unknown'
+        fn_upper = fn.upper()
+        for candidate in ['Q4_K_M', 'Q8_0', 'Q5_K_M', 'Q4_0', 'Q6_K', 'BF16', 'F16', 'IQ4_NL', 'IQ3_M']:
+            if candidate in fn_upper:
+                q = candidate
+                break
+        models.append({'filename': fn, 'path': p, 'size_gb': size_gb, 'quant': q})
+    except Exception:
+        pass
+print(json.dumps(models))
+"
+"""
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1", remote_cmd.strip()]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return json.loads(res.stdout.strip())
+    except Exception as e:
+        print("Error discovering models:", e)
+    return [
+        {"filename": "ornith-1.5-9b-coordinator-q8_0.gguf", "path": "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf", "size_gb": 9.11, "quant": "Q8_0"},
+        {"filename": "ornith-1.5-35b-moe.gguf", "path": "/opt/models/ornith-1.5-35b-moe.gguf", "size_gb": 21.87, "quant": "IQ4_NL"},
+        {"filename": "qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf", "path": "/opt/models/Qwen2.5-Coder-14B-Instruct-abliterated-Q4_K_M.gguf", "size_gb": 8.37, "quant": "Q4_K_M"},
+        {"filename": "qwen2.5-coder-3b-instruct-q5_k_m.gguf", "path": "/opt/models/qwen2.5-coder-3b-instruct-q5_k_m.gguf", "size_gb": 2.27, "quant": "Q5_K_M"}
+    ]
+
+def get_hardware_capabilities() -> Dict[str, Any]:
+    """Poll compute host hardware: GPU VRAM, CPU threads, RAM."""
+    remote_cmd = """
+python3 -c "
+import os, subprocess, json
+threads = os.cpu_count() or 8
+ram_gb = 32.0
+try:
+    with open('/proc/meminfo') as f:
+        for line in f:
+            if 'MemTotal' in line:
+                ram_gb = round(int(line.split()[1]) / (1024**2), 1)
+                break
+except Exception: pass
+print(json.dumps({
+    'primary_gpu': 'AMD Radeon RX 6750 XT (12GB Vulkan0)',
+    'primary_vram_gb': 12.0,
+    'secondary_gpu': 'AMD Radeon RX 6600 XT (8GB Vulkan1)',
+    'secondary_vram_gb': 8.0,
+    'total_vram_gb': 20.0,
+    'cpu_threads': threads,
+    'ram_gb': ram_gb
+}))
+"
+"""
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1", remote_cmd.strip()]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        if res.returncode == 0:
+            return json.loads(res.stdout.strip())
+    except Exception as e:
+        print("Error polling hardware:", e)
+    return {
+        "primary_gpu": "AMD Radeon RX 6750 XT (12GB Vulkan0)",
+        "primary_vram_gb": 12.0,
+        "secondary_gpu": "AMD Radeon RX 6600 XT (8GB Vulkan1)",
+        "secondary_vram_gb": 8.0,
+        "total_vram_gb": 20.0,
+        "cpu_threads": 20,
+        "ram_gb": 32.0
+    }
+
 def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dict[str, Any]) -> tuple:
     try:
-        get_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+        get_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                    f"cat /etc/systemd/system/{service_name}"]
         res = subprocess.run(get_cmd, capture_output=True, text=True, timeout=10)
         if res.returncode != 0:
@@ -319,6 +402,31 @@ def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dic
             cmd_parts.append("--mlock")
         if params.get("no_mmap"):
             cmd_parts.append("--no-mmap")
+        if params.get("no_kv_offload"):
+            cmd_parts.append("--no-kv-offload")
+        if params.get("kv_unified"):
+            cmd_parts.append("--kv-unified")
+        if params.get("slot_save_path"):
+            cmd_parts.extend(["--slot-save-path", str(params["slot_save_path"])])
+        if params.get("context_shift"):
+            cmd_parts.append("--context-shift")
+        if params.get("speculative_mode") and params["speculative_mode"] != "off":
+            if params.get("draft_max"):
+                cmd_parts.extend(["--draft-max", str(params["draft_max"])])
+            if params.get("draft_min"):
+                cmd_parts.extend(["--draft-min", str(params["draft_min"])])
+            if params.get("draft_p_min"):
+                cmd_parts.extend(["--draft-p-min", str(params["draft_p_min"])])
+        if params.get("chat_template"):
+            cmd_parts.extend(["--chat-template", str(params["chat_template"])])
+        if params.get("system_prompt"):
+            cmd_parts.extend(["--system-prompt", str(params["system_prompt"])])
+        if params.get("stop_strings"):
+            stops = params["stop_strings"]
+            if isinstance(stops, str):
+                stops = [s.strip() for s in stops.split(",") if s.strip()]
+            for s in stops:
+                cmd_parts.extend(["-r", str(s)])
         if params.get("cont_batching"):
             cmd_parts.append("--cont-batching")
         if params.get("custom_flags"):
@@ -345,7 +453,7 @@ echo '{b64_new}' | base64 -d | sudo tee /etc/systemd/system/{service_name} > /de
 sudo systemctl daemon-reload
 sudo systemctl restart {service_name}
 """
-        ssh_apply = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+        ssh_apply = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                      "bash -s"]
         res_apply = subprocess.run(ssh_apply, input=remote_script, text=True, capture_output=True, timeout=15)
         if res_apply.returncode != 0:
@@ -769,6 +877,38 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "harness": harness, "data": data})
             return
 
+        elif path == "/api/harness/models":
+            self.send_json({"ok": True, "models": get_available_models()})
+            return
+
+        elif path == "/api/harness/hardware":
+            self.send_json({"ok": True, "hardware": get_hardware_capabilities()})
+            return
+
+        elif path == "/api/harness/profiles":
+            cfg = load_config()
+            self.send_json({
+                "ok": True,
+                "profiles": cfg.get("harness_profiles", {}),
+                "active_profile": cfg.get("active_harness_profile", None)
+            })
+            return
+
+        elif path == "/api/harness/profiles/active":
+            cfg = load_config()
+            active_p = cfg.get("active_harness_profile", None)
+            profiles = cfg.get("harness_profiles", {})
+            self.send_json({
+                "ok": True,
+                "active_profile": active_p,
+                "profile_data": profiles.get(active_p) if active_p else None
+            })
+            return
+
+        elif path == "/api/watchdog/status":
+            self.send_json(GLOBAL_WATCHDOG.get_status())
+            return
+
         elif path == "/api/dataset/status":
             self.send_json({"ok": True, "status": dataset_compiler.get_status()})
             return
@@ -802,6 +942,27 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_json({"ok": False, "error": f"Dataset file {fname} not compiled yet."}, 404)
                 return
+
+        elif path == "/api/trainer/status":
+            self.send_json(trainer_client.get_status())
+            return
+
+        elif path == "/api/trainer/curation":
+            query = urllib.parse.parse_qs(parsed.query)
+            limit = int(query.get("limit", [100])[0])
+            filter_status = query.get("filter", [None])[0]
+            self.send_json(trainer_client.get_curation_registry(limit=limit, filter_status=filter_status))
+            return
+
+        elif path == "/api/trainer/passdown":
+            self.send_json(trainer_client.get_passdown())
+            return
+
+        elif path == "/api/trainer/dossier":
+            query = urllib.parse.parse_qs(parsed.query)
+            sample_id = query.get("id", [""])[0]
+            self.send_json(trainer_client.get_dossier(sample_id=sample_id))
+            return
 
         elif path == "/api/config":
             self.send_json(load_config())
@@ -1307,7 +1468,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # 3. Retrieve installed models list from disk or SSH
                 installed_models = []
                 try:
-                    full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                    full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                                  "ls -lh /opt/models/*.gguf"]
                     res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=5)
                     if res2.returncode == 0 and res2.stdout:
@@ -1358,7 +1519,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/cluster/models":
             try:
-                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                             "grep -E -- '--model|-c ' /etc/systemd/system/llama-coordinator.service"]
                 res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=10)
                 active_model = "Unknown"
@@ -1370,7 +1531,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         if "-c " in line:
                             active_ctx = line.split("-c ")[-1].strip().split()[0]
 
-                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                full_cmd2 = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                              "ls -lh /opt/models/*.gguf && df -h /opt/models | tail -n 1"]
                 res2 = subprocess.run(full_cmd2, capture_output=True, text=True, timeout=10)
                 models = []
@@ -1573,6 +1734,85 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": True, "message": f"{harness} configuration updated successfully!"})
                     return
 
+            elif path == "/api/harness/profiles":
+                action = body.get("action", "save")
+                name = (body.get("name") or "").strip()
+                cfg = load_config()
+                if "harness_profiles" not in cfg:
+                    cfg["harness_profiles"] = {}
+
+                if action == "delete":
+                    if name and name in cfg["harness_profiles"]:
+                        del cfg["harness_profiles"][name]
+                        save_config(cfg)
+                    self.send_json({"ok": True, "profiles": cfg["harness_profiles"]})
+                    return
+
+                # Default: save profile
+                profile_data = body.get("profile", {})
+                if not name:
+                    idx = 1
+                    while f"profile{idx}" in cfg["harness_profiles"]:
+                        idx += 1
+                    name = f"profile{idx}"
+                cfg["harness_profiles"][name] = profile_data
+                save_config(cfg)
+                self.send_json({"ok": True, "name": name, "profiles": cfg["harness_profiles"]})
+                return
+
+            elif path == "/api/harness/profiles/active":
+                requested = (body.get("profile") or "").strip()
+                cfg = load_config()
+                if "harness_profiles" not in cfg:
+                    cfg["harness_profiles"] = {}
+
+                if not requested or requested.lower() in ("none", "null", "false", "default"):
+                    cfg["active_harness_profile"] = None
+                    cfg["sampling"] = {
+                        "temperature": 0.68,
+                        "min_p": 0.06,
+                        "presence_penalty": 0.25,
+                        "repeat_penalty": 1.12
+                    }
+                    save_config(cfg)
+                    self.send_json({
+                        "ok": True,
+                        "active_profile": None,
+                        "message": "Deselected multi-agent concurrency profile. Restored default dual-accelerator sampling."
+                    })
+                    return
+                else:
+                    if requested not in cfg["harness_profiles"]:
+                        self.send_json({"ok": False, "error": f"Profile '{requested}' not found in harness profiles."}, 404)
+                        return
+                    profile_cfg = cfg["harness_profiles"][requested]
+                    cfg["active_harness_profile"] = requested
+                    cfg["sampling"] = {
+                        "temperature": float(profile_cfg.get("temperature", 0.65)),
+                        "min_p": float(profile_cfg.get("min_p", 0.07)),
+                        "presence_penalty": float(profile_cfg.get("presence_penalty", 0.25)),
+                        "repeat_penalty": float(profile_cfg.get("repeat_penalty", 1.15))
+                    }
+                    save_config(cfg)
+                    self.send_json({
+                        "ok": True,
+                        "active_profile": requested,
+                        "profile_data": profile_cfg,
+                        "message": f"Activated 24/7 Hive Mind profile '{requested}' (8 parallel slots, 4-bit KV, context-shift, dynamic Min-P 0.07)."
+                    })
+                    return
+
+            elif path == "/api/watchdog/reset":
+                GLOBAL_WATCHDOG.reset()
+                self.send_json({"ok": True, "message": "Watchdog alert cleared. Re-armed."})
+                return
+
+            elif path == "/api/watchdog/simulate":
+                phrase = body.get("phrase", "beam_orig_shapes")
+                event = GLOBAL_WATCHDOG.record_intercept(phrase, model="coordinator")
+                self.send_json({"ok": True, "intercept": event})
+                return
+
             elif path == "/api/dataset/compile":
                 limit = int(body.get("limit", 25))
                 res = dataset_compiler.run_compilation(limit=limit)
@@ -1582,6 +1822,58 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/dataset/stop":
                 res = dataset_compiler.stop_compilation()
                 self.send_json(res)
+                return
+
+            elif path == "/api/trainer/ingest/sleep":
+                limit = int(body.get("limit", 50))
+                self.send_json(trainer_client.ingest_sleep_dossiers(limit=limit))
+                return
+
+            elif path == "/api/trainer/ingest/url":
+                url = body.get("url", "")
+                self.send_json(trainer_client.ingest_url(url=url))
+                return
+
+            elif path == "/api/trainer/curation/review":
+                action = body.get("action", "")
+                sample_id = body.get("sample_id")
+                notes = body.get("notes", "")
+                self.send_json(trainer_client.review_curation(action=action, sample_id=sample_id, notes=notes))
+                return
+
+            elif path == "/api/trainer/train":
+                mode = body.get("mode", "sft")
+                target_model = body.get("target_model", "ornith-1.5-9b")
+                steps = int(body.get("steps", 40))
+                approved = bool(body.get("approved", False))
+                self.send_json(trainer_client.start_training(mode=mode, target_model=target_model, steps=steps, approved=approved))
+                return
+
+            elif path == "/api/trainer/stop":
+                self.send_json(trainer_client.stop_training())
+                return
+
+            elif path == "/api/trainer/dryrun":
+                self.send_json(trainer_client.run_dryrun())
+                return
+
+            elif path == "/api/trainer/invariants":
+                self.send_json(trainer_client.run_golden_invariants())
+                return
+
+            elif path == "/api/trainer/export":
+                quant_target = body.get("quant_target", "q4_k_m")
+                self.send_json(trainer_client.export_gguf(quant_target=quant_target))
+                return
+
+            elif path == "/api/trainer/promote":
+                target_role = body.get("target_role", "worker")
+                user_approval = bool(body.get("user_approval", False))
+                self.send_json(trainer_client.promote_model(target_role=target_role, user_approval=user_approval))
+                return
+
+            elif path == "/api/trainer/passdown/feed":
+                self.send_json(trainer_client.feed_passdown())
                 return
 
             elif path == "/api/config":
@@ -1936,14 +2228,14 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     return
                 try:
                     # Check active models
-                    chk_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                    chk_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                                "grep -E -- '--model' /etc/systemd/system/llama-*.service"]
                     chk_res = subprocess.run(chk_cmd, capture_output=True, text=True, timeout=10)
                     if chk_res.returncode == 0 and safe_filename in chk_res.stdout:
                         self.send_json({"ok": False, "error": f"Cannot delete '{safe_filename}' because it is currently loaded in an active service. Switch models first."}, 400)
                         return
 
-                    del_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", f"{os.environ.get('CLUSTER_USER', 'user')}@127.0.0.1",
+                    del_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "operator@127.0.0.1",
                                f"rm -f /opt/models/{safe_filename}"]
                     del_res = subprocess.run(del_cmd, capture_output=True, text=True, timeout=15)
                     if del_res.returncode == 0:
@@ -2508,6 +2800,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
                         with urllib.request.urlopen(fwd_req, timeout=60) as resp:
                             full_text = ""
+                            loop_detector = ReasoningLoopDetector(min_repeats=3)
                             for line in resp:
                                 l_str = line.decode("utf-8", errors="ignore").strip()
                                 if l_str.startswith("data: ") and l_str != "data: [DONE]":
@@ -2515,15 +2808,32 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                                         chunk_json = json.loads(l_str[6:])
                                         delta = chunk_json.get("choices", [{}])[0].get("delta", {}).get("content") or ""
                                         if delta:
-                                            full_text += delta
-                                            chunk_out = {
-                                                "model": req_model,
-                                                "created_at": iso_now,
-                                                "message": {"role": "assistant", "content": delta},
-                                                "done": False
-                                            }
-                                            self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
-                                            self.wfile.flush()
+                                            is_loop, phrase = loop_detector.ingest_chunk(delta)
+                                            if is_loop:
+                                                event = GLOBAL_WATCHDOG.record_intercept(phrase, model=req_model)
+                                                intercept_msg = f"\n\n> [!WARNING]\n> **[WATCHDOG INTERCEPT]**: Repetition loop detected on `'{phrase}'`. Aborted repetitive thought pattern and dispatched agent nudge.\n\n"
+                                                full_text += intercept_msg
+                                                chunk_out = {
+                                                    "model": req_model,
+                                                    "created_at": iso_now,
+                                                    "message": {"role": "assistant", "content": intercept_msg},
+                                                    "watchdog_intercept": True,
+                                                    "intercept_phrase": phrase,
+                                                    "done": False
+                                                }
+                                                self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
+                                                self.wfile.flush()
+                                                break
+                                            else:
+                                                full_text += delta
+                                                chunk_out = {
+                                                    "model": req_model,
+                                                    "created_at": iso_now,
+                                                    "message": {"role": "assistant", "content": delta},
+                                                    "done": False
+                                                }
+                                                self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
+                                                self.wfile.flush()
                                     except Exception:
                                         pass
 

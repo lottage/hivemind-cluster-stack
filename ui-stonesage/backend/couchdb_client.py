@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional
 class CouchDBClient:
     def __init__(self, config: Dict[str, Any]):
         self.url = config.get("url", "http://127.0.0.1:5984").rstrip("/")
-        self.username = config.get("username", os.environ.get("COUCHDB_USER", "admin"))
+        self.username = config.get("username", "austin")
         self.password = config.get("password", "your_couchdb_password")
         self.database = config.get("database", "obsidiannotes")
 

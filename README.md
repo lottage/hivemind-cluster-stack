@@ -186,10 +186,36 @@ hivemind-cluster-stack/
 ├── client-mobile/                     # Expo / React Native Android & iOS client
 │   └── App.tsx                       # Full-featured mobile cockpit & local LLM dispatcher
 │
+├── trainer/                          # LLM Fine-Tuning & Cognitive Curation Engine
+│   ├── config/                       # QLoRA, DPO & 24/7 Concurrency Profile configurations
+│   ├── data_ingestion/               # Sleep dossier collectors, Frontier trigger registry, Obsidian URI extraction
+│   ├── training/                     # NF4 QLoRA, RL agent loop & AST safety guardrails
+│   ├── export/                       # LoRA merge & GGUF export pipelines
+│   └── scripts/                      # Real-time reasoning loop watchdog & benchmark suites
+│
 ├── docker-compose.yml                 # One-click multi-container deployment
 ├── .env.example                       # Configurable endpoint declarations
 └── start.sh / start.bat               # Multi-platform launcher scripts
 ```
+
+---
+
+## ⚡ 24/7 Max Concurrency Profile & Reasoning Loop Watchdog
+
+### 1. 24/7 Multi-Agent Concurrency Profile (`HiveMind_MaxConcurrency`)
+Maximizes concurrent parallel splinter agents on resource-constrained multi-GPU clusters without VRAM blowup:
+- **8 Parallel Slots (`-np 8`)**: Serves up to 8 concurrent agent deliberation streams simultaneously.
+- **4-Bit KV Cache (`-ctk q4_0 -ctv q4_0`)**: Reduces KV cache memory footprint by 75%, freeing ~6GB VRAM.
+- **Continuous Rolling Buffer (`--context-shift`)**: Prevents OOM crashes during unbounded multi-turn reasoning sessions.
+- **Dynamic Min-P Sampling (`min_p: 0.07`, `temp: 0.65`)**: Suppresses repetitive low-probability hallucination while maintaining high entropy for creative architecture planning.
+- **1-Click UI Activation**: Toggle directly from the StoneSage Cockpit telemetry bar or Harness Studio.
+
+### 2. Autoregressive Stuck Reasoning Loop Watchdog
+Edge-deployed reasoning models frequently suffer from autoregressive circular thought traps (repeating identical lemmas 10+ times inside `<think>` blocks). The built-in watchdog solves this:
+- **Sliding-Window N-Gram Detection**: Monitors token streams for repeated patterns ($K \ge 3$ repetitions across n-grams of size 1 to 24).
+- **Slot Forward-Pass Abort**: Instantly terminates the HTTP/Vulkan forward pass on the GPU slot to halt token starvation.
+- **Native MCP Agent Nudge**: Dispatches `nudge_agent` directive into the cluster bridge, prompting the model to discard circular paths and re-derive from first principles.
+- **Real-Time Cockpit Telemetry**: Displays a high-contrast pulsating warning badge in the web GUI (`[⚠️ STUCK REASONING INTERCEPTED]`) with complete historical intercept logs.
 
 ---
 
@@ -212,3 +238,4 @@ hivemind-cluster-stack/
 
 ## 📄 License
 This project is licensed under the [MIT License](LICENSE).
+

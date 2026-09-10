@@ -5130,7 +5130,7 @@ export default function App() {
                     const toolBadge = 
                       toolName === 'web_search' ? '🌐 Web Search' :
                       toolName === 'fetch_page' ? '📄 Page Fetch' :
-                      toolName === 'search_hive_memory' ? '🧠 Qdrant Memory' :
+                      toolName === 'search_ziotron' ? '🧠 Qdrant Memory' :
                       toolName === 'talk_to_agent' ? '💬 Agent Dialogue' :
                       toolName === 'spawn_child_agent' ? '🐣 Spawn Subagent' :
                       `🛠️ ${toolName}`;

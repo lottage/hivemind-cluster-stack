@@ -45,7 +45,7 @@ curl -s http://127.0.0.1:6333/readyz
 Run the closed-loop refiner script from Windows or directly on VM 102:
 ```powershell
 # From your workstation:
-powershell -ExecutionPolicy Bypass -File "C:\Users\admin\OneDrive\Documents\.ai\.agents\skills\model-stack-refiner\scripts\run_calibration.ps1"
+powershell -ExecutionPolicy Bypass -File "C:\Users\operator\OneDrive\Documents\.ai\.agents\skills\model-stack-refiner\scripts\run_calibration.ps1"
 ```
 Or execute directly via Python:
 ```bash
