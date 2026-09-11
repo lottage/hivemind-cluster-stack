@@ -940,14 +940,14 @@ TOOLS_MANIFEST = [
     },
     {
         "name": "configure_cluster_context",
-        "description": "Dynamically switch context window architecture for cluster MoE: 'deep_32k_ram' (32,768 tokens via System RAM, ~8 tok/s, no truncation) or 'standard_8k' (8,192 tokens in VRAM, ~35 tok/s).",
+        "description": "Dynamically switch context window architecture for cluster MoE: 'standard_8k' (8K VRAM, ~35 t/s), 'deep_32k_ram' (32K Host RAM), 'dual_64k_ram' (2 slots x 32K), 'deep_128k_ram' (1 slot x 128K), 'quad_128k_ram' (4 slots x 32K), 'octa_128k_ram' (8 slots x 16K).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "context_mode": {
                     "type": "string",
-                    "enum": ["deep_32k_ram", "standard_8k"],
-                    "description": "Target context window mode."
+                    "enum": ["standard_8k", "deep_32k_ram", "dual_64k_ram", "deep_128k_ram", "quad_128k_ram", "octa_128k_ram"],
+                    "description": "Target context window mode preset."
                 }
             },
             "required": ["context_mode"],

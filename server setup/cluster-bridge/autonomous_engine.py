@@ -1297,7 +1297,10 @@ class AutonomousThinkingEngine:
                         
                         if "--no-kv-offload" in s_text:
                             kv_storage = "system_ram"
-                            if n_ctx >= 131072 and n_parallel >= 4:
+                            if n_ctx >= 131072 and n_parallel >= 8:
+                                context_mode = "octa_128k_ram"
+                                gen_speed = "~9.2 tok/s aggregate (8 Parallel Swarm Slots)"
+                            elif n_ctx >= 131072 and n_parallel >= 4:
                                 context_mode = "quad_128k_ram"
                                 gen_speed = "~8.7 tok/s aggregate (4 Parallel Swarm Slots)"
                             elif n_ctx >= 131072 and n_parallel == 2:
@@ -1344,11 +1347,15 @@ class AutonomousThinkingEngine:
         - 'dual_64k_ram' (64K Host RAM, 2 slots x 32K, ~7.4 tok/s)
         - 'deep_128k_ram' (128K Host RAM, 1 slot, ~5.9 tok/s)
         - 'quad_128k_ram' (128K Host RAM, 4 slots x 32K, ~8.7 tok/s)
+        - 'octa_128k_ram' (128K Host RAM, 8 slots x 16K, ~9.2 tok/s)
         """
         self.preemption.signal_activity("configure_cluster_context", in_flight=True)
         try:
             cm = str(context_mode).lower().strip()
-            if "quad" in cm or ("128" in cm and "4" in cm):
+            if "octa" in cm or ("128" in cm and "8" in cm):
+                target = "octa_128k_ram"
+                template_suffix = "128k_octa"
+            elif "quad" in cm or ("128" in cm and "4" in cm):
                 target = "quad_128k_ram"
                 template_suffix = "128k_quad"
             elif "128" in cm and ("deep" in cm or "1" in cm or "single" in cm):

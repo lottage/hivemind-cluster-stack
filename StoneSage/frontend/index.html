@@ -639,8 +639,14 @@ Select a model above or click a one-click preset to switch and tune.
           <h2>[ 🧠 24/7 COGNITIVE HIVE-MIND &amp; LLM VISION ]</h2>
           <p>Autonomous dual-GPU presence, model-directed exploration, parameter self-inspection, and Home Assistant camera vigilance</p>
         </div>
-        <div class="filter-bar">
-          <button class="launch-btn" onclick="toggleClusterContextMode()" id="btn-toggle-context-mode" title="Toggle between 32K Deep System RAM mode (no truncation) and 8K Fast VRAM mode">[🧠 CONTEXT: 32K RAM]</button>
+          <select class="launch-btn" id="select-cluster-context-mode" onchange="changeClusterContextMode(this.value)" title="Select Cluster Context Window Architecture Preset" style="font-family: inherit; font-size: 0.75rem; padding: 3px 6px; background: var(--surface-2, #c0c0c0); cursor: pointer; border: 2px outset #ffffff; color: var(--term-text, #000);">
+            <option value="standard_8k">⚡ 8K Fast VRAM (1x 8K, ~35 t/s)</option>
+            <option value="deep_32k_ram">🧠 32K Deep RAM (1x 32K, ~5.8 t/s)</option>
+            <option value="dual_64k_ram">👥 64K Dual Swarm (2x 32K, ~7.4 t/s)</option>
+            <option value="deep_128k_ram">💻 128K Deep Code (1x 128K, ~5.9 t/s)</option>
+            <option value="quad_128k_ram">⚡ 128K Quad Swarm (4x 32K, ~8.7 t/s)</option>
+            <option value="octa_128k_ram">🐝 128K Octa Swarm (8x 16K, ~9.2 t/s)</option>
+          </select>
           <button class="launch-btn profile-toggle-btn" onclick="toggleHiveMindConcurrencyProfile()" id="btn-toggle-hivemind-profile" title="Toggle 24/7 Max Capacity Multi-Agent Concurrency Profile">[⚡ 24/7 MAX CONCURRENCY: OFF]</button>
           <button class="launch-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
           <button class="launch-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>

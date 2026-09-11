@@ -4825,49 +4825,38 @@ window.loadHiveMindStatus = async function(manual = false) {
 
       // Context mode indicator
       const cmInfo = s.cluster_mode_info || {};
-      const ctxMode = cmInfo.context_mode || (s.rumination && s.rumination.cluster_mode === 'unified_35b_moe' ? 'quad_128k_ram' : 'standard_8k');
+      const ctxMode = cmInfo.context_mode || (s.rumination && s.rumination.cluster_mode === 'unified_35b_moe' ? 'octa_128k_ram' : 'standard_8k');
       const elContextStat = document.getElementById('hm-stat-context');
       if (elContextStat) {
-        if (ctxMode === 'quad_128k_ram') {
-          elContextStat.textContent = '128K SWARM RAM (4x 32K)';
+        if (ctxMode === 'octa_128k_ram') {
+          elContextStat.textContent = '128K OCTA SWARM (8x 16K)';
+          elContextStat.style.color = '#ffcc00';
+          elContextStat.title = '131,072 total tokens in Host RAM across 8 parallel slots (16K per agent). ~9.2 tok/s aggregate.';
+        } else if (ctxMode === 'quad_128k_ram') {
+          elContextStat.textContent = '128K QUAD SWARM (4x 32K)';
           elContextStat.style.color = '#00ffff';
-          elContextStat.title = '131,072 total tokens in Host RAM across 4 parallel slots (32K per agent). 8.67 tok/s aggregate.';
+          elContextStat.title = '131,072 total tokens in Host RAM across 4 parallel slots (32K per agent). ~8.7 tok/s aggregate.';
         } else if (ctxMode === 'deep_128k_ram') {
           elContextStat.textContent = '128K DEEP RAM (131,072)';
           elContextStat.style.color = '#00ee66';
-          elContextStat.title = '131,072 single continuous tokens in Host RAM. 5.92 tok/s.';
+          elContextStat.title = '131,072 single continuous tokens in Host RAM. ~5.9 tok/s.';
         } else if (ctxMode === 'dual_64k_ram' || ctxMode === 'dual_128k_ram') {
           elContextStat.textContent = '64K DUAL RAM (2x 32K)';
           elContextStat.style.color = '#00ee66';
-          elContextStat.title = '65,536 tokens in Host RAM across 2 parallel slots (32K per agent). 7.41 tok/s aggregate.';
+          elContextStat.title = '65,536 tokens in Host RAM across 2 parallel slots (32K per agent). ~7.4 tok/s aggregate.';
         } else if (ctxMode === 'deep_32k_ram') {
           elContextStat.textContent = '32K DEEP RAM (32,768)';
           elContextStat.style.color = '#00ee66';
-          elContextStat.title = '32,768 tokens in Host RAM. 5.74 tok/s.';
+          elContextStat.title = '32,768 tokens in Host RAM. ~5.8 tok/s.';
         } else {
           elContextStat.textContent = '8K FAST VRAM (8,192)';
           elContextStat.style.color = 'var(--term-text-bright)';
           elContextStat.title = '8,192 tokens in Dual GPU VRAM. ~35 tok/s.';
         }
       }
-      const elContextBtn = document.getElementById('btn-toggle-context-mode');
-      if (elContextBtn) {
-        if (ctxMode === 'quad_128k_ram') {
-          elContextBtn.textContent = '[⚡ CONTEXT: 128K QUAD SWARM]';
-          elContextBtn.style.color = '#00ffff';
-        } else if (ctxMode === 'deep_128k_ram') {
-          elContextBtn.textContent = '[🧠 CONTEXT: 128K DEEP RAM]';
-          elContextBtn.style.color = '#00ee66';
-        } else if (ctxMode === 'dual_64k_ram') {
-          elContextBtn.textContent = '[👥 CONTEXT: 64K DUAL AGENT]';
-          elContextBtn.style.color = '#00ee66';
-        } else if (ctxMode === 'deep_32k_ram') {
-          elContextBtn.textContent = '[🧠 CONTEXT: 32K RAM]';
-          elContextBtn.style.color = '#00ee66';
-        } else {
-          elContextBtn.textContent = '[⚡ CONTEXT: 8K VRAM]';
-          elContextBtn.style.color = '';
-        }
+      const elContextSelect = document.getElementById('select-cluster-context-mode');
+      if (elContextSelect && ctxMode) {
+        elContextSelect.value = ctxMode;
       }
     }
   } catch (err) {
@@ -7992,7 +7981,8 @@ window.toggleClusterContextMode = async function() {
     'deep_32k_ram': 'dual_64k_ram',
     'dual_64k_ram': 'deep_128k_ram',
     'deep_128k_ram': 'quad_128k_ram',
-    'quad_128k_ram': 'standard_8k'
+    'quad_128k_ram': 'octa_128k_ram',
+    'octa_128k_ram': 'standard_8k'
   };
 
   const modeLabels = {
@@ -8000,14 +7990,15 @@ window.toggleClusterContextMode = async function() {
     'deep_32k_ram': '32K Deep System RAM (32,768 tokens, ~5.8 tok/s)',
     'dual_64k_ram': '64K Dual Agent RAM (2x 32K slots, ~7.4 tok/s agg)',
     'deep_128k_ram': '128K Deep System RAM (131,072 single slot, ~5.9 tok/s)',
-    'quad_128k_ram': '128K Quad Swarm RAM (4x 32K slots, ~8.7 tok/s agg)'
+    'quad_128k_ram': '128K Quad Swarm RAM (4x 32K slots, ~8.7 tok/s agg)',
+    'octa_128k_ram': '128K Octa Swarm RAM (8x 16K slots, ~9.2 tok/s agg)'
   };
 
   try {
     const curRes = await fetch('/api/cluster/mode');
     const curData = await curRes.json();
-    const currentMode = (curData.ok && curData.mode) ? (curData.mode.context_mode || 'quad_128k_ram') : 'quad_128k_ram';
-    const targetMode = modeCycle[currentMode] || 'quad_128k_ram';
+    const currentMode = (curData.ok && curData.mode) ? (curData.mode.context_mode || 'octa_128k_ram') : 'octa_128k_ram';
+    const targetMode = modeCycle[currentMode] || 'octa_128k_ram';
 
     const res = await fetch('/api/cluster/context_mode', {
       method: 'POST',
@@ -8027,6 +8018,41 @@ window.toggleClusterContextMode = async function() {
     await window.loadHiveMindStatus(true);
   } finally {
     if (btn) btn.disabled = false;
+  }
+};
+
+window.changeClusterContextMode = async function(targetMode) {
+  const sel = document.getElementById('select-cluster-context-mode');
+  if (sel) sel.disabled = true;
+
+  const modeLabels = {
+    'standard_8k': '8K Fast VRAM (8,192 tokens, ~35 tok/s)',
+    'deep_32k_ram': '32K Deep System RAM (32,768 tokens, ~5.8 tok/s)',
+    'dual_64k_ram': '64K Dual Agent RAM (2x 32K slots, ~7.4 tok/s agg)',
+    'deep_128k_ram': '128K Deep System RAM (131,072 single slot, ~5.9 tok/s)',
+    'quad_128k_ram': '128K Quad Swarm RAM (4x 32K slots, ~8.7 tok/s agg)',
+    'octa_128k_ram': '128K Octa Swarm RAM (8x 16K slots, ~9.2 tok/s agg)'
+  };
+
+  try {
+    const res = await fetch('/api/cluster/context_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context_mode: targetMode })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await window.loadHiveMindStatus(true);
+      alert(`✅ Context window architecture successfully switched to ${modeLabels[targetMode] || targetMode}!\n\n${data.message || ''}`);
+    } else {
+      alert(`Failed to switch context mode: ${data.error || 'Unknown error'}`);
+      await window.loadHiveMindStatus(true);
+    }
+  } catch (err) {
+    alert(`Error switching context mode: ${err.message}`);
+    await window.loadHiveMindStatus(true);
+  } finally {
+    if (sel) sel.disabled = false;
   }
 };
 
