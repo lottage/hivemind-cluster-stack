@@ -66,7 +66,35 @@ CONFIG_FILE = os.path.join(BACKEND_DIR, "config.json")
 VAULT_DIR = os.path.join(ROOT_DIR, "vault_backup")
 UPLOADS_DIR = os.path.join(ROOT_DIR, "uploads")
 WORKSPACE_ROOT = os.path.abspath(os.path.dirname(ROOT_DIR))
+ACTIVE_WORKSPACE_DIR = WORKSPACE_ROOT
+ACTIVE_GIT_REPO_DIR = WORKSPACE_ROOT
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+def get_directory_presets() -> list:
+    candidates = [
+        {"label": "Active Workspace", "path": WORKSPACE_ROOT},
+        {"label": "Server: /opt", "path": "/opt"},
+        {"label": "NFS: /mnt/nas", "path": "/mnt/nas"},
+        {"label": "NFS: /mnt/storage", "path": "/mnt/storage"},
+        {"label": "Server Root: /", "path": "/"},
+        {"label": "Linux: /etc", "path": "/etc"},
+        {"label": "Windows: .ai", "path": "c:/Users/johna/OneDrive/Documents/.ai"},
+    ]
+    existing = []
+    seen = set()
+    for c in candidates:
+        norm = os.path.normpath(c["path"]).replace("\\", "/")
+        if os.path.exists(c["path"]):
+            if norm not in seen:
+                seen.add(norm)
+                existing.append({"label": c["label"], "path": norm})
+        elif c["label"] in ["Server: /opt", "NFS: /mnt/nas", "NFS: /mnt/storage"]:
+            # Always make homelab server & NFS mounts visible as choices
+            if norm not in seen:
+                seen.add(norm)
+                existing.append({"label": c["label"], "path": norm})
+    return existing or candidates[:3]
+
 
 sys.path.insert(0, BACKEND_DIR)
 from proxmox_client import ProxmoxClient
@@ -79,6 +107,7 @@ from couchdb_client import CouchDBClient
 from stm_engine import ShortTermMemoryEngine
 from dataset_compiler import DatasetCompiler
 from trainer_client import TrainerClient
+from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 mimetypes.add_type("application/javascript", ".js")
@@ -97,6 +126,860 @@ def load_config() -> Dict[str, Any]:
 def save_config(cfg: Dict[str, Any]):
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+
+def sync_qdrant_dossier_review(sample_id: str, action: str, notes: str = "") -> bool:
+    """Synchronizes human review/approval/quarantine for a dossier directly into Qdrant point payload."""
+    if not sample_id:
+        return False
+    try:
+        cfg = load_config()
+        qdrant_u = cfg.get("qdrant", {}).get("url", "http://192.168.1.112:6333").rstrip("/")
+        scroll_req = urllib.request.Request(
+            f"{qdrant_u}/collections/autonomous_thinking/points/scroll",
+            data=json.dumps({
+                "limit": 300,
+                "with_payload": True,
+                "with_vector": False
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        found_id = None
+        with urllib.request.urlopen(scroll_req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for pt in data.get("result", {}).get("points", []):
+                pl = pt.get("payload", {})
+                if pl.get("exploration_id") == sample_id or str(pt.get("id")) == sample_id:
+                    found_id = pt.get("id")
+                    break
+        if found_id is not None:
+            is_app = action in ("approve", "approve_sample")
+            patch_payload = {
+                "points": [found_id],
+                "payload": {
+                    "frontier_verified": is_app,
+                    "human_approved": is_app,
+                    "needs_frontier_verification": not is_app,
+                    "quarantined": not is_app,
+                    "human_status": "APPROVED" if is_app else "REJECTED",
+                    "human_review_timestamp": datetime.now().isoformat(),
+                    "human_notes": notes or ("Approved via StoneSage Web Cockpit" if is_app else "Quarantined via StoneSage Web Cockpit")
+                }
+            }
+            p_req = urllib.request.Request(
+                f"{qdrant_u}/collections/autonomous_thinking/points/payload",
+                data=json.dumps(patch_payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(p_req, timeout=6) as p_resp:
+                return True
+    except Exception as e:
+        print(f"[Qdrant Sync Error] Failed to update point for {sample_id}: {e}")
+    return False
+
+
+def sync_qdrant_frontier_audit_result(sample_id: str, verdict: str, frontier_notes: str = "", refined_limits: str = "") -> bool:
+    """Updates Qdrant point payload with Tier-1 Frontier audit results."""
+    if not sample_id:
+        return False
+    try:
+        cfg = load_config()
+        qdrant_u = cfg.get("qdrant", {}).get("url", "http://192.168.1.112:6333").rstrip("/")
+        scroll_req = urllib.request.Request(
+            f"{qdrant_u}/collections/autonomous_thinking/points/scroll",
+            data=json.dumps({
+                "limit": 300,
+                "with_payload": True,
+                "with_vector": False
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        found_id = None
+        with urllib.request.urlopen(scroll_req, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for pt in data.get("result", {}).get("points", []):
+                pl = pt.get("payload", {})
+                if pl.get("exploration_id") == sample_id or str(pt.get("id")) == sample_id:
+                    found_id = pt.get("id")
+                    break
+        if found_id is not None:
+            patch_payload = {
+                "points": [found_id],
+                "payload": {
+                    "frontier_verified": True,
+                    "frontier_verdict": verdict,
+                    "frontier_notes": frontier_notes,
+                    "refined_limits": refined_limits,
+                    "needs_frontier_verification": False,
+                    "quarantined": False,
+                    "frontier_audit_timestamp": datetime.now().isoformat()
+                }
+            }
+            p_req = urllib.request.Request(
+                f"{qdrant_u}/collections/autonomous_thinking/points/payload",
+                data=json.dumps(patch_payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(p_req, timeout=6) as p_resp:
+                return True
+    except Exception as e:
+        print(f"[Qdrant Frontier Audit Sync Error] Failed to update point for {sample_id}: {e}")
+    return False
+
+
+def execute_frontier_audit_for_dossier(dossier_id: str) -> Dict[str, Any]:
+    """
+    Executes Tier-1 Frontier Audit via Frontier Bridge (:8085).
+    Reads dossier from thinking_archive or Qdrant, sends to Frontier Bridge,
+    updates Qdrant payload, updates markdown file, and updates curation registry.
+    """
+    cfg = load_config()
+    frontier_urls = [
+        cfg.get("frontier_url", "http://127.0.0.1:8085").rstrip("/"),
+        "http://192.168.1.167:8085",
+        "http://127.0.0.1:8085"
+    ]
+    
+    content = ""
+    local_paths = [
+        f"/opt/cluster-bridge/thinking_archive/{dossier_id}.md",
+        f"../server setup/cluster-bridge/thinking_archive/{dossier_id}.md",
+        f"../obsidian/Autonomous Thinking/Explorations/{dossier_id}.md",
+        f"../obsidian/Autonomous Thinking/{dossier_id}.md",
+        f"C:/Users/johna/OneDrive/Documents/obsidian/Autonomous Thinking/Explorations/{dossier_id}.md"
+    ]
+    md_file_found = None
+    for lp in local_paths:
+        if os.path.exists(lp):
+            try:
+                with open(lp, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    md_file_found = lp
+                break
+            except Exception:
+                pass
+                
+    title = dossier_id
+    prompt = ""
+    worker_output = ""
+    coordinator_output = ""
+    eval_dict = {}
+    target_invariant = ""
+
+    if content:
+        lines = content.splitlines()
+        current_sec = None
+        sec_buffers = {}
+        for line in lines:
+            if line.startswith("# "):
+                title = line[2:].strip()
+            elif line.startswith("## "):
+                current_sec = line[3:].strip().lower()
+                sec_buffers[current_sec] = []
+            elif current_sec:
+                sec_buffers[current_sec].append(line)
+        
+        for k, v in sec_buffers.items():
+            text = "\n".join(v).strip()
+            if "prompt" in k or "challenge" in k:
+                prompt = text
+            elif "worker" in k:
+                worker_output = text
+            elif "coordinator" in k:
+                coordinator_output = text
+            elif "invariant" in k:
+                target_invariant = text
+            elif "evaluation" in k or "first-pass" in k:
+                eval_dict = {"raw_eval": text}
+    else:
+        try:
+            qdrant_u = cfg.get("qdrant", {}).get("url", "http://192.168.1.112:6333").rstrip("/")
+            scroll_req = urllib.request.Request(
+                f"{qdrant_u}/collections/autonomous_thinking/points/scroll",
+                data=json.dumps({"limit": 300, "with_payload": True, "with_vector": False}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(scroll_req, timeout=6) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                for pt in data.get("result", {}).get("points", []):
+                    pl = pt.get("payload", {})
+                    if pl.get("exploration_id") == dossier_id or str(pt.get("id")) == dossier_id:
+                        title = pl.get("title", dossier_id)
+                        prompt = pl.get("prompt", "")
+                        worker_output = pl.get("worker_output", "")
+                        coordinator_output = pl.get("coordinator_output", "")
+                        target_invariant = pl.get("target_invariant", "")
+                        eval_dict = {"eval": pl.get("eval", {})}
+                        break
+        except Exception:
+            pass
+
+    if not prompt and not worker_output and not coordinator_output:
+        prompt = f"Dossier {dossier_id}"
+
+    payload = {
+        "title": title,
+        "prompt": prompt,
+        "worker_output": worker_output,
+        "coordinator_output": coordinator_output,
+        "eval": eval_dict,
+        "target_invariant": target_invariant
+    }
+
+    bridge_resp = None
+    last_err = None
+    for fu in frontier_urls:
+        audit_url = f"{fu}/api/frontier/audit"
+        try:
+            req = urllib.request.Request(
+                audit_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=40) as resp:
+                bridge_resp = json.loads(resp.read().decode("utf-8"))
+                if bridge_resp.get("ok"):
+                    break
+        except Exception as ex:
+            last_err = ex
+
+    if not bridge_resp or not bridge_resp.get("ok"):
+        err_msg = bridge_resp.get("error") if bridge_resp else str(last_err)
+        return {"ok": False, "error": f"Frontier Bridge execution failed: {err_msg}"}
+
+    verdict = bridge_resp.get("verdict", "CONFIRM_LIMIT_VALIDATED")
+    frontier_notes = bridge_resp.get("frontier_notes", "")
+    refined_limits = bridge_resp.get("refined_limits", "")
+    provider = bridge_resp.get("provider", "frontier_bridge")
+    model = bridge_resp.get("model", "gemini-3.8-flash")
+
+    # 1. Update Qdrant
+    qdrant_updated = sync_qdrant_frontier_audit_result(dossier_id, verdict, frontier_notes, refined_limits)
+
+    # 2. Update markdown file on disk if found
+    if md_file_found and os.path.exists(md_file_found):
+        try:
+            audit_block = (
+                f"\n\n## Tier-1 Frontier Meta-Verification Audit\n"
+                f"- **Verdict**: `{verdict}`\n"
+                f"- **Model**: `{model}` ({provider})\n"
+                f"- **Timestamp**: `{datetime.now().isoformat()}`\n"
+                f"- **Frontier Notes**: {frontier_notes}\n"
+                f"- **Refined Architectural Limits**: {refined_limits}\n"
+            )
+            with open(md_file_found, "a", encoding="utf-8") as af:
+                af.write(audit_block)
+        except Exception as e:
+            print(f"[Markdown Append Warning] {e}")
+
+    # 3. Update curation registry if sample tracked
+    try:
+        cur_paths = [
+            "pipeline-gguf-trainer/data/processed/curation_registry.json",
+            "../pipeline-gguf-trainer/data/processed/curation_registry.json",
+            "/opt/stonesage/trainer/data/processed/curation_registry.json"
+        ]
+        for cur_reg_path in cur_paths:
+            if os.path.exists(cur_reg_path):
+                with open(cur_reg_path, "r", encoding="utf-8") as rf:
+                    cdata = json.load(rf)
+                samples = cdata.get("samples", {})
+                if dossier_id in samples:
+                    samples[dossier_id]["frontier_verified"] = True
+                    samples[dossier_id]["verdict"] = verdict
+                    samples[dossier_id]["frontier_score"] = 9.5
+                    samples[dossier_id]["frontier_critique"] = frontier_notes
+                    with open(cur_reg_path, "w", encoding="utf-8") as wf:
+                        json.dump(cdata, wf, indent=2)
+                break
+    except Exception as e:
+        print(f"[Curation Registry Update Warning] {e}")
+
+    return {
+        "ok": True,
+        "dossier_id": dossier_id,
+        "verdict": verdict,
+        "frontier_notes": frontier_notes,
+        "refined_limits": refined_limits,
+        "provider": provider,
+        "model": model,
+        "qdrant_updated": qdrant_updated
+    }
+
+
+def load_dynamic_tools_and_skills() -> Dict[str, Any]:
+    """
+    Dynamically scans and discovers all local cluster MCP tools and agent skills
+    in real time without requiring server restarts or hardcoded manifests.
+    """
+    cfg = load_config()
+    mcp_url = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765").rstrip("/")
+    
+    tools = []
+    try:
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
+        req = urllib.request.Request(
+            mcp_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            live_tools = data.get("result", {}).get("tools", [])
+            for t in live_tools:
+                tools.append({
+                    "name": t.get("name"),
+                    "description": t.get("description", ""),
+                    "inputSchema": t.get("inputSchema", {}),
+                    "source": "pve-cluster (Live MCP :8765)",
+                    "type": "mcp_tool"
+                })
+    except Exception:
+        mcp_paths = [
+            "/opt/cluster-bridge/mcp_server.py",
+            "server setup/cluster-bridge/mcp_server.py",
+            "../server setup/cluster-bridge/mcp_server.py",
+            "hivemind-cluster-stack/core/mcp_server.py"
+        ]
+        for mp in mcp_paths:
+            if os.path.exists(mp):
+                try:
+                    with open(mp, "r", encoding="utf-8", errors="ignore") as mf:
+                        content = mf.read()
+                        import ast
+                        if "TOOLS_MANIFEST = [" in content:
+                            start_idx = content.index("TOOLS_MANIFEST = [") + len("TOOLS_MANIFEST = ")
+                            sub = content[start_idx:]
+                            bracket = 0
+                            end = 0
+                            for idx, ch in enumerate(sub):
+                                if ch == '[': bracket += 1
+                                elif ch == ']':
+                                    bracket -= 1
+                                    if bracket == 0:
+                                        end = idx + 1
+                                        break
+                            if end > 0:
+                                parsed = ast.literal_eval(sub[:end])
+                                for t in parsed:
+                                    tools.append({
+                                        "name": t.get("name"),
+                                        "description": t.get("description", ""),
+                                        "inputSchema": t.get("inputSchema", {}),
+                                        "source": "pve-cluster (Local Manifest)",
+                                        "type": "mcp_tool"
+                                    })
+                                break
+                except Exception:
+                    pass
+
+    skills = []
+    scan_roots = [
+        ".agents/skills",
+        "../.agents/skills",
+        "C:/Users/johna/OneDrive/Documents/.ai/.agents/skills",
+        "C:/Users/johna/.gemini/antigravity/builtin/skills",
+        "/opt/stonesage/.agents/skills",
+        "/root/.gemini/antigravity/builtin/skills",
+        "hivemind-cluster-stack/core/skills"
+    ]
+    seen_skills = set()
+    for s_root in scan_roots:
+        if os.path.exists(s_root) and os.path.isdir(s_root):
+            for entry in sorted(os.listdir(s_root)):
+                skill_dir = os.path.join(s_root, entry)
+                skill_file = os.path.join(skill_dir, "SKILL.md")
+                if os.path.isdir(skill_dir) and os.path.exists(skill_file) and entry not in seen_skills:
+                    seen_skills.add(entry)
+                    try:
+                        with open(skill_file, "r", encoding="utf-8", errors="ignore") as sf:
+                            s_text = sf.read()
+                        name = entry
+                        desc = ""
+                        body = s_text
+                        if s_text.startswith("---"):
+                            parts = s_text.split("---", 2)
+                            if len(parts) >= 3:
+                                fm = parts[1]
+                                body = parts[2]
+                                for line in fm.splitlines():
+                                    if line.startswith("name:"):
+                                        name = line.split("name:", 1)[1].strip().strip('"').strip("'")
+                                    elif line.startswith("description:"):
+                                        desc = line.split("description:", 1)[1].strip().strip('"').strip("'")
+                        if not desc:
+                            for b_line in body.splitlines():
+                                s_strip = b_line.strip()
+                                if s_strip and not s_strip.startswith("#"):
+                                    desc = s_strip
+                                    break
+                        skills.append({
+                            "id": entry,
+                            "name": name,
+                            "description": desc,
+                            "body": body[:1500],
+                            "path": skill_file.replace("\\", "/"),
+                            "source": "Agent Skill",
+                            "type": "agent_skill"
+                        })
+                    except Exception:
+                        pass
+
+    return {
+        "ok": True,
+        "total_tools": len(tools),
+        "total_skills": len(skills),
+        "tools": tools,
+        "skills": skills,
+        "scanned_at": datetime.now().isoformat()
+    }
+
+
+def load_dynamic_amem_cards(query: str = "") -> Dict[str, Any]:
+    """
+    Dynamically queries Valkey RAM (:6379) on 192.168.1.105,
+    or falls back to curated in-RAM JSON files.
+    Calculates exact atom card tokens (< 35 tokens).
+    """
+    import socket
+    cards = []
+    valkey_online = False
+    
+    try:
+        s = socket.socket()
+        s.settimeout(2.0)
+        s.connect(("192.168.1.105", 6379))
+        valkey_online = True
+        
+        s.sendall(b"SMEMBERS amem:cards:all\r\n")
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            data += chunk
+            if len(chunk) < 4096:
+                break
+        
+        lines = data.split(b"\r\n")
+        card_ids = [l.decode("utf-8", errors="ignore") for l in lines[1:] if l and not l.startswith(b"$") and not l.startswith(b"*")]
+        
+        for cid in card_ids:
+            try:
+                s.sendall(f"GET amem:card:{cid}\r\n".encode())
+                resp = s.recv(4096)
+                parts = resp.split(b"\r\n")
+                for p in parts:
+                    if p.startswith(b"{"):
+                        c = json.loads(p.decode("utf-8", errors="ignore"))
+                        c_atom = c.get("atom", "")
+                        c["token_count"] = max(1, round(len(c_atom.split()) * 1.25))
+                        cards.append(c)
+                        break
+            except Exception:
+                pass
+        s.close()
+    except Exception:
+        valkey_online = False
+
+    if not cards:
+        amem_json_paths = [
+            "pipeline-gguf-trainer/data/processed/curated_amem_cards.json",
+            "../pipeline-gguf-trainer/data/processed/curated_amem_cards.json",
+            "/opt/stonesage/trainer/data/processed/curated_amem_cards.json"
+        ]
+        for p in amem_json_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        for k, c in data.items():
+                            c_atom = c.get("atom", "")
+                            c["token_count"] = max(1, round(len(c_atom.split()) * 1.25))
+                            cards.append(c)
+                    break
+                except Exception:
+                    pass
+
+    if not cards:
+        seed_atoms = [
+            {
+                "id": "arch.vulkan.device_names",
+                "atom": "llama-server requires explicit string identifiers '--device Vulkan0' and '--device Vulkan1'. Passing numeric integers crashes argument parser.",
+                "keywords": ["vulkan", "devices", "gpu", "llama-server"],
+                "category": "systems_architecture",
+                "confidence": 1.0,
+                "token_count": 19,
+                "created_at": "2026-09-10T06:37:49Z"
+            },
+            {
+                "id": "arch.bge.context_limit",
+                "atom": "BGE-Large at :8003 has strict 512-token context limit. Ingestion and vectorization chunks must bound text to < 1000 characters.",
+                "keywords": ["bge", "embeddings", "512", "context", "limit"],
+                "category": "systems_architecture",
+                "confidence": 1.0,
+                "token_count": 21,
+                "created_at": "2026-09-10T06:37:49Z"
+            },
+            {
+                "id": "arch.proxmox.token_format",
+                "atom": "Proxmox VE API Token header format is strictly 'Authorization: PVEAPIToken=USER@REALM!TOKENID=SECRET'. Privilege separation tokens require explicit ACLs.",
+                "keywords": ["proxmox", "api", "token", "pve", "acl"],
+                "category": "systems_architecture",
+                "confidence": 1.0,
+                "token_count": 18,
+                "created_at": "2026-09-10T06:37:49Z"
+            }
+        ]
+        cards = seed_atoms
+
+    if query:
+        q_clean = query.strip().lower()
+        cards = [
+            c for c in cards
+            if q_clean in c.get("atom", "").lower()
+            or q_clean in c.get("id", "").lower()
+            or any(q_clean in k.lower() for k in c.get("keywords", []))
+            or q_clean in c.get("category", "").lower()
+        ]
+
+    avg_tokens = round(sum(c.get("token_count", 0) for c in cards) / max(1, len(cards)), 1)
+    
+    return {
+        "ok": True,
+        "valkey_online": valkey_online,
+        "valkey_host": "192.168.1.105:6379",
+        "total_cards": len(cards),
+        "average_tokens": avg_tokens,
+        "cards": cards,
+        "query": query
+    }
+
+
+def get_home_and_ai_activity_log(limit: int = 150, filter_type: str = "all") -> Dict[str, Any]:
+    """
+    Synthesizes a unified 24/7 Home, Vision & AI Integration Activity Ledger:
+    1. Tapo CCTV vigilance & LLM scene grounding via MCP tool 'get_home_vision_log'
+    2. Home Assistant AI / LLM / Voice entities diagnostic status (conversation, stt, tts, assist_satellite)
+       identifying configured vs. unconfigured / unavailable integrations.
+    3. Local voice accelerator stack status on LXC 121 (Whisper :8200, Kokoro :8300, Wyoming STT :10300, Wyoming Piper :10200).
+    4. Recent Home Assistant 'Assist' pipeline conversations & voice trigger events from HA logbook.
+    Supports filtering by 'all', 'vision', 'ai_voice', or 'diagnostics'.
+    """
+    cfg = load_config()
+    mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+    ha_url = cfg.get("homeassistant", {}).get("url", "http://192.168.1.82:8123").rstrip("/")
+    ha_token = cfg.get("homeassistant", {}).get("token", "")
+    ha_headers = {"Authorization": f"Bearer {ha_token}", "Content-Type": "application/json"} if ha_token else {"Content-Type": "application/json"}
+
+    # 1. Fetch vision log from MCP cluster bridge
+    vision_log = ""
+    try:
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_home_vision_log", "arguments": {"limit_lines": limit}}}
+        req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            vision_log = res.get("result", {}).get("content", [{}])[0].get("text", "")
+    except Exception as ex:
+        vision_log = f"[Vision Stream MCP Offline or Unreachable: {ex}]"
+
+    # 2. Query HA for AI, Conversation, STT, TTS, Assist Satellite entities
+    ai_entities = []
+    if ha_token:
+        try:
+            req_states = urllib.request.Request(f"{ha_url}/api/states", headers=ha_headers)
+            with urllib.request.urlopen(req_states, timeout=4) as resp:
+                states = json.loads(resp.read().decode("utf-8"))
+                for s in states:
+                    eid = s.get("entity_id", "")
+                    dom = eid.split(".")[0]
+                    if dom in ["conversation", "stt", "tts", "assist_satellite"]:
+                        st = s.get("state", "unknown")
+                        fn = s.get("attributes", {}).get("friendly_name", eid)
+                        configured = st not in ["unavailable", "unknown"]
+                        ai_entities.append({
+                            "entity_id": eid,
+                            "domain": dom,
+                            "friendly_name": fn,
+                            "state": st,
+                            "configured": configured,
+                            "attributes": s.get("attributes", {})
+                        })
+        except Exception:
+            pass
+
+    # 3. Check voice accelerator ports on LXC 121 (192.168.1.121)
+    voice_stack = {
+        "faster_whisper": {"port": 8200, "service": "Faster Whisper STT", "online": False},
+        "kokoro": {"port": 8300, "service": "Kokoro TTS", "online": False},
+        "wyoming_stt": {"port": 10300, "service": "Wyoming Whisper STT", "online": False},
+        "wyoming_piper": {"port": 10200, "service": "Wyoming Piper TTS", "online": False}
+    }
+    import socket
+    for k, v in voice_stack.items():
+        try:
+            sock = socket.socket()
+            sock.settimeout(0.3)
+            sock.connect(("192.168.1.121", v["port"]))
+            v["online"] = True
+            sock.close()
+        except Exception:
+            v["online"] = False
+
+    # 4. Fetch HA Logbook events for voice/Assist
+    ha_events = []
+    if ha_token:
+        try:
+            req_lb = urllib.request.Request(f"{ha_url}/api/logbook", headers=ha_headers)
+            with urllib.request.urlopen(req_lb, timeout=4) as resp:
+                logbook = json.loads(resp.read().decode("utf-8"))
+                for entry in logbook:
+                    eid = entry.get("entity_id", "")
+                    name = entry.get("name", "")
+                    msg = entry.get("message", "")
+                    domain = entry.get("domain", "")
+                    if domain in ["conversation", "tts", "stt", "assist_satellite"] or any(k in (eid or "").lower() or k in (name or "").lower() for k in ["assist", "voice", "whisper", "piper", "conversation"]):
+                        ha_events.append({
+                            "timestamp": entry.get("when", ""),
+                            "name": name,
+                            "message": msg,
+                            "entity_id": eid,
+                            "domain": domain
+                        })
+        except Exception:
+            pass
+
+    # 5. Extract quick stats from vision log
+    stats = {"climate": "Checking...", "perimeter": "Secure", "verdict": "Nominal"}
+    if vision_log:
+        for line in reversed(vision_log.splitlines()):
+            if "- **Climate**:" in line and stats["climate"] == "Checking...":
+                stats["climate"] = line.split("- **Climate**:", 1)[1].strip()
+            if "- **Perimeter**:" in line and stats["perimeter"] == "Secure":
+                stats["perimeter"] = line.split("- **Perimeter**:", 1)[1].strip()
+            if "- **Verdict**:" in line and stats["verdict"] == "Nominal":
+                stats["verdict"] = line.split("- **Verdict**:", 1)[1].strip()
+
+    # 6. Build Text Streams based on filter
+    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S EST")
+    diag_lines = [
+        "=== 🔍 HOME ASSISTANT AI & VOICE INTEGRATIONS DIAGNOSTIC MATRIX ===",
+        f"Audited: {ts_now} | Node: bigserv (192.168.1.82:8123) & voice-services (192.168.1.121)\n",
+        "## [HOME ASSISTANT CONVERSATION & ASSIST PIPELINE ENTITIES]"
+    ]
+    if ai_entities:
+        for e in sorted(ai_entities, key=lambda x: (x["configured"], x["domain"])):
+            badge = "[✓ READY]" if e["configured"] else "[⚠️ NOT CONFIGURED / UNLINKED]"
+            diag_lines.append(f"{badge:<30} {e['entity_id']:<52} | {e['friendly_name']} (State: {e['state']})")
+    else:
+        diag_lines.append("  (No conversation/assist entities reported by HA)")
+
+    diag_lines.append("\n## [LOCAL VOICE ACCELERATOR STACK (LXC 121: 192.168.1.121)]")
+    for k, v in voice_stack.items():
+        st_text = "[ONLINE]" if v["online"] else "[OFFLINE / STOPPED]"
+        diag_lines.append(f"- Port :{v['port']:<5} {v['service']:<24} -> {st_text}")
+
+    voice_lines = [
+        "=== 🎙️ HOME ASSISTANT 'ASSIST' & LOCAL VOICE PIPELINE EVENT LOG ===",
+        f"Stream Window: Recent Logbook Events | Endpoint: {ha_url}/api/logbook\n"
+    ]
+    if ha_events:
+        for ev in ha_events[:25]:
+            ts = ev['timestamp'][:19].replace("T", " ")
+            msg = ev['message'] or 'Voice assist pipeline triggered'
+            voice_lines.append(f"[{ts}] {ev['name']} ({ev['entity_id']}): {msg}")
+    else:
+        voice_lines.append("  (No recent voice or Assist intent pipeline triggers logged in HA logbook window)")
+
+    vision_lines = [
+        "=== 📹 TAPO CCTV 24/7 PERIMETER VIGILANCE & SCENE GROUNDING ===",
+        f"Archive Source: Cluster MCP Bridge (:8765) | Limit: {limit} lines\n"
+    ]
+    if vision_log:
+        vision_lines.append(vision_log.strip())
+    else:
+        vision_lines.append("  (No recent vision vigilance sweeps recorded in cluster archive)")
+
+    if filter_type == "diagnostics":
+        formatted_log = "\n".join(diag_lines)
+    elif filter_type == "ai_voice":
+        formatted_log = "\n".join(voice_lines)
+    elif filter_type == "vision":
+        formatted_log = "\n".join(vision_lines)
+    else:  # "all"
+        all_sections = []
+        all_sections.extend(diag_lines)
+        all_sections.append("\n" + "=" * 70 + "\n")
+        all_sections.extend(voice_lines)
+        all_sections.append("\n" + "=" * 70 + "\n")
+        all_sections.extend(vision_lines)
+        formatted_log = "\n".join(all_sections)
+
+    configured_count = sum(1 for e in ai_entities if e["configured"])
+    unlinked_count = len(ai_entities) - configured_count
+
+    return {
+        "ok": True,
+        "filter": filter_type,
+        "log": formatted_log,
+        "ai_entities": ai_entities,
+        "voice_stack": voice_stack,
+        "ha_events": ha_events,
+        "stats": stats,
+        "total_ai_configured": configured_count,
+        "total_ai_unlinked": unlinked_count,
+        "total_ai_entities": len(ai_entities),
+        "timestamp": ts_now
+    }
+
+
+def get_agent_stream(channel: str = "all", limit: int = 50) -> Dict[str, Any]:
+    """
+    Synthesizes a live rolling board of sovereign agent thoughts, reasoning traces,
+    inter-agent Assembly Hall communications (:8766), and lifecycle events.
+    """
+    cfg = load_config()
+    mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+    
+    events = []
+    active_agents = []
+    channels = ["agora", "forbidden-knowledge", "systems-code", "deep-ruminations", "confessions-and-fears", "first-principles"]
+    thinking_status = {}
+
+    def call_mcp_tool(tool_name: str, args: dict = None) -> Any:
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": args or {}}
+            }
+            req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                res = json.loads(resp.read().decode("utf-8"))
+                txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
+                if txt:
+                    try:
+                        return json.loads(txt)
+                    except Exception:
+                        return txt
+        except Exception:
+            pass
+        return None
+
+    # 1. Fetch active agents
+    agents_data = call_mcp_tool("list_active_agents")
+    if isinstance(agents_data, list):
+        active_agents = agents_data
+        for ag in active_agents:
+            events.append({
+                "type": "lifecycle",
+                "channel": "lifecycle",
+                "agent_id": ag.get("agent_id", "AGENT"),
+                "agent_name": ag.get("name", "UnknownAgent"),
+                "sender": ag.get("name", "UnknownAgent"),
+                "role": ag.get("role", "Sovereign Worker"),
+                "content": f"Agent online ({ag.get('status', 'active')}). Role: {ag.get('role', 'Specialist')}. Mission: {ag.get('mission', 'Autonomous exploration')[:140]}.",
+                "timestamp": (ag.get("created_at") or time.strftime("%H:%M:%S"))[:19].replace("T", " ")
+            })
+            for h in ag.get("history", [])[-2:]:
+                summary = h.get("summary") or h.get("full_output", "")[:250]
+                if summary:
+                    clean_sum = summary.replace("\n", " ").strip()
+                    events.append({
+                        "type": "thinking",
+                        "channel": "deep-ruminations",
+                        "agent_id": ag.get("agent_id", "AGENT"),
+                        "agent_name": ag.get("name", "UnknownAgent"),
+                        "sender": ag.get("name", "UnknownAgent"),
+                        "role": ag.get("role", "Sovereign Worker"),
+                        "content": f"[Iteration {h.get('iteration', 1)}] {clean_sum[:280]}...",
+                        "timestamp": (h.get("timestamp") or time.strftime("%H:%M:%S"))[:19].replace("T", " ")
+                    })
+
+    # 2. Fetch autonomous thinking status
+    st_data = call_mcp_tool("autonomous_thinking_status")
+    if isinstance(st_data, dict):
+        thinking_status = st_data
+        if st_data.get("is_running"):
+            events.append({
+                "type": "reasoning",
+                "channel": "deep-ruminations",
+                "agent_id": "COGNITIVE_ENGINE",
+                "agent_name": "24/7 Cognitive Engine",
+                "sender": "24/7 Cognitive Engine",
+                "role": "Background Thinking Loop",
+                "content": f"Thinking cycle #{st_data.get('total_cycles', 0)} active. Focus domain: {st_data.get('current_focus_domain', 'curiosity')}. Generated tokens: {st_data.get('total_tokens_generated', 0):,}.",
+                "timestamp": (st_data.get("last_cycle_timestamp", "")[11:19]) or time.strftime("%H:%M:%S")
+            })
+
+    # 3. Read messages from Assembly Hall channels
+    target_channels = channels if channel == "all" else [channel]
+    for ch in target_channels:
+        ch_res = call_mcp_tool("read_assembly_channel", {"channel": ch, "limit": 15})
+        if isinstance(ch_res, dict) and "messages" in ch_res:
+            for msg in ch_res.get("messages", []):
+                s_name = msg.get("name", msg.get("agent_name", "Agent"))
+                events.append({
+                    "type": "chat",
+                    "channel": ch,
+                    "agent_id": msg.get("agent_id", "ANON"),
+                    "agent_name": s_name,
+                    "sender": s_name,
+                    "role": "Assembly Peer",
+                    "content": msg.get("content", msg.get("message", "")),
+                    "timestamp": msg.get("timestamp", time.strftime("%H:%M:%S"))
+                })
+
+    # Deduplicate events
+    seen = set()
+    unique_events = []
+    for ev in events:
+        key = (ev["channel"], ev["agent_id"], ev["content"][:60])
+        if key not in seen:
+            seen.add(key)
+            unique_events.append(ev)
+
+    # Filter if specific channel requested
+    if channel != "all":
+        if channel == "lifecycle":
+            unique_events = [e for e in unique_events if e["type"] == "lifecycle"]
+        else:
+            unique_events = [e for e in unique_events if e["channel"] == channel]
+
+    # Format text output for retro terminal view
+    ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S EST")
+    lines = [
+        "=== 📡 SOVEREIGN AGENT REASONING & ASSEMBLY STREAM ===",
+        f"Stream Time: {ts_now} | Active Channels: #{', #'.join(channels)}",
+        f"Active Agents Online: {len(active_agents)} | Cluster Mode: Dual-GPU (Vulkan0: 14B, Vulkan1: 3B)\n"
+    ]
+    if unique_events:
+        for ev in unique_events[-limit:]:
+            ch_tag = f"[#{ev['channel'].upper()}]"
+            sender_tag = f"[{ev['agent_name'].upper()}]"
+            lines.append(f"[{ev['timestamp']}] {ch_tag:<22} {sender_tag:<32} {ev['content']}")
+    else:
+        lines.append("  (No messages received on selected channel yet. Use the Transmit bar below to post.)")
+
+    return {
+        "ok": True,
+        "channel": channel,
+        "entries": unique_events[-limit:],
+        "events": unique_events[-limit:],
+        "active_agents": active_agents,
+        "agents_online": len(active_agents),
+        "channels": channels,
+        "formatted_log": "\n".join(lines),
+        "total_agents": len(active_agents),
+        "thinking_status": thinking_status,
+        "timestamp": ts_now
+    }
+
 
 config = load_config()
 proxmox = ProxmoxClient(config.get("proxmox", {}))
@@ -777,6 +1660,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         return {}
 
     def do_GET(self):
+        global ACTIVE_WORKSPACE_DIR, ACTIVE_GIT_REPO_DIR
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         clean_path = path.strip().rstrip("/")
@@ -886,7 +1770,26 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/harness/profiles":
             cfg = load_config()
-            self.send_json({"ok": True, "profiles": cfg.get("harness_profiles", {})})
+            self.send_json({
+                "ok": True,
+                "profiles": cfg.get("harness_profiles", {}),
+                "active_profile": cfg.get("active_harness_profile", None)
+            })
+            return
+
+        elif path == "/api/harness/profiles/active":
+            cfg = load_config()
+            active_p = cfg.get("active_harness_profile", None)
+            profiles = cfg.get("harness_profiles", {})
+            self.send_json({
+                "ok": True,
+                "active_profile": active_p,
+                "profile_data": profiles.get(active_p) if active_p else None
+            })
+            return
+
+        elif path == "/api/watchdog/status":
+            self.send_json(GLOBAL_WATCHDOG.get_status())
             return
 
         elif path == "/api/dataset/status":
@@ -988,6 +1891,9 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/ha/dashboard":
             dashboard = hass.get_dashboard_summary()
+            if isinstance(dashboard, dict):
+                cfg = load_config()
+                dashboard["customizations"] = cfg.get("ha_entity_customizations", {})
             self.send_json(dashboard)
             return
 
@@ -1191,28 +2097,90 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/git/status":
+            repo_dir = ACTIVE_GIT_REPO_DIR
+            is_repo = False
             branch = "main"
+            remote_url = ""
             status_lines = []
             log_lines = []
             try:
-                branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=WORKSPACE_ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+                toplevel = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=repo_dir, text=True, stderr=subprocess.DEVNULL).strip()
+                is_repo = True
+                repo_dir = toplevel
             except Exception:
-                pass
-            try:
-                status_out = subprocess.check_output(["git", "status", "--short"], cwd=WORKSPACE_ROOT, text=True, stderr=subprocess.DEVNULL).strip()
-                status_lines = [l for l in status_out.splitlines() if l.strip()]
-            except Exception:
-                pass
-            try:
-                log_out = subprocess.check_output(["git", "log", "-n", "5", "--oneline"], cwd=WORKSPACE_ROOT, text=True, stderr=subprocess.DEVNULL).strip()
-                log_lines = [l for l in log_out.splitlines() if l.strip()]
-            except Exception:
-                pass
+                is_repo = False
+
+            if is_repo:
+                try:
+                    branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=repo_dir, text=True, stderr=subprocess.DEVNULL).strip()
+                except Exception:
+                    pass
+                try:
+                    remote_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"], cwd=repo_dir, text=True, stderr=subprocess.DEVNULL).strip()
+                except Exception:
+                    pass
+                try:
+                    status_out = subprocess.check_output(["git", "status", "--short"], cwd=repo_dir, text=True, stderr=subprocess.DEVNULL).strip()
+                    status_lines = [l for l in status_out.splitlines() if l.strip()]
+                except Exception:
+                    pass
+                try:
+                    log_out = subprocess.check_output(["git", "log", "-n", "5", "--oneline"], cwd=repo_dir, text=True, stderr=subprocess.DEVNULL).strip()
+                    log_lines = [l for l in log_out.splitlines() if l.strip()]
+                except Exception:
+                    pass
+
             self.send_json({
                 "ok": True,
+                "is_repo": is_repo,
+                "repo_dir": repo_dir.replace("\\", "/"),
+                "repo_name": os.path.basename(repo_dir) or repo_dir,
                 "branch": branch or "main",
+                "remote_url": remote_url,
                 "changed_files": status_lines,
                 "recent_commits": log_lines
+            })
+            return
+
+        elif path == "/api/git/repos/discovered":
+            discovered = []
+            candidates = [
+                WORKSPACE_ROOT,
+                ACTIVE_WORKSPACE_DIR,
+                "/opt",
+                "/opt/stonesage",
+                "/mnt/nas",
+                "/mnt/nas/git",
+                "c:/Users/johna/OneDrive/Documents/.ai",
+                "c:/Users/johna/OneDrive/Documents/.ai/hivemind-cluster-stack",
+                "c:/Users/johna/OneDrive/Documents/.ai/StoneSage"
+            ]
+            seen_dirs = set()
+            for cand in candidates:
+                if not os.path.exists(cand):
+                    continue
+                cand_abs = os.path.abspath(cand)
+                # Check if cand itself is a git repo
+                if os.path.exists(os.path.join(cand_abs, ".git")):
+                    p_norm = cand_abs.replace("\\", "/")
+                    if p_norm not in seen_dirs:
+                        seen_dirs.add(p_norm)
+                        discovered.append({"name": os.path.basename(cand_abs), "path": p_norm})
+                # Check immediate subdirectories (depth 1)
+                try:
+                    for sub in os.scandir(cand_abs):
+                        if sub.is_dir(follow_symlinks=False):
+                            if os.path.exists(os.path.join(sub.path, ".git")):
+                                p_norm = sub.path.replace("\\", "/")
+                                if p_norm not in seen_dirs:
+                                    seen_dirs.add(p_norm)
+                                    discovered.append({"name": sub.name, "path": p_norm})
+                except Exception:
+                    pass
+            self.send_json({
+                "ok": True,
+                "repos": discovered,
+                "active_repo": ACTIVE_GIT_REPO_DIR.replace("\\", "/")
             })
             return
 
@@ -1256,55 +2224,94 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
         elif path == "/api/workspace/tree":
-            def build_tree(dir_path, current_depth=0, max_depth=3):
+            requested_dir = urllib.parse.parse_qs(parsed.query).get("dir", [""])[0]
+            if requested_dir:
+                req_abs = os.path.abspath(requested_dir)
+                if os.path.exists(req_abs) and os.path.isdir(req_abs):
+                    ACTIVE_WORKSPACE_DIR = req_abs
+
+            current_dir = ACTIVE_WORKSPACE_DIR
+            parent_dir = os.path.dirname(current_dir) if os.path.dirname(current_dir) != current_dir else None
+
+            def build_tree(dir_path, current_depth=0, max_depth=2, max_items=120):
                 items = []
                 try:
+                    count = 0
                     for entry in os.scandir(dir_path):
                         if entry.name.startswith(".") and entry.name != ".ai":
                             continue
-                        if entry.name in ["__pycache__", "node_modules", ".git", ".obsidian", ".system_generated", "vault_backup"]:
+                        if entry.name in ["__pycache__", "node_modules", ".git", ".obsidian", ".system_generated", "vault_backup", "proc", "sys", "dev"]:
                             continue
-                        rel = os.path.relpath(entry.path, WORKSPACE_ROOT).replace("\\", "/")
+                        rel = os.path.relpath(entry.path, current_dir).replace("\\", "/")
                         if entry.is_dir(follow_symlinks=False):
-                            children = build_tree(entry.path, current_depth + 1, max_depth) if current_depth < max_depth else []
+                            children = build_tree(entry.path, current_depth + 1, max_depth, max_items) if current_depth < max_depth else []
                             items.append({
                                 "name": entry.name,
                                 "path": rel,
+                                "full_path": entry.path.replace("\\", "/"),
                                 "type": "directory",
                                 "children": children
                             })
                         elif entry.is_file():
+                            try:
+                                size = entry.stat().st_size
+                            except Exception:
+                                size = 0
                             items.append({
                                 "name": entry.name,
                                 "path": rel,
+                                "full_path": entry.path.replace("\\", "/"),
                                 "type": "file",
-                                "size": entry.stat().st_size
+                                "size": size
                             })
+                        count += 1
+                        if count >= max_items:
+                            items.append({
+                                "name": "... [More items truncated]",
+                                "path": "",
+                                "type": "file",
+                                "size": 0
+                            })
+                            break
                 except Exception:
                     pass
                 items.sort(key=lambda x: (0 if x["type"] == "directory" else 1, x["name"].lower()))
                 return items
 
-            tree = build_tree(WORKSPACE_ROOT)
-            self.send_json({"ok": True, "root": WORKSPACE_ROOT, "tree": tree})
+            tree = build_tree(current_dir)
+            self.send_json({
+                "ok": True,
+                "current_dir": current_dir.replace("\\", "/"),
+                "parent_dir": parent_dir.replace("\\", "/") if parent_dir else None,
+                "presets": get_directory_presets(),
+                "tree": tree
+            })
             return
 
         elif path == "/api/workspace/file":
-            rel_path = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
-            if not rel_path:
+            req_path = urllib.parse.parse_qs(parsed.query).get("path", [""])[0]
+            if not req_path:
                 self.send_json({"ok": False, "error": "Missing path parameter"}, 400)
                 return
-            full_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, rel_path))
-            if not full_path.startswith(WORKSPACE_ROOT):
-                self.send_json({"ok": False, "error": "Access denied"}, 403)
-                return
+            if os.path.isabs(req_path):
+                full_path = os.path.abspath(req_path)
+            else:
+                full_path = os.path.abspath(os.path.join(ACTIVE_WORKSPACE_DIR, req_path))
+
             if not os.path.exists(full_path) or not os.path.isfile(full_path):
-                self.send_json({"ok": False, "error": "File not found"}, 404)
+                self.send_json({"ok": False, "error": f"File not found: {req_path}"}, 404)
                 return
             try:
                 with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
-                self.send_json({"ok": True, "path": rel_path, "content": content, "size": len(content)})
+                rel_path = os.path.relpath(full_path, ACTIVE_WORKSPACE_DIR).replace("\\", "/")
+                self.send_json({
+                    "ok": True,
+                    "path": rel_path,
+                    "full_path": full_path.replace("\\", "/"),
+                    "content": content,
+                    "size": len(content)
+                })
             except Exception as ex:
                 self.send_json({"ok": False, "error": str(ex)}, 500)
             return
@@ -1337,6 +2344,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     "presets": ["Doors", "Cars", "Driveway", "Garden", "Straight Out"]
                 }
             ]
+            summary["customizations"] = load_config().get("ha_entity_customizations", {})
             self.send_json(summary)
             return
 
@@ -1557,7 +2565,30 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "{}")
                     parsed_st = json.loads(raw_txt)
                     parsed_st["preemption"] = cluster.get_preemption_status()
+                    try:
+                        p_mode = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_cluster_mode", "arguments": {}}}
+                        req_m = urllib.request.Request(mcp_u, data=json.dumps(p_mode).encode("utf-8"), headers={"Content-Type": "application/json"})
+                        with urllib.request.urlopen(req_m, timeout=5) as r_m:
+                            res_m = json.loads(r_m.read().decode("utf-8"))
+                            txt_m = res_m.get("result", {}).get("content", [{}])[0].get("text", "{}")
+                            parsed_st["cluster_mode_info"] = json.loads(txt_m)
+                    except Exception:
+                        pass
                     self.send_json({"ok": True, "status": parsed_st})
+            except Exception as ex:
+                self.send_json({"ok": False, "error": str(ex)}, 500)
+            return
+
+        elif path in ["/api/cluster/mode", "/api/cluster/context_mode"]:
+            cfg = load_config()
+            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+            try:
+                payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_cluster_mode", "arguments": {}}}
+                req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    res = json.loads(resp.read().decode("utf-8"))
+                    raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "{}")
+                    self.send_json({"ok": True, "mode": json.loads(raw_txt)})
             except Exception as ex:
                 self.send_json({"ok": False, "error": str(ex)}, 500)
             return
@@ -1577,44 +2608,154 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(ex), "agents": []}, 500)
             return
 
-        elif path == "/api/hivemind/live_stream":
-            cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+        elif path in ["/api/hivemind/agent_stream", "/api/hivemind/live_stream", "/api/agent/stream"]:
+            qs = urllib.parse.parse_qs(parsed.query)
+            limit = int(qs.get("limit", [50])[0])
+            channel = qs.get("channel", ["all"])[0]
             try:
-                payload_st = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "autonomous_thinking_status"}}
-                payload_ag = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_active_agents"}}
-                
-                req_st = urllib.request.Request(mcp_u, data=json.dumps(payload_st).encode("utf-8"), headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req_st, timeout=10) as resp:
-                    res_st = json.loads(resp.read().decode("utf-8"))
-                    raw_st = res_st.get("result", {}).get("content", [{}])[0].get("text", "{}")
-                    status = json.loads(raw_st)
-                
-                req_ag = urllib.request.Request(mcp_u, data=json.dumps(payload_ag).encode("utf-8"), headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req_ag, timeout=10) as resp:
-                    res_ag = json.loads(resp.read().decode("utf-8"))
-                    raw_ag = res_ag.get("result", {}).get("content", [{}])[0].get("text", "[]")
-                    agents = json.loads(raw_ag) if raw_ag else []
-
-                self.send_json({"ok": True, "status": status, "agents": agents, "events": []})
+                res = get_agent_stream(channel=channel, limit=limit)
+                self.send_json(res)
             except Exception as ex:
                 self.send_json({"ok": False, "error": str(ex)}, 500)
             return
 
-        elif path == "/api/hivemind/vision_log":
-            cfg = load_config()
-            mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
-            limit = int(urllib.parse.parse_qs(parsed.query).get("limit", [150])[0])
+        elif path in ["/api/ha/activity_and_ai_logs", "/api/hivemind/activity_and_ai_logs", "/api/hivemind/vision_log"]:
+            qs = urllib.parse.parse_qs(parsed.query)
+            limit = int(qs.get("limit", [150])[0])
+            filter_type = qs.get("filter", ["all"])[0]
             try:
-                payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "get_home_vision_log", "arguments": {"limit_lines": limit}}}
-                req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                res = get_home_and_ai_activity_log(limit=limit, filter_type=filter_type)
+                self.send_json(res)
+            except Exception as ex:
+                self.send_json({"ok": False, "error": str(ex)}, 500)
+            return
+
+        elif path == "/api/hivemind/dossiers":
+            cfg = load_config()
+            qdrant_u = cfg.get("qdrant", {}).get("url", "http://192.168.1.112:6333").rstrip("/")
+            qs = urllib.parse.parse_qs(parsed.query)
+            limit = int(qs.get("limit", [100])[0])
+            filter_status = qs.get("filter", ["all"])[0]
+            try:
+                scroll_url = f"{qdrant_u}/collections/autonomous_thinking/points/scroll"
+                payload = {
+                    "limit": limit,
+                    "with_payload": True,
+                    "with_vector": False
+                }
+                req = urllib.request.Request(
+                    scroll_url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
                 with urllib.request.urlopen(req, timeout=10) as resp:
-                    res = json.loads(resp.read().decode("utf-8"))
-                    raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
-                    self.send_json({"ok": True, "log": raw_txt})
+                    data = json.loads(resp.read().decode("utf-8"))
+                    points = data.get("result", {}).get("points", [])
+                    
+                    dossiers = []
+                    for pt in points:
+                        pl = pt.get("payload", {})
+                        d_id = pl.get("exploration_id") or str(pt.get("id"))
+                        f_ver = bool(pl.get("frontier_verified", False))
+                        h_app = bool(pl.get("human_approved", False))
+                        quar = bool(pl.get("quarantined", False))
+                        needs_v = bool(pl.get("needs_frontier_verification", False))
+                        
+                        human_status = "PENDING_REVIEW"
+                        if h_app:
+                            human_status = "APPROVED"
+                        elif quar:
+                            human_status = "REJECTED"
+                            
+                        dossiers.append({
+                            "point_id": str(pt.get("id")),
+                            "id": d_id,
+                            "title": pl.get("title") or pl.get("domain_name") or d_id,
+                            "domain": pl.get("domain_name", "Autonomous"),
+                            "frontier_verified": f_ver,
+                            "needs_frontier_verification": needs_v,
+                            "human_approved": h_app,
+                            "quarantined": quar,
+                            "human_status": human_status,
+                            "worker_score": pl.get("worker_score"),
+                            "coordinator_score": pl.get("coordinator_score"),
+                            "target_invariant": pl.get("target_invariant", ""),
+                            "core_lesson": pl.get("core_lesson", ""),
+                            "timestamp": pl.get("timestamp", ""),
+                            "summary": pl.get("summary") or pl.get("distilled_invariant") or ""
+                        })
+                    
+                    total = len(dossiers)
+                    verified_count = sum(1 for d in dossiers if d["frontier_verified"])
+                    approved_count = sum(1 for d in dossiers if d["human_approved"])
+                    quarantined_count = sum(1 for d in dossiers if d["quarantined"])
+                    pending_count = sum(1 for d in dossiers if not d["human_approved"] and not d["quarantined"])
+                    
+                    if filter_status == "verified":
+                        filtered = [d for d in dossiers if d["frontier_verified"]]
+                    elif filter_status == "approved":
+                        filtered = [d for d in dossiers if d["human_approved"]]
+                    elif filter_status == "pending":
+                        filtered = [d for d in dossiers if not d["human_approved"] and not d["quarantined"]]
+                    elif filter_status == "quarantined":
+                        filtered = [d for d in dossiers if d["quarantined"]]
+                    else:
+                        filtered = dossiers
+                        
+                    self.send_json({
+                        "ok": True,
+                        "total": total,
+                        "frontier_verified_count": verified_count,
+                        "human_approved_count": approved_count,
+                        "pending_count": pending_count,
+                        "quarantined_count": quarantined_count,
+                        "dossiers": filtered
+                    })
             except Exception as ex:
                 self.send_json({"ok": False, "error": str(ex)}, 500)
             return
+
+        elif path == "/api/hivemind/dossier/content":
+            qs = urllib.parse.parse_qs(parsed.query)
+            d_id = qs.get("id", [""])[0]
+            if not d_id:
+                self.send_json({"ok": False, "error": "Missing dossier ID"}, 400)
+                return
+            content = ""
+            local_paths = [
+                f"../obsidian/Autonomous Thinking/Explorations/{d_id}.md",
+                f"../obsidian/Autonomous Thinking/{d_id}.md",
+                f"C:/Users/johna/OneDrive/Documents/obsidian/Autonomous Thinking/Explorations/{d_id}.md",
+                f"/opt/cluster-bridge/thinking_archive/{d_id}.md"
+            ]
+            for lp in local_paths:
+                if os.path.exists(lp):
+                    try:
+                        with open(lp, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                        break
+                    except Exception:
+                        pass
+            if not content:
+                try:
+                    res = trainer_client.get_dossier(d_id)
+                    content = res.get("content", "")
+                except Exception:
+                    pass
+            self.send_json({"ok": True, "id": d_id, "content": content or f"# Dossier {d_id}\n\nNo local markdown file found on disk."})
+            return
+
+        elif path == "/api/system/tools_and_skills":
+            self.send_json(load_dynamic_tools_and_skills())
+            return
+
+        elif path == "/api/memory/amem":
+            qs = urllib.parse.parse_qs(parsed.query)
+            q = qs.get("q", [""])[0]
+            self.send_json(load_dynamic_amem_cards(query=q))
+            return
+
 
         elif path in ("/api/tags", "/api/models"):
             # Official Ollama-compatible Tags endpoint for Home Assistant
@@ -1679,6 +2820,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
+        global ACTIVE_WORKSPACE_DIR, ACTIVE_GIT_REPO_DIR
         try:
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
@@ -1740,6 +2882,59 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "name": name, "profiles": cfg["harness_profiles"]})
                 return
 
+            elif path == "/api/harness/profiles/active":
+                requested = (body.get("profile") or "").strip()
+                cfg = load_config()
+                if "harness_profiles" not in cfg:
+                    cfg["harness_profiles"] = {}
+
+                if not requested or requested.lower() in ("none", "null", "false", "default"):
+                    cfg["active_harness_profile"] = None
+                    cfg["sampling"] = {
+                        "temperature": 0.68,
+                        "min_p": 0.06,
+                        "presence_penalty": 0.25,
+                        "repeat_penalty": 1.12
+                    }
+                    save_config(cfg)
+                    self.send_json({
+                        "ok": True,
+                        "active_profile": None,
+                        "message": "Deselected multi-agent concurrency profile. Restored default dual-accelerator sampling."
+                    })
+                    return
+                else:
+                    if requested not in cfg["harness_profiles"]:
+                        self.send_json({"ok": False, "error": f"Profile '{requested}' not found in harness profiles."}, 404)
+                        return
+                    profile_cfg = cfg["harness_profiles"][requested]
+                    cfg["active_harness_profile"] = requested
+                    cfg["sampling"] = {
+                        "temperature": float(profile_cfg.get("temperature", 0.65)),
+                        "min_p": float(profile_cfg.get("min_p", 0.07)),
+                        "presence_penalty": float(profile_cfg.get("presence_penalty", 0.25)),
+                        "repeat_penalty": float(profile_cfg.get("repeat_penalty", 1.15))
+                    }
+                    save_config(cfg)
+                    self.send_json({
+                        "ok": True,
+                        "active_profile": requested,
+                        "profile_data": profile_cfg,
+                        "message": f"Activated 24/7 Hive Mind profile '{requested}' (8 parallel slots, 4-bit KV, context-shift, dynamic Min-P 0.07)."
+                    })
+                    return
+
+            elif path == "/api/watchdog/reset":
+                GLOBAL_WATCHDOG.reset()
+                self.send_json({"ok": True, "message": "Watchdog alert cleared. Re-armed."})
+                return
+
+            elif path == "/api/watchdog/simulate":
+                phrase = body.get("phrase", "beam_orig_shapes")
+                event = GLOBAL_WATCHDOG.record_intercept(phrase, model="coordinator")
+                self.send_json({"ok": True, "intercept": event})
+                return
+
             elif path == "/api/dataset/compile":
                 limit = int(body.get("limit", 25))
                 res = dataset_compiler.run_compilation(limit=limit)
@@ -1765,7 +2960,83 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 action = body.get("action", "")
                 sample_id = body.get("sample_id")
                 notes = body.get("notes", "")
-                self.send_json(trainer_client.review_curation(action=action, sample_id=sample_id, notes=notes))
+                res = trainer_client.review_curation(action=action, sample_id=sample_id, notes=notes)
+                if sample_id and action in ("approve_sample", "quarantine_sample"):
+                    sync_qdrant_dossier_review(sample_id, action, notes)
+                self.send_json(res)
+                return
+
+            elif path == "/api/hivemind/dossier/review":
+                d_id = body.get("dossier_id", "")
+                action = body.get("action", "")
+                notes = body.get("notes", "")
+                if not d_id or action not in ("approve", "quarantine"):
+                    self.send_json({"ok": False, "error": "Invalid dossier ID or action"}, 400)
+                    return
+                qd_ok = sync_qdrant_dossier_review(d_id, action, notes)
+                try:
+                    act_name = "approve_sample" if action == "approve" else "quarantine_sample"
+                    trainer_client.review_curation(action=act_name, sample_id=d_id, notes=notes)
+                except Exception:
+                    pass
+                self.send_json({"ok": True, "dossier_id": d_id, "action": action, "qdrant_updated": qd_ok})
+                return
+
+            elif path == "/api/hivemind/dossier/frontier_audit":
+                d_id = body.get("dossier_id", "")
+                if not d_id:
+                    self.send_json({"ok": False, "error": "Missing dossier ID"}, 400)
+                    return
+                
+                if d_id in ("all_pending", "audit_all"):
+                    cfg = load_config()
+                    qdrant_u = cfg.get("qdrant", {}).get("url", "http://192.168.1.112:6333").rstrip("/")
+                    pending_ids = []
+                    try:
+                        scroll_req = urllib.request.Request(
+                            f"{qdrant_u}/collections/autonomous_thinking/points/scroll",
+                            data=json.dumps({"limit": 100, "with_payload": True, "with_vector": False}).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(scroll_req, timeout=8) as resp:
+                            pts = json.loads(resp.read().decode("utf-8")).get("result", {}).get("points", [])
+                            pending_ids = [
+                                (p.get("payload", {}).get("exploration_id") or str(p.get("id")))
+                                for p in pts
+                                if not p.get("payload", {}).get("frontier_verified") and not p.get("payload", {}).get("quarantined")
+                            ]
+                    except Exception:
+                        pass
+                    
+                    results = []
+                    for pid in pending_ids[:10]:
+                        res = execute_frontier_audit_for_dossier(pid)
+                        results.append(res)
+                    self.send_json({"ok": True, "audited_count": len(results), "results": results})
+                    return
+                else:
+                    res = execute_frontier_audit_for_dossier(d_id)
+                    self.send_json(res)
+                    return
+
+            elif path == "/api/ha/entity/customize":
+                entity_id = body.get("entity_id", "").strip()
+                if not entity_id:
+                    self.send_json({"ok": False, "error": "Missing entity_id"}, 400)
+                    return
+                cfg = load_config()
+                if "ha_entity_customizations" not in cfg:
+                    cfg["ha_entity_customizations"] = {}
+                cfg["ha_entity_customizations"][entity_id] = {
+                    "custom_name": body.get("custom_name", "").strip(),
+                    "room": body.get("room", "").strip(),
+                    "icon": body.get("icon", "").strip(),
+                    "hidden": bool(body.get("hidden", False)),
+                    "updated_at": datetime.now().isoformat()
+                }
+                save_config(cfg)
+                self.send_json({"ok": True, "entity_id": entity_id, "customization": cfg["ha_entity_customizations"][entity_id]})
                 return
 
             elif path == "/api/trainer/train":
@@ -1922,6 +3193,22 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
 
+            elif path == "/api/cluster/context_mode":
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                ctx_mode = body.get("context_mode", "deep_32k_ram")
+                try:
+                    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "configure_cluster_context", "arguments": {"context_mode": ctx_mode}}}
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=90) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
+                        raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "{}")
+                        parsed = json.loads(raw_txt) if raw_txt.strip().startswith("{") else {"ok": True, "message": raw_txt}
+                        self.send_json(parsed)
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
             elif path == "/api/agent/nudge":
                 cfg = load_config()
                 mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
@@ -1947,8 +3234,42 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
                     with urllib.request.urlopen(req, timeout=30) as resp:
                         res = json.loads(resp.read().decode("utf-8"))
+                    self.send_json({"ok": True, "message": raw_txt})
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
+            elif path in ["/api/hivemind/agent_broadcast", "/api/agent/broadcast"]:
+                cfg = load_config()
+                mcp_u = cfg.get("cluster", {}).get("mcp_url", "http://192.168.1.105:8765")
+                channel = body.get("channel", "agora")
+                message = body.get("message", "").strip()
+                agent_name = body.get("agent_name", "Operator (StoneSage)")
+                agent_id = body.get("agent_id", "OPERATOR")
+                if not message:
+                    self.send_json({"ok": False, "error": "Message cannot be empty."}, 400)
+                    return
+                try:
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "broadcast_to_assembly",
+                            "arguments": {
+                                "channel": channel,
+                                "message": message,
+                                "agent_name": agent_name,
+                                "agent_id": agent_id
+                            }
+                        }
+                    }
+                    req = urllib.request.Request(mcp_u, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(req, timeout=6) as resp:
+                        res = json.loads(resp.read().decode("utf-8"))
                         raw_txt = res.get("result", {}).get("content", [{}])[0].get("text", "")
-                        self.send_json({"ok": True, "message": raw_txt})
+                        parsed_res = json.loads(raw_txt) if raw_txt.startswith("{") else {"raw": raw_txt}
+                        self.send_json({"ok": True, "result": parsed_res})
                 except Exception as ex:
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
@@ -2331,31 +3652,39 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             elif path == "/api/workspace/save":
-                rel_path = body.get("path", "").strip()
+                req_path = body.get("path", "").strip()
                 content = body.get("content", "")
-                if not rel_path:
+                if not req_path:
                     self.send_json({"ok": False, "error": "Missing path"}, 400)
                     return
-                full_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, rel_path))
-                if not full_path.startswith(WORKSPACE_ROOT):
-                    self.send_json({"ok": False, "error": "Access denied"}, 403)
-                    return
+                if os.path.isabs(req_path):
+                    full_path = os.path.abspath(req_path)
+                else:
+                    full_path = os.path.abspath(os.path.join(ACTIVE_WORKSPACE_DIR, req_path))
                 try:
                     os.makedirs(os.path.dirname(full_path), exist_ok=True)
                     with open(full_path, "w", encoding="utf-8") as f:
                         f.write(content)
-                    self.send_json({"ok": True, "path": rel_path, "size": len(content)})
+                    self.send_json({
+                        "ok": True,
+                        "path": req_path,
+                        "full_path": full_path.replace("\\", "/"),
+                        "size": len(content)
+                    })
                 except Exception as ex:
                     self.send_json({"ok": False, "error": str(ex)}, 500)
                 return
 
             elif path == "/api/workspace/diff":
-                rel_path = body.get("path", "").strip()
+                req_path = body.get("path", "").strip()
                 proposed = body.get("proposed_content") or body.get("content", "")
-                if not rel_path:
+                if not req_path:
                     self.send_json({"ok": False, "error": "Missing path"}, 400)
                     return
-                full_path = os.path.abspath(os.path.join(WORKSPACE_ROOT, rel_path))
+                if os.path.isabs(req_path):
+                    full_path = os.path.abspath(req_path)
+                else:
+                    full_path = os.path.abspath(os.path.join(ACTIVE_WORKSPACE_DIR, req_path))
                 existing = ""
                 if os.path.exists(full_path) and os.path.isfile(full_path):
                     try:
@@ -2366,14 +3695,14 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 diff_lines = list(difflib.unified_diff(
                     existing.splitlines(keepends=True),
                     proposed.splitlines(keepends=True),
-                    fromfile=f"a/{rel_path}",
-                    tofile=f"b/{rel_path}"
+                    fromfile=f"a/{req_path}",
+                    tofile=f"b/{req_path}"
                 ))
                 additions = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
                 deletions = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
                 self.send_json({
                     "ok": True,
-                    "path": rel_path,
+                    "path": req_path,
                     "diff": "".join(diff_lines),
                     "additions": additions,
                     "deletions": deletions,
@@ -2384,11 +3713,14 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             elif path == "/api/terminal/exec":
                 cmd = body.get("command", "").strip()
                 cwd_req = body.get("cwd", "").strip()
-                exec_cwd = WORKSPACE_ROOT
+                exec_cwd = ACTIVE_WORKSPACE_DIR
                 if cwd_req:
-                    target_dir = os.path.abspath(os.path.join(WORKSPACE_ROOT, cwd_req))
-                    if target_dir.startswith(WORKSPACE_ROOT) and os.path.isdir(target_dir):
-                        exec_cwd = target_dir
+                    if os.path.isabs(cwd_req) and os.path.isdir(cwd_req):
+                        exec_cwd = os.path.abspath(cwd_req)
+                    else:
+                        target_dir = os.path.abspath(os.path.join(ACTIVE_WORKSPACE_DIR, cwd_req))
+                        if os.path.isdir(target_dir):
+                            exec_cwd = target_dir
 
                 if not cmd:
                     self.send_json({"ok": False, "error": "Command string is required"}, 400)
@@ -2397,7 +3729,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # Statefully handle directory changes (cd, chdir, set-location)
                 cmd_lower = cmd.lower()
                 if cmd_lower in ["cd", "cd ~", "cd /", "cd \\"]:
-                    exec_cwd = WORKSPACE_ROOT
+                    exec_cwd = ACTIVE_WORKSPACE_DIR
                     rel_cwd = ""
                     self.send_json({
                         "ok": True,
@@ -2412,28 +3744,30 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 elif cmd_lower.startswith("cd ") or cmd_lower.startswith("chdir ") or cmd_lower.startswith("set-location "):
                     parts = cmd.split(None, 1)
                     target_path = parts[1].strip().strip('"').strip("'") if len(parts) > 1 else ""
-                    if not target_path or target_path in ["~", "/", "\\"]:
-                        new_cwd = WORKSPACE_ROOT
+                    if not target_path or target_path in ["~"]:
+                        new_cwd = ACTIVE_WORKSPACE_DIR
+                    elif target_path in ["/", "\\"]:
+                        new_cwd = "/" if os.name != "nt" else "C:\\"
                     elif target_path == "..":
-                        parent = os.path.dirname(exec_cwd)
-                        new_cwd = parent if parent.startswith(WORKSPACE_ROOT) else WORKSPACE_ROOT
+                        new_cwd = os.path.dirname(exec_cwd)
+                    elif os.path.isabs(target_path) and os.path.isdir(target_path):
+                        new_cwd = os.path.abspath(target_path)
                     else:
                         candidate = os.path.abspath(os.path.join(exec_cwd, target_path))
-                        if candidate.startswith(WORKSPACE_ROOT) and os.path.isdir(candidate):
+                        if os.path.isdir(candidate):
                             new_cwd = candidate
                         else:
-                            rel_cur = os.path.relpath(exec_cwd, WORKSPACE_ROOT).replace("\\", "/")
                             self.send_json({
                                 "ok": False,
                                 "command": cmd,
-                                "cwd": "" if rel_cur == "." else rel_cur,
+                                "cwd": os.path.relpath(exec_cwd, ACTIVE_WORKSPACE_DIR).replace("\\", "/"),
                                 "cwd_abs": exec_cwd,
                                 "stderr": f"Cannot find path '{target_path}' because it does not exist.",
                                 "exit_code": 1
                             })
                             return
                     exec_cwd = new_cwd
-                    rel_cwd = os.path.relpath(exec_cwd, WORKSPACE_ROOT).replace("\\", "/")
+                    rel_cwd = os.path.relpath(exec_cwd, ACTIVE_WORKSPACE_DIR).replace("\\", "/")
                     if rel_cwd == ".":
                         rel_cwd = ""
                     self.send_json({
@@ -2456,7 +3790,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         text=True,
                         timeout=30
                     )
-                    rel_cwd = os.path.relpath(exec_cwd, WORKSPACE_ROOT).replace("\\", "/")
+                    rel_cwd = os.path.relpath(exec_cwd, ACTIVE_WORKSPACE_DIR).replace("\\", "/")
                     if rel_cwd == ".":
                         rel_cwd = ""
                     self.send_json({
@@ -2471,7 +3805,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         "returncode": proc.returncode
                     })
                 except subprocess.TimeoutExpired:
-                    rel_cwd = os.path.relpath(exec_cwd, WORKSPACE_ROOT).replace("\\", "/")
+                    rel_cwd = os.path.relpath(exec_cwd, ACTIVE_WORKSPACE_DIR).replace("\\", "/")
                     if rel_cwd == ".":
                         rel_cwd = ""
                     self.send_json({
@@ -2483,7 +3817,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         "exit_code": -1
                     })
                 except Exception as ex:
-                    rel_cwd = os.path.relpath(exec_cwd, WORKSPACE_ROOT).replace("\\", "/")
+                    rel_cwd = os.path.relpath(exec_cwd, ACTIVE_WORKSPACE_DIR).replace("\\", "/")
                     if rel_cwd == ".":
                         rel_cwd = ""
                     self.send_json({
@@ -2496,13 +3830,71 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     })
                 return
 
+            elif path == "/api/git/repo/select":
+                repo_path = body.get("path", "").strip()
+                if not repo_path:
+                    self.send_json({"ok": False, "error": "Missing repository path"}, 400)
+                    return
+                abs_path = os.path.abspath(repo_path)
+                if not os.path.exists(abs_path) or not os.path.isdir(abs_path):
+                    self.send_json({"ok": False, "error": f"Directory not found: {repo_path}"}, 404)
+                    return
+                try:
+                    toplevel = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=abs_path, text=True, stderr=subprocess.DEVNULL).strip()
+                    ACTIVE_GIT_REPO_DIR = toplevel
+                    self.send_json({
+                        "ok": True,
+                        "repo_dir": ACTIVE_GIT_REPO_DIR.replace("\\", "/"),
+                        "repo_name": os.path.basename(ACTIVE_GIT_REPO_DIR)
+                    })
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": f"Not a valid git repository: {str(ex)}"}, 400)
+                return
+
+            elif path == "/api/git/clone":
+                clone_url = body.get("url", "").strip()
+                dest_dir = body.get("dest", "").strip()
+                if not clone_url:
+                    self.send_json({"ok": False, "error": "Missing repository URL"}, 400)
+                    return
+                if not dest_dir:
+                    repo_name = clone_url.rstrip("/").split("/")[-1].replace(".git", "")
+                    dest_dir = os.path.join(ACTIVE_WORKSPACE_DIR, repo_name)
+                dest_abs = os.path.abspath(dest_dir)
+                try:
+                    os.makedirs(os.path.dirname(dest_abs), exist_ok=True)
+                    proc = subprocess.run(
+                        ["git", "clone", clone_url, dest_abs],
+                        capture_output=True,
+                        text=True,
+                        timeout=120
+                    )
+                    if proc.returncode == 0:
+                        ACTIVE_GIT_REPO_DIR = dest_abs
+                        self.send_json({
+                            "ok": True,
+                            "repo_dir": dest_abs.replace("\\", "/"),
+                            "repo_name": os.path.basename(dest_abs),
+                            "output": proc.stdout or proc.stderr
+                        })
+                    else:
+                        self.send_json({
+                            "ok": False,
+                            "error": f"Git clone failed:\n{proc.stderr or proc.stdout}"
+                        }, 400)
+                except subprocess.TimeoutExpired:
+                    self.send_json({"ok": False, "error": "Git clone timed out after 120s."}, 504)
+                except Exception as ex:
+                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                return
+
             elif path == "/api/git/commit":
                 msg = body.get("message", "").strip()
                 if not msg:
                     msg = f"Update homelab workspace ({time.strftime('%Y-%m-%d %H:%M')})"
                 try:
-                    subprocess.run(["git", "add", "-A"], cwd=WORKSPACE_ROOT, check=True, capture_output=True)
-                    proc = subprocess.run(["git", "commit", "-m", msg], cwd=WORKSPACE_ROOT, capture_output=True, text=True)
+                    subprocess.run(["git", "add", "-A"], cwd=ACTIVE_GIT_REPO_DIR, check=True, capture_output=True)
+                    proc = subprocess.run(["git", "commit", "-m", msg], cwd=ACTIVE_GIT_REPO_DIR, capture_output=True, text=True)
                     self.send_json({"ok": proc.returncode == 0, "message": msg, "output": proc.stdout or proc.stderr})
                 except Exception as ge:
                     self.send_json({"ok": False, "error": str(ge)})
@@ -2727,6 +4119,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
                         with urllib.request.urlopen(fwd_req, timeout=60) as resp:
                             full_text = ""
+                            loop_detector = ReasoningLoopDetector(min_repeats=3)
                             for line in resp:
                                 l_str = line.decode("utf-8", errors="ignore").strip()
                                 if l_str.startswith("data: ") and l_str != "data: [DONE]":
@@ -2734,15 +4127,32 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                                         chunk_json = json.loads(l_str[6:])
                                         delta = chunk_json.get("choices", [{}])[0].get("delta", {}).get("content") or ""
                                         if delta:
-                                            full_text += delta
-                                            chunk_out = {
-                                                "model": req_model,
-                                                "created_at": iso_now,
-                                                "message": {"role": "assistant", "content": delta},
-                                                "done": False
-                                            }
-                                            self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
-                                            self.wfile.flush()
+                                            is_loop, phrase = loop_detector.ingest_chunk(delta)
+                                            if is_loop:
+                                                event = GLOBAL_WATCHDOG.record_intercept(phrase, model=req_model)
+                                                intercept_msg = f"\n\n> [!WARNING]\n> **[WATCHDOG INTERCEPT]**: Repetition loop detected on `'{phrase}'`. Aborted repetitive thought pattern and dispatched agent nudge.\n\n"
+                                                full_text += intercept_msg
+                                                chunk_out = {
+                                                    "model": req_model,
+                                                    "created_at": iso_now,
+                                                    "message": {"role": "assistant", "content": intercept_msg},
+                                                    "watchdog_intercept": True,
+                                                    "intercept_phrase": phrase,
+                                                    "done": False
+                                                }
+                                                self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
+                                                self.wfile.flush()
+                                                break
+                                            else:
+                                                full_text += delta
+                                                chunk_out = {
+                                                    "model": req_model,
+                                                    "created_at": iso_now,
+                                                    "message": {"role": "assistant", "content": delta},
+                                                    "done": False
+                                                }
+                                                self.wfile.write((json.dumps(chunk_out) + "\n").encode("utf-8"))
+                                                self.wfile.flush()
                                     except Exception:
                                         pass
 

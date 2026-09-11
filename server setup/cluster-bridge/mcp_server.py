@@ -23,6 +23,10 @@ from starlette.routing import Route
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+logger = logging.getLogger("cluster-mcp")
 
 # Cluster Endpoints on Node 'pve'
 COORDINATOR_URL = os.getenv("COORDINATOR_URL", "http://localhost:8001")
@@ -157,7 +161,7 @@ def _get_embedding(text: str) -> list:
     r.raise_for_status()
     return r.json()["data"][0]["embedding"]
 
-def tool_search_memory(query: str, collection_name: str = "codebase_knowledge", limit: int = 5) -> str:
+def tool_search_memory(query: str, collection_name: str = "codebase_knowledge", limit: int = 5, verified_only: bool = True) -> str:
     try:
         safe_query = query[:800].strip() if query else ""
         vector = _get_embedding(safe_query)
@@ -168,9 +172,22 @@ def tool_search_memory(query: str, collection_name: str = "codebase_knowledge", 
         else:
             payload = {"vector": vector, "limit": limit, "with_payload": True}
             
+        if verified_only and collection_name == "autonomous_thinking":
+            payload["filter"] = {
+                "must": [
+                    {"key": "frontier_verified", "match": {"value": True}}
+                ]
+            }
+            
         r = requests.post(f"{QDRANT_URL}/collections/{collection_name}/points/search", json=payload, timeout=15)
         if r.status_code == 400 and "Not existing vector name" in r.text:
             payload = {"vector": {"name": "dense", "vector": vector}, "limit": limit, "with_payload": True}
+            if verified_only and collection_name == "autonomous_thinking":
+                payload["filter"] = {
+                    "must": [
+                        {"key": "frontier_verified", "match": {"value": True}}
+                    ]
+                }
             r = requests.post(f"{QDRANT_URL}/collections/{collection_name}/points/search", json=payload, timeout=15)
             
         r.raise_for_status()
@@ -307,26 +324,28 @@ def tool_run_thinking_cycle(seed_prompt: Optional[str] = None, domain: Optional[
     if not engine:
         return "Error: autonomous_engine module not loaded"
     res = engine.run_single_cycle(seed_prompt=seed_prompt, domain=domain, hypothesis=hypothesis)
+    if res.get("status") == "busy" or "title" not in res:
+        return json.dumps(res, indent=2)
     return json.dumps({
-        "exploration_id": res["exploration_id"],
-        "title": res["title"],
-        "domain": res["domain_name"],
-        "target_invariant": res["target_invariant"],
+        "exploration_id": res.get("exploration_id"),
+        "title": res.get("title"),
+        "domain": res.get("domain_name"),
+        "target_invariant": res.get("target_invariant"),
         "telemetry": {
-            "worker_tok_s": res["worker_tok_s"],
-            "coord_tok_s": res["coord_tok_s"],
-            "worker_latency_ms": res["worker_latency_ms"],
-            "coord_latency_ms": res["coord_latency_ms"]
+            "worker_tok_s": res.get("worker_tok_s"),
+            "coord_tok_s": res.get("coord_tok_s"),
+            "worker_latency_ms": res.get("worker_latency_ms"),
+            "coord_latency_ms": res.get("coord_latency_ms")
         },
         "scores": {
-            "worker": res["eval"].get("worker_score"),
-            "coordinator": res["eval"].get("coordinator_score")
+            "worker": res.get("eval", {}).get("worker_score"),
+            "coordinator": res.get("eval", {}).get("coordinator_score")
         },
-        "reasoning_divergence": res["eval"].get("reasoning_divergence"),
-        "worker_limitations": res["eval"].get("worker_limitations_observed"),
-        "coordinator_capabilities": res["eval"].get("coordinator_capabilities_or_limits"),
-        "core_architecture_lesson": res["eval"].get("core_architecture_lesson"),
-        "needs_frontier_verification": res["eval"].get("needs_frontier_verification", False),
+        "reasoning_divergence": res.get("eval", {}).get("reasoning_divergence"),
+        "worker_limitations": res.get("eval", {}).get("worker_limitations_observed"),
+        "coordinator_capabilities": res.get("eval", {}).get("coordinator_capabilities_or_limits"),
+        "core_architecture_lesson": res.get("eval", {}).get("core_architecture_lesson"),
+        "needs_frontier_verification": res.get("eval", {}).get("needs_frontier_verification", False),
         "dossier_path": res.get("dossier_path")
     }, indent=2)
 
@@ -352,15 +371,24 @@ def tool_get_frontier_bridge_status() -> str:
     except Exception as e:
         return json.dumps({"status": "offline", "error": str(e), "target_url": url}, indent=2)
 
-def tool_query_thinking_archive(query: str, limit: int = 5) -> str:
+def tool_query_thinking_archive(query: str, limit: int = 5, include_unverified: bool = False) -> str:
     try:
         vector = _get_embedding(query)
         payload = {"vector": vector, "limit": limit, "with_payload": True}
+        if not include_unverified:
+            payload["filter"] = {
+                "must": [
+                    {"key": "frontier_verified", "match": {"value": True}}
+                ]
+            }
         r = requests.post(f"{QDRANT_URL}/collections/autonomous_thinking/points/search", json=payload, timeout=15)
         r.raise_for_status()
         results = r.json().get("result", [])
         if not results:
-            return "No matching explorations found in archive."
+            msg = "No matching explorations found in archive."
+            if not include_unverified:
+                msg += " (Filtering for frontier_verified=True. Pass include_unverified=True to include unverified drafts)."
+            return msg
         formatted = []
         for i, hit in enumerate(results):
             p = hit.get("payload", {})
@@ -493,10 +521,16 @@ def tool_get_cluster_mode() -> str:
     }
     return json.dumps(mode_info, indent=2)
 
-def tool_elevate_cluster_to_moe() -> str:
+def tool_elevate_cluster_to_moe(context_mode: Optional[str] = None) -> str:
     if engine and hasattr(engine, "elevate_to_moe"):
-        return engine.elevate_to_moe()
+        return engine.elevate_to_moe(context_mode=context_mode)
     return "Engine not initialized."
+
+def tool_configure_cluster_context(context_mode: str) -> str:
+    if engine and hasattr(engine, "configure_cluster_context"):
+        res = engine.configure_cluster_context(context_mode)
+        return json.dumps(res, indent=2)
+    return json.dumps({"ok": False, "error": "Engine not initialized or method unavailable."})
 
 def tool_restore_cluster_to_dual_9b() -> str:
     if engine and hasattr(engine, "restore_to_dual_9b"):
@@ -693,7 +727,7 @@ def tool_hive_mind_query(prompt: str, user_intent: Optional[str] = None, max_tok
                     "temperature": 0.65,
                     "chat_template_kwargs": {"enable_thinking": False}
                 },
-                timeout=180
+                timeout=300
             )
             r.raise_for_status()
             msg = r.json()["choices"][0]["message"]
@@ -891,10 +925,32 @@ TOOLS_MANIFEST = [
     },
     {
         "name": "elevate_cluster_to_moe",
-        "description": "Dynamically unload the dual 9B models and start Ornith-1.5-35B-A3B Unified Dual-GPU MoE across both GPUs (Vulkan0,Vulkan1 -ts 12,8) sharing 20.4GB VRAM for heavy reasoning tasks.",
+        "description": "Dynamically unload the dual 9B models and start Ornith-1.5-35B-A3B Unified Dual-GPU MoE across both GPUs (Vulkan0,Vulkan1 -ts 12,8) sharing 20.4GB VRAM for heavy reasoning tasks. Supports context_mode: 'deep_32k_ram' (default, 32K context via System RAM) or 'standard_8k' (8K fast VRAM).",
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "context_mode": {
+                    "type": "string",
+                    "enum": ["deep_32k_ram", "standard_8k"],
+                    "description": "Optional context window architecture: 'deep_32k_ram' (32,768 tokens in 64-bit Host RAM) or 'standard_8k' (8,192 tokens in VRAM)."
+                }
+            },
+            "additionalProperties": False
+        }
+    },
+    {
+        "name": "configure_cluster_context",
+        "description": "Dynamically switch context window architecture for cluster MoE: 'deep_32k_ram' (32,768 tokens via System RAM, ~8 tok/s, no truncation) or 'standard_8k' (8,192 tokens in VRAM, ~35 tok/s).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context_mode": {
+                    "type": "string",
+                    "enum": ["deep_32k_ram", "standard_8k"],
+                    "description": "Target context window mode."
+                }
+            },
+            "required": ["context_mode"],
             "additionalProperties": False
         }
     },
@@ -1035,7 +1091,8 @@ TOOLS_MANIFEST = [
             "properties": {
                 "query": {"type": "string", "description": "The search query or concept to look up."},
                 "collection_name": {"type": "string", "description": "Collection name (default: codebase_knowledge).", "default": "codebase_knowledge"},
-                "limit": {"type": "integer", "description": "Number of results to return (default: 5).", "default": 5}
+                "limit": {"type": "integer", "description": "Number of results to return (default: 5).", "default": 5},
+                "verified_only": {"type": "boolean", "description": "If True (default), filters out unverified explorations from autonomous_thinking.", "default": True}
             },
             "required": ["query"]
         }
@@ -1167,7 +1224,8 @@ TOOLS_MANIFEST = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "The search query, concept, or model capability to look up."},
-                "limit": {"type": "integer", "description": "Max results to return (default: 5).", "default": 5}
+                "limit": {"type": "integer", "description": "Max results to return (default: 5).", "default": 5},
+                "include_unverified": {"type": "boolean", "description": "If False (default), only returns Frontier-verified dossiers. If True, includes unverified drafts.", "default": False}
             },
             "required": ["query"]
         }
@@ -1470,7 +1528,9 @@ async def handle_jsonrpc(data: dict) -> dict:
             elif tool_name == "get_cluster_mode":
                 output = tool_get_cluster_mode()
             elif tool_name == "elevate_cluster_to_moe":
-                output = tool_elevate_cluster_to_moe()
+                output = tool_elevate_cluster_to_moe(**args)
+            elif tool_name == "configure_cluster_context":
+                output = tool_configure_cluster_context(**args)
             elif tool_name == "restore_cluster_to_dual_9b":
                 output = tool_restore_cluster_to_dual_9b()
             elif tool_name == "get_rumination_status":
@@ -1645,6 +1705,20 @@ routes = [
     Route("/", endpoint=post_endpoint, methods=["POST"]),
 ]
 
+def on_startup():
+    if engine and hasattr(engine, "start"):
+        try:
+            state_path = os.path.join(os.path.dirname(__file__), "thinking_state.json")
+            interval = 60
+            if os.path.exists(state_path):
+                with open(state_path, "r", encoding="utf-8") as sf:
+                    sdata = json.load(sf)
+                    interval = sdata.get("interval_seconds", 60)
+            logger.info(f"Auto-starting 24/7 Autonomous Thinking Engine (interval={interval}s)...")
+            engine.start(interval_seconds=interval)
+        except Exception as ex:
+            logger.error(f"Error auto-starting autonomous engine: {ex}")
+
 app = Starlette(
     routes=routes,
     middleware=[
@@ -1657,6 +1731,11 @@ app = Starlette(
         )
     ]
 )
+
+try:
+    on_startup()
+except Exception as _e:
+    logger.error(f"Failed to run on_startup: {_e}")
 
 if __name__ == "__main__":
     print("Starting Antigravity Universal MCP Bridge & Autonomous Engine on 0.0.0.0:8765...")

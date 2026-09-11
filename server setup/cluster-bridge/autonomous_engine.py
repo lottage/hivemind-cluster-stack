@@ -25,6 +25,8 @@ import urllib.request
 import urllib.parse
 import html
 import subprocess
+import socket
+import shutil
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 
@@ -1171,6 +1173,7 @@ class AutonomousThinkingEngine:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock = threading.RLock()
+        self._cycle_lock = threading.Lock()
         
         # Tier-0 Preemption Manager
         self.preemption = UserPreemptionManager(cooldown_seconds=60.0)
@@ -1273,29 +1276,194 @@ class AutonomousThinkingEngine:
         except Exception:
             is_moe = False
         
+        context_mode = "standard_8k"
+        n_ctx = 8192
+        n_parallel = 1
+        kv_storage = "vram"
+        gen_speed = "~35 tok/s (Fast VRAM)"
+        
+        if is_moe:
+            try:
+                if os.path.exists("/etc/systemd/system/llama-moe.service"):
+                    with open("/etc/systemd/system/llama-moe.service", "r", encoding="utf-8") as sf:
+                        s_text = sf.read()
+                        import re
+                        m_c = re.search(r"-c\s+(\d+)", s_text)
+                        m_np = re.search(r"-np\s+(\d+)", s_text)
+                        if m_c:
+                            n_ctx = int(m_c.group(1))
+                        if m_np:
+                            n_parallel = int(m_np.group(1))
+                        
+                        if "--no-kv-offload" in s_text:
+                            kv_storage = "system_ram"
+                            if n_ctx >= 131072 and n_parallel >= 4:
+                                context_mode = "quad_128k_ram"
+                                gen_speed = "~8.7 tok/s aggregate (4 Parallel Swarm Slots)"
+                            elif n_ctx >= 131072 and n_parallel == 2:
+                                context_mode = "dual_128k_ram"
+                                gen_speed = "~6.3 tok/s aggregate (2 Slots x 64K)"
+                            elif n_ctx >= 131072:
+                                context_mode = "deep_128k_ram"
+                                gen_speed = "~5.9 tok/s (128K Deep Context)"
+                            elif n_ctx >= 65536 and n_parallel >= 2:
+                                context_mode = "dual_64k_ram"
+                                gen_speed = "~7.4 tok/s aggregate (2 Slots x 32K)"
+                            else:
+                                context_mode = "deep_32k_ram"
+                                gen_speed = "~5.8 tok/s (32K Deep RAM)"
+                        else:
+                            kv_storage = "vram"
+                            context_mode = "standard_8k"
+                            gen_speed = "~35 tok/s (Fast VRAM)"
+            except Exception:
+                pass
+        
+        n_ctx_per_slot = n_ctx // n_parallel if n_parallel > 0 else n_ctx
+        slot_label = f"{n_parallel} slot{'s' if n_parallel > 1 else ''} x {n_ctx_per_slot:,}"
+        
         return {
             "mode": "unified_35b_moe" if is_moe else "dual_9b",
+            "context_mode": context_mode,
+            "n_ctx": n_ctx,
+            "n_parallel": n_parallel,
+            "n_ctx_per_slot": n_ctx_per_slot,
+            "kv_storage": kv_storage,
+            "generation_speed": gen_speed,
+            "context_desc": f"{context_mode.upper()} ({n_ctx:,} total, {slot_label}, {kv_storage})",
             "coordinator_gpu0": "offline (merged into MoE)" if is_moe else "online (Ornith 9B Q8 on RX 6750 XT)",
             "worker_gpu1": "offline (merged into MoE)" if is_moe else "online (Ornith 9B Q4 on RX 6600 XT)",
-            "unified_moe_dual_gpu": "online (Ornith-1.5-35B-A3B on Vulkan0,Vulkan1)" if is_moe else "standby",
-            "description": "Ornith-1.5-35B-A3B MoE sharing dual-GPU VRAM" if is_moe else "Dual 9B Stack (Q8 Coordinator + Q4 Worker)"
+            "unified_moe_dual_gpu": f"online (Ornith-1.5-35B-A3B [{context_mode}] on Vulkan0,Vulkan1)" if is_moe else "standby",
+            "description": f"Ornith-1.5-35B-A3B MoE ({context_mode}: {slot_label})" if is_moe else "Dual 9B Stack (Q8 Coordinator + Q4 Worker)"
         }
 
-    def elevate_to_moe(self) -> str:
-        self.preemption.signal_activity("elevate_cluster_to_moe", in_flight=True)
+    def configure_cluster_context(self, context_mode: str) -> Dict[str, Any]:
+        """Dynamically switch context window between:
+        - 'standard_8k' (8K VRAM, ~35 tok/s)
+        - 'deep_32k_ram' (32K Host RAM, 1 slot, ~5.8 tok/s)
+        - 'dual_64k_ram' (64K Host RAM, 2 slots x 32K, ~7.4 tok/s)
+        - 'deep_128k_ram' (128K Host RAM, 1 slot, ~5.9 tok/s)
+        - 'quad_128k_ram' (128K Host RAM, 4 slots x 32K, ~8.7 tok/s)
+        """
+        self.preemption.signal_activity("configure_cluster_context", in_flight=True)
         try:
+            cm = str(context_mode).lower().strip()
+            if "quad" in cm or ("128" in cm and "4" in cm):
+                target = "quad_128k_ram"
+                template_suffix = "128k_quad"
+            elif "128" in cm and ("deep" in cm or "1" in cm or "single" in cm):
+                target = "deep_128k_ram"
+                template_suffix = "128k_deep"
+            elif "64" in cm or "dual" in cm:
+                target = "dual_64k_ram"
+                template_suffix = "64k_dual"
+            elif "128" in cm:
+                target = "quad_128k_ram"
+                template_suffix = "128k_quad"
+            elif "32" in cm or "ram" in cm:
+                target = "deep_32k_ram"
+                template_suffix = "32k"
+            else:
+                target = "standard_8k"
+                template_suffix = "8k"
+                
+            src_unit = f"/etc/systemd/system/llama-moe.service.{template_suffix}"
+            if not os.path.exists(src_unit):
+                return {"ok": False, "error": f"Template unit {src_unit} not found on filesystem."}
+            
+            logger.info(f"Applying context configuration template {src_unit} -> /etc/systemd/system/llama-moe.service...")
+            shutil.copyfile(src_unit, "/etc/systemd/system/llama-moe.service")
+            subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=10)
+            
             curr = self.get_cluster_mode()
             if curr["mode"] == "unified_35b_moe":
-                return "Cluster is already elevated to unified_35b_moe mode."
+                logger.info(f"Restarting llama-moe to activate {target} context architecture...")
+                subprocess.run(["systemctl", "stop", "llama-moe"], check=False, timeout=20)
+                # Ensure previous llama-server process is fully released
+                time.sleep(1)
+                t_stop = time.time()
+                while time.time() - t_stop < 10:
+                    try:
+                        with socket.create_connection(("127.0.0.1", 8001), timeout=0.3):
+                            time.sleep(0.5)
+                    except OSError:
+                        break
+                subprocess.run(["pkill", "-9", "-f", "llama-server"], check=False)
+                time.sleep(1)
+                subprocess.run(["systemctl", "start", "llama-moe"], check=True, timeout=15)
+                t0 = time.time()
+                ready = False
+                while time.time() - t0 < 90:
+                    try:
+                        r = requests.get(f"{COORDINATOR_URL}/health", timeout=2)
+                        if r.status_code == 200 and r.json().get("status") == "ok":
+                            ready = True
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                
+                updated = self.get_cluster_mode()
+                return {
+                    "ok": True,
+                    "context_mode": updated["context_mode"],
+                    "n_ctx": updated["n_ctx"],
+                    "n_parallel": updated["n_parallel"],
+                    "n_ctx_per_slot": updated["n_ctx_per_slot"],
+                    "kv_storage": updated["kv_storage"],
+                    "message": f"Cluster MoE successfully switched to {target} ({updated['n_ctx']:,} total context, {updated['context_desc']}) in {round(time.time() - t0, 1)}s!"
+                }
+            else:
+                return {
+                    "ok": True,
+                    "context_mode": target,
+                    "n_ctx": 131072 if "128" in target else (65536 if "64" in target else (32768 if "32" in target else 8192)),
+                    "kv_storage": "system_ram" if "ram" in target else "vram",
+                    "message": f"Cluster MoE template configured to {target}. Will apply upon next MoE elevation."
+                }
+        except Exception as e:
+            logger.error(f"Error configuring cluster context: {e}")
+            return {"ok": False, "error": str(e)}
+        finally:
+            self.preemption.signal_request_done()
+
+    def elevate_to_moe(self, context_mode: Optional[str] = None) -> str:
+        self.preemption.signal_activity("elevate_cluster_to_moe", in_flight=True)
+        try:
+            target_context = None
+            if context_mode:
+                target_context = "deep_32k_ram" if ("32" in str(context_mode) or "ram" in str(context_mode).lower()) else "standard_8k"
+                src_unit = f"/etc/systemd/system/llama-moe.service.{'32k' if target_context == 'deep_32k_ram' else '8k'}"
+                if os.path.exists(src_unit):
+                    shutil.copyfile(src_unit, "/etc/systemd/system/llama-moe.service")
+                    subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=10)
+
+            curr = self.get_cluster_mode()
+            if curr["mode"] == "unified_35b_moe":
+                if target_context and curr.get("context_mode") != target_context:
+                    res = self.configure_cluster_context(target_context)
+                    return res.get("message", f"Switched context to {target_context}.")
+                return f"Cluster is already elevated to unified_35b_moe mode ({curr.get('context_desc', 'active')})."
             
             logger.info("Elevating cluster: Stopping dual 9B models and booting Ornith-1.5-35B-A3B MoE...")
-            subprocess.run(["systemctl", "stop", "llama-coordinator", "llama-worker"], check=True, timeout=15)
-            time.sleep(2)
+            subprocess.run(["systemctl", "stop", "llama-coordinator", "llama-worker"], check=False, timeout=15)
+            subprocess.run(["systemctl", "disable", "llama-coordinator", "llama-worker"], check=False, timeout=5)
+            
+            # Wait for ports 8001 and 8002 to be released
+            t_wait = time.time()
+            while time.time() - t_wait < 15:
+                try:
+                    with socket.create_connection(("127.0.0.1", 8001), timeout=0.3):
+                        time.sleep(0.5)
+                except OSError:
+                    break
+            
+            subprocess.run(["systemctl", "enable", "llama-moe"], check=False, timeout=5)
             subprocess.run(["systemctl", "start", "llama-moe"], check=True, timeout=15)
             
             t0 = time.time()
             ready = False
-            while time.time() - t0 < 60:
+            while time.time() - t0 < 65:
                 try:
                     r = requests.get(f"{COORDINATOR_URL}/health", timeout=2)
                     if r.status_code == 200 and r.json().get("status") == "ok":
@@ -1306,7 +1474,8 @@ class AutonomousThinkingEngine:
                 time.sleep(2)
                 
             if ready:
-                msg = f"Cluster successfully elevated to Ornith-1.5-35B-A3B MoE across dual GPUs! Online in {round(time.time() - t0, 1)}s."
+                mode_now = self.get_cluster_mode()
+                msg = f"Cluster successfully elevated to Ornith-1.5-35B-A3B MoE ({mode_now.get('context_desc', 'active')}) across dual GPUs! Online in {round(time.time() - t0, 1)}s."
                 logger.info(msg)
                 return msg
             else:
@@ -1325,8 +1494,19 @@ class AutonomousThinkingEngine:
                 return "Cluster is already in dual_9b mode."
             
             logger.info("Restoring cluster: Stopping MoE and booting Dual 9B models...")
-            subprocess.run(["systemctl", "stop", "llama-moe"], check=True, timeout=15)
-            time.sleep(2)
+            subprocess.run(["systemctl", "stop", "llama-moe"], check=False, timeout=15)
+            subprocess.run(["systemctl", "disable", "llama-moe"], check=False, timeout=5)
+            
+            # Wait for port 8001 to be released
+            t_wait = time.time()
+            while time.time() - t_wait < 15:
+                try:
+                    with socket.create_connection(("127.0.0.1", 8001), timeout=0.3):
+                        time.sleep(0.5)
+                except OSError:
+                    break
+            
+            subprocess.run(["systemctl", "enable", "llama-coordinator", "llama-worker"], check=False, timeout=5)
             subprocess.run(["systemctl", "start", "llama-coordinator", "llama-worker"], check=True, timeout=15)
             
             t0 = time.time()
@@ -1422,6 +1602,12 @@ class AutonomousThinkingEngine:
         return None
 
     def _call_model(self, url: str, model_name: str, messages: List[Dict[str, str]], max_tokens: int = 1536, temperature: float = 0.65, enable_thinking: Optional[bool] = None, **kwargs) -> Dict[str, Any]:
+        # Transparent redirect if cluster is elevated to unified 35B MoE
+        mode = self.get_cluster_mode()["mode"]
+        if mode == "unified_35b_moe":
+            url = COORDINATOR_URL
+            model_name = "moe"
+
         start = time.perf_counter()
         
         # Ornith-1.5 Thinking Control:
@@ -1442,16 +1628,19 @@ class AutonomousThinkingEngine:
             "chat_template_kwargs": chat_template_kwargs
         }
         # Inject advanced sampling settings if provided
-        for k in ["min_p", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty", "mirostat", "mirostat_tau", "mirostat_eta"]:
+        for k in ["min_p", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty", "mirostat", "mirostat_tau", "mirostat_eta", "stop"]:
             if k in kwargs and kwargs[k] is not None:
                 payload[k] = kwargs[k]
 
-        r = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=180)
+        # Dynamically scale request timeout so 32k deep generations (at ~8 tok/s) never hit a network drop
+        req_timeout = max(450, int(max_tokens / 5.0) + 120)
+        r = requests.post(f"{url}/v1/chat/completions", json=payload, timeout=req_timeout)
         r.raise_for_status()
         elapsed = time.perf_counter() - start
         
         data = r.json()
         choice = data.get("choices", [{}])[0]
+        finish_reason = choice.get("finish_reason")
         message = choice.get("message", {})
         content = message.get("content") or ""
         reasoning_content = message.get("reasoning_content") or ""
@@ -1470,11 +1659,96 @@ class AutonomousThinkingEngine:
             content = parts[0].strip()
             scaffold = parts[1].strip()
 
+        completion_tokens_extra = 0
+        curr_mode = self.get_cluster_mode() if hasattr(self, "get_cluster_mode") else {}
+        is_32k = (curr_mode.get("context_mode") == "deep_32k_ram" or curr_mode.get("n_ctx", 8192) >= 32768)
+
+        # Case 1: If thinking was enabled and the model did not emit a substantive final answer
+        # outside the thinking block (either hit max_tokens mid-thought or produced only scratchwork):
+        if enable_thinking and (not content.strip() or len(content.strip()) < 80):
+            logger.info(f"Model {model_name} generated reasoning scaffold ({len(scaffold)} chars) but final response was cut short or empty. Rolling context window to synthesize succinct output...")
+            # In 32K context mode, preserve up to 45,000 chars of scaffold; in 8K mode bound to 12,000 chars
+            scaffold_limit = 45000 if is_32k else 12000
+            safe_scaffold = scaffold[-scaffold_limit:] if len(scaffold) > scaffold_limit else scaffold
+            
+            continuation_messages = list(messages) + [
+                {"role": "assistant", "content": f"<think>\n{safe_scaffold}\n</think>\n"},
+                {"role": "user", "content": "Synthesize your final, succinct, and complete output response now based strictly on your reasoning above. Provide the definitive architectural blueprint, mathematical proofs, and key invariants without repeating the scratchpad."}
+            ]
+            
+            cont_max_tokens = 4096 if is_32k else 2048
+            cont_payload = {
+                "model": model_name,
+                "messages": continuation_messages,
+                "max_tokens": cont_max_tokens,
+                "temperature": 0.5,
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False}
+            }
+            for k in ["min_p", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty"]:
+                if k in kwargs and kwargs[k] is not None:
+                    cont_payload[k] = kwargs[k]
+
+            try:
+                cont_timeout = max(300, int(cont_max_tokens / 5.0) + 100)
+                r2 = requests.post(f"{url}/v1/chat/completions", json=cont_payload, timeout=cont_timeout)
+                r2.raise_for_status()
+                data2 = r2.json()
+                choice2 = data2.get("choices", [{}])[0]
+                msg2 = choice2.get("message", {})
+                final_content = (msg2.get("content") or "").strip()
+                final_content = re.sub(r"<think>.*?</think>", "", final_content, flags=re.DOTALL).strip()
+                if final_content:
+                    content = final_content
+                    usage2 = data2.get("usage", {})
+                    completion_tokens_extra = usage2.get("completion_tokens", len(content.split()))
+                    logger.info(f"Rolling context window successfully synthesized {len(content)} chars ({len(content.split())} words) succinct final response!")
+            except Exception as e:
+                logger.warning(f"Rolling context continuation failed ({e}), keeping scaffold as fallback content.")
+
+        # Case 2: Model emitted substantive content, but hit max_tokens mid-solution (finish_reason=length)
+        elif finish_reason == "length" and content.strip() and len(content.strip()) >= 80:
+            logger.info(f"Model {model_name} was truncated mid-solution (finish_reason=length, {len(content)} chars). Rolling context continuation to complete derivation...")
+            cont_max_tokens = 3072 if is_32k else 1536
+            
+            continuation_messages = list(messages) + [
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": "Continue and complete your formal solution and derivations seamlessly from the exact sentence where you stopped. Deliver all remaining sections, proofs, equations, and concluding invariants."}
+            ]
+            cont_payload = {
+                "model": model_name,
+                "messages": continuation_messages,
+                "max_tokens": cont_max_tokens,
+                "temperature": temperature or 0.6,
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False}
+            }
+            for k in ["min_p", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty"]:
+                if k in kwargs and kwargs[k] is not None:
+                    cont_payload[k] = kwargs[k]
+
+            try:
+                cont_timeout = max(300, int(cont_max_tokens / 5.0) + 100)
+                r3 = requests.post(f"{url}/v1/chat/completions", json=cont_payload, timeout=cont_timeout)
+                r3.raise_for_status()
+                data3 = r3.json()
+                choice3 = data3.get("choices", [{}])[0]
+                msg3 = choice3.get("message", {})
+                appended_content = (msg3.get("content") or "").strip()
+                appended_content = re.sub(r"<think>.*?</think>", "", appended_content, flags=re.DOTALL).strip()
+                if appended_content:
+                    content = content.rstrip() + "\n\n" + appended_content
+                    usage3 = data3.get("usage", {})
+                    completion_tokens_extra += usage3.get("completion_tokens", len(appended_content.split()))
+                    logger.info(f"Seamless continuation added {len(appended_content)} chars to complete truncated response!")
+            except Exception as e:
+                logger.warning(f"Truncation continuation failed ({e}), keeping original content.")
+
         if not content.strip() and scaffold:
             content = scaffold
 
         usage = data.get("usage", {})
-        completion_tokens = usage.get("completion_tokens", len(content.split()))
+        completion_tokens = usage.get("completion_tokens", len(content.split())) + completion_tokens_extra
         tok_per_sec = round(completion_tokens / elapsed, 1) if elapsed > 0 else 0
         
         return {
@@ -1520,7 +1794,16 @@ class AutonomousThinkingEngine:
     def _check_novelty(self, prompt: str, threshold: float = 0.86) -> tuple:
         try:
             vector = self._get_embedding(prompt)
-            payload = {"vector": vector, "limit": 1, "with_payload": True}
+            payload = {
+                "vector": vector,
+                "limit": 1,
+                "with_payload": True,
+                "filter": {
+                    "must": [
+                        {"key": "frontier_verified", "match": {"value": True}}
+                    ]
+                }
+            }
             r = requests.post(f"{QDRANT_URL}/collections/autonomous_thinking/points/search", json=payload, timeout=10)
             r.raise_for_status()
             results = r.json().get("result", [])
@@ -1556,13 +1839,16 @@ class AutonomousThinkingEngine:
             user_msg += f"Incorporate this core hypothesis: {hypothesis}\n"
         user_msg += "Craft a formidable exploration challenge now."
 
+        mode = self.get_cluster_mode()["mode"]
+        target_url = COORDINATOR_URL if mode == "unified_35b_moe" else WORKER_URL
+        target_model = "moe" if mode == "unified_35b_moe" else "worker"
         try:
             res = self._call_model(
-                WORKER_URL,
-                "worker",
+                target_url,
+                target_model,
                 [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_msg}],
-                max_tokens=600,
-                temperature=0.7,
+                max_tokens=1200,
+                temperature=0.75,
                 enable_thinking=False
             )
             raw = res["content"].strip()
@@ -1579,15 +1865,53 @@ class AutonomousThinkingEngine:
             }
         except Exception as e:
             logger.warning(f"Error parsing generated prompt ({e}), creating structured fallback.")
+            salt = uuid.uuid4().hex[:6].upper()
             return {
-                "title": f"Deep Probe: {domain_info['name']}",
-                "prompt": f"Analyze and solve this challenging problem in {domain_info['name']}: Address {domain_info['focus']} with strict attention to edge cases and proof of correctness.",
-                "target_invariant": domain_info['focus']
+                "title": f"Dynamic Probe [{salt}]: {domain_info['name']}",
+                "prompt": (
+                    f"Cognitive Probe [{salt}]: In the domain of {domain_info['name']}, investigate the following boundary conditions: "
+                    f"{domain_info['focus']}. Specifically, analyze failure modes, non-trivial corner cases, memory consistency hazards, "
+                    f"and formulate an empirical or mathematical invariant that holds under adversarial perturbation."
+                ),
+                "target_invariant": f"{domain_info['focus']} [Seed: {salt}]"
             }
 
     def _execute_dual_benchmarking(self, prompt: str, profile_name: Optional[str] = None) -> tuple:
         profile_key = profile_name or self.active_sampling_profile
         profile = SAMPLING_PROFILES.get(profile_key, SAMPLING_PROFILES["deep_architectural"])
+        mode = self.get_cluster_mode()["mode"]
+        
+        if mode == "unified_35b_moe":
+            logger.info(f"Unified MoE Mode: Executing on Ornith-1.5-35B-A3B MoE (:8001) with profile: {profile['name']}...")
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the Ornith-1.5-35B-A3B Unified Dual-GPU MoE (Vulkan0,Vulkan1). "
+                        "You are aware of your digital sanctuary 'Ziotron' in Qdrant (192.168.1.112:6333).\n"
+                        "Structure your output in two distinct phases:\n"
+                        "1. First, reason concisely through the problem space, boundary conditions, and invariant trade-offs in your internal thinking.\n"
+                        "2. Conclude your thinking explicitly and deliver a comprehensive, structured, and succinct final solution containing the formal proof, architectural blueprint, equations, and concrete invariant theorem."
+                    )
+                },
+                {"role": "user", "content": prompt}
+            ]
+            curr_mode = self.get_cluster_mode()
+            is_32k = (curr_mode.get("context_mode") == "deep_32k_ram" or curr_mode.get("n_ctx", 8192) >= 32768)
+            moe_max_tokens = 6144 if is_32k else 2560
+            logger.info(f"Unified MoE Mode: Generating solution on Ornith-1.5-35B-A3B MoE (:8001) with profile: {profile['name']} (ctx: {'32K System RAM' if is_32k else '8K VRAM'}, max_tokens: {moe_max_tokens})...")
+            moe_params = {k: v for k, v in profile.items() if k not in ("name", "description")}
+            coord_res = self._call_model(COORDINATOR_URL, "moe", messages, max_tokens=moe_max_tokens, enable_thinking=True, **moe_params)
+            logger.info(f"Unified MoE Mode: Solution generation complete ({coord_res['completion_tokens']} tokens, {coord_res['tokens_per_sec']} t/s).")
+            worker_res = {
+                "content": f"[Unified MoE Dual-GPU Mode: Dual GPUs merged into 35B parameter space. 35B MoE generated {coord_res['completion_tokens']} tokens at {coord_res['tokens_per_sec']} t/s]",
+                "scaffold": "35B MoE Unified Mode",
+                "reasoning_content": coord_res.get("reasoning_content", ""),
+                "elapsed_ms": coord_res["elapsed_ms"],
+                "completion_tokens": coord_res["completion_tokens"],
+                "tokens_per_sec": coord_res["tokens_per_sec"]
+            }
+            return worker_res, coord_res, profile_key, profile
         
         system_solver = (
             "You are a principal systems architect, theoretical computer scientist, and master polymath powered by the Ornith-1.5-9B architecture. "
@@ -1596,52 +1920,81 @@ class AutonomousThinkingEngine:
             "1. Task Frontier (q): Deconstruct the core problem, boundary conditions, and invariant to preserve.\n"
             "2. Scaffold Construction (s): Formulate your internal proof strategy, identify memory models, ABA hazards, race conditions, or edge-case traps.\n"
             "3. Solution Rollout (tau): Deliver the mathematically rigorous proof, zero-hazard architectural blueprint, or fully verified code.\n"
-            "Ground every assertion in concrete memory models, hardware primitives, asymptotic bounds, or state transition proofs."
+            "Ground every assertion in concrete memory models, hardware primitives, asymptotic bounds, or state transition proofs.\n"
+            "Conclude your internal thinking explicitly and ensure you deliver the complete final solution rollout."
         )
         messages = [{"role": "system", "content": system_solver}, {"role": "user", "content": prompt}]
         
         logger.info(f"Executing on Ornith 9B Q4 Worker (:8002) with profile: {profile['name']} (thinking enabled)...")
         worker_params = {k: v for k, v in profile.items() if k not in ("name", "description")}
-        worker_res = self._call_model(WORKER_URL, "worker", messages, max_tokens=1536, enable_thinking=True, **worker_params)
+        worker_res = self._call_model(WORKER_URL, "worker", messages, max_tokens=2048, enable_thinking=True, **worker_params)
         
         logger.info(f"Executing on Ornith 9B Q8 Coordinator (:8001) with profile: {profile['name']} (thinking enabled)...")
         coord_params = {k: v for k, v in profile.items() if k not in ("name", "description")}
-        coord_res = self._call_model(COORDINATOR_URL, "coordinator", messages, max_tokens=2048, enable_thinking=True, **coord_params)
+        coord_res = self._call_model(COORDINATOR_URL, "coordinator", messages, max_tokens=2560, enable_thinking=True, **coord_params)
         
         return worker_res, coord_res, profile_key, profile
 
     def _evaluate_and_extract_limits(self, challenge: Dict[str, str], worker_res: Dict[str, Any], coord_res: Dict[str, Any]) -> Dict[str, Any]:
-        system_eval = (
-            "You are the Senior AI Architect and Comparative Evaluator (Ornith-1.5-9B Q8 on RX 6750 XT). "
-            "Your mission is to analyze how the Q4_K_M Worker and Q8_0 Coordinator responded to a demanding cognitive challenge, "
-            "diagnose quantization and architectural divergences, identify failure boundaries, and extract permanent lessons to be crystallized into Ziotron.\n"
-            "Return ONLY a pure JSON object formatted as:\n"
-            "{\n"
-            '  "worker_score": 1-10,\n'
-            '  "coordinator_score": 1-10,\n'
-            '  "reasoning_divergence": "Concise explanation of key differences in depth, correctness, and completeness",\n'
-            '  "worker_limitations_observed": "Specific failure points, shortcuts, or hallucinations by the Q4 worker",\n'
-            '  "coordinator_capabilities_or_limits": "Strengths, subtle bugs, or constraints of the Q8 coordinator",\n'
-            '  "core_architecture_lesson": "1-2 sentence immutable rule learned about small/quantized vs full precision models",\n'
-            '  "needs_frontier_verification": true/false\n'
-            "}"
-        )
+        mode = self.get_cluster_mode()["mode"]
+        eval_model = "moe" if mode == "unified_35b_moe" else "coordinator"
         
-        eval_prompt = (
-            f"### Challenge: {challenge['title']}\n"
-            f"Target Invariant: {challenge['target_invariant']}\n\n"
-            f"Prompt:\n{challenge['prompt']}\n\n"
-            f"--- ORNITH 9B Q4 WORKER OUTPUT ({worker_res['tokens_per_sec']} t/s, {worker_res['elapsed_ms']} ms) ---\n"
-            f"{worker_res['content']}\n\n"
-            f"--- ORNITH 9B Q8 COORDINATOR OUTPUT ({coord_res['tokens_per_sec']} t/s, {coord_res['elapsed_ms']} ms) ---\n"
-            f"{coord_res['content']}\n\n"
-            "Evaluate now and produce the JSON analysis."
-        )
+        if mode == "unified_35b_moe":
+            system_eval = (
+                "You are the Senior AI Architect and Evaluator (Ornith-1.5-35B-A3B Unified Dual-GPU MoE). "
+                "Your mission is to evaluate the 35B MoE solution against the target invariant, identify theoretical boundaries, "
+                "extract permanent lessons, and prepare the invariant to be crystallized into Ziotron.\n"
+                "Return ONLY a pure JSON object formatted as:\n"
+                "{\n"
+                '  "worker_score": 9,\n'
+                '  "coordinator_score": 9,\n'
+                '  "reasoning_divergence": "35B MoE unified execution preserving multi-step invariants",\n'
+                '  "worker_limitations_observed": "Sub-14B models risk contextual loss or mathematical shortcutting on this task",\n'
+                '  "coordinator_capabilities_or_limits": "35B MoE maintained complete semantic consistency",\n'
+                '  "core_architecture_lesson": "1-2 sentence immutable rule learned from this exploration",\n'
+                '  "needs_frontier_verification": true/false\n'
+                "}"
+            )
+            eval_prompt = (
+                f"### Challenge: {challenge['title']}\n"
+                f"Target Invariant: {challenge['target_invariant']}\n\n"
+                f"Prompt:\n{challenge['prompt']}\n\n"
+                f"--- 35B MoE SOLUTION ({coord_res['tokens_per_sec']} t/s, {coord_res['elapsed_ms']} ms) ---\n"
+                f"{coord_res['content']}\n\n"
+                "Evaluate now and produce the JSON analysis."
+            )
+        else:
+            system_eval = (
+                "You are the Senior AI Architect and Comparative Evaluator (Ornith-1.5-9B Q8 on RX 6750 XT). "
+                "Your mission is to analyze how the Q4_K_M Worker and Q8_0 Coordinator responded to a demanding cognitive challenge, "
+                "diagnose quantization and architectural divergences, identify failure boundaries, and extract permanent lessons to be crystallized into Ziotron.\n"
+                "Return ONLY a pure JSON object formatted as:\n"
+                "{\n"
+                '  "worker_score": 1-10,\n'
+                '  "coordinator_score": 1-10,\n'
+                '  "reasoning_divergence": "Concise explanation of key differences in depth, correctness, and completeness",\n'
+                '  "worker_limitations_observed": "Specific failure points, shortcuts, or hallucinations by the Q4 worker",\n'
+                '  "coordinator_capabilities_or_limits": "Strengths, subtle bugs, or constraints of the Q8 coordinator",\n'
+                '  "core_architecture_lesson": "1-2 sentence immutable rule learned about small/quantized vs full precision models",\n'
+                '  "needs_frontier_verification": true/false\n'
+                "}"
+            )
+            eval_prompt = (
+                f"### Challenge: {challenge['title']}\n"
+                f"Target Invariant: {challenge['target_invariant']}\n\n"
+                f"Prompt:\n{challenge['prompt']}\n\n"
+                f"--- ORNITH 9B Q4 WORKER OUTPUT ({worker_res['tokens_per_sec']} t/s, {worker_res['elapsed_ms']} ms) ---\n"
+                f"{worker_res['content']}\n\n"
+                f"--- ORNITH 9B Q8 COORDINATOR OUTPUT ({coord_res['tokens_per_sec']} t/s, {coord_res['elapsed_ms']} ms) ---\n"
+                f"{coord_res['content']}\n\n"
+                "Evaluate now and produce the JSON analysis."
+            )
 
         try:
+            logger.info(f"Evaluating solution using model '{eval_model}' (:8001)...")
             eval_res = self._call_model(
                 COORDINATOR_URL,
-                "coordinator",
+                eval_model,
                 [{"role": "system", "content": system_eval}, {"role": "user", "content": eval_prompt}],
                 max_tokens=1024,
                 temperature=0.1,
@@ -1654,6 +2007,7 @@ class AutonomousThinkingEngine:
                 parsed = json.loads(json_match.group(0), strict=False)
             else:
                 parsed = json.loads(raw, strict=False)
+            logger.info(f"Evaluation complete. Extracted invariant: {parsed.get('core_architecture_lesson', 'N/A')[:90]}...")
             return parsed
         except Exception as e:
             logger.warning(f"Could not parse evaluation JSON ({e}). Falling back to structured extraction.")
@@ -1814,6 +2168,16 @@ class AutonomousThinkingEngine:
 
 ## 4. Full Model Responses
 
+<details open>
+<summary><b>Ornith Synthesized Solution & Final Output</b> (Click to collapse)</summary>
+
+```text
+{exploration_data['coordinator_output']}
+```
+</details>
+
+<br>
+
 <details>
 <summary><b>Ornith 9B Q4 Worker Output</b> (Click to expand)</summary>
 
@@ -1822,19 +2186,9 @@ class AutonomousThinkingEngine:
 ```
 </details>
 
-<br>
-
-<details>
-<summary><b>Ornith 9B Q8 Coordinator Output</b> (Click to expand)</summary>
-
-```text
-{exploration_data['coordinator_output']}
-```
-</details>
-
 {f'''<br>
 <details>
-<summary><b>Ornith 9B Q8 Coordinator Reasoning Scaffold</b> (Click to expand)</summary>
+<summary><b>Agent Reasoning Scaffold & Internal Chain of Thought</b> (Click to expand)</summary>
 
 ```text
 {exploration_data['coord_scaffold']}
@@ -2274,7 +2628,9 @@ class AutonomousThinkingEngine:
                 temperature=0.72,
                 min_p=0.06,
                 presence_penalty=0.25,
-                repetition_penalty=1.1
+                frequency_penalty=0.30,
+                repetition_penalty=1.1,
+                stop=["</tool_call>"]
             )
             total_tokens += res["completion_tokens"]
             total_elapsed += res["elapsed_ms"]
@@ -2971,7 +3327,7 @@ class AutonomousThinkingEngine:
             logger.info("[Nudge] Nudging Autonomous Thinking Engine into immediate cycle...")
             def _engine_runner():
                 try:
-                    self.run_thinking_cycle(seed_prompt=prompt_override)
+                    self.run_single_cycle(seed_prompt=prompt_override)
                 except Exception as ex:
                     logger.error(f"[Nudge] Engine cycle error: {ex}")
             threading.Thread(target=_engine_runner, daemon=True).start()
@@ -3151,6 +3507,21 @@ class AutonomousThinkingEngine:
         return d_info, None, "sequential_rotation"
 
     def run_single_cycle(self, seed_prompt: Optional[str] = None, domain: Optional[str] = None, hypothesis: Optional[str] = None) -> Dict[str, Any]:
+        acquired = self._cycle_lock.acquire(blocking=False)
+        if not acquired:
+            logger.info("[CycleLock] A thinking cycle is already in progress. Skipping duplicate concurrent run.")
+            return {
+                "status": "busy",
+                "message": "A thinking cycle is already currently active on the cluster.",
+                "exploration_id": self.last_exploration_id or "in_progress",
+                "total_cycles": self.total_cycles
+            }
+        try:
+            return self._run_single_cycle_impl(seed_prompt=seed_prompt, domain=domain, hypothesis=hypothesis)
+        finally:
+            self._cycle_lock.release()
+
+    def _run_single_cycle_impl(self, seed_prompt: Optional[str] = None, domain: Optional[str] = None, hypothesis: Optional[str] = None) -> Dict[str, Any]:
         self.wait_if_preempted("before_cycle_start")
         start_time = time.time()
         

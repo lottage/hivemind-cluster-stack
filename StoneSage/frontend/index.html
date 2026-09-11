@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aevum 98 - Early Internet Command Workstation</title>
+  <title>Aevum '95 - Early Internet Command Workstation</title>
   <meta name="description" content="90s Retro Pre-Bloat HTML Homelab Command Center & AI Cognitive Workstation inspired by the early internet.">
   <meta name="theme-color" content="#008080">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -17,11 +17,11 @@
     <div class="win95-titlebar">
       <div class="win95-titlebar-title">
         <span class="win95-title-icon">🌐</span>
-        <span class="win95-title-text">Aevum 98 - Early Internet Command Workstation</span>
+        <span class="win95-title-text">Aevum '95 - Early Internet Command Workstation</span>
         <span class="win95-title-sub">[Proxmox Datacenter: bigserv &amp; pve]</span>
       </div>
       <div class="win95-title-controls">
-        <button class="win95-btn win95-btn-min" title="Minimize" onclick="alert('Aevum 98 is running 24/7 in background')">_</button>
+        <button class="win95-btn win95-btn-min" title="Minimize" onclick="alert('Aevum \'95 is running 24/7 in background')">_</button>
         <button class="win95-btn win95-btn-max" title="Maximize" onclick="document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()">□</button>
         <button class="win95-btn win95-btn-close" title="Close" onclick="alert('Session locked to Proxmox Cluster 24/7')">✕</button>
       </div>
@@ -49,7 +49,7 @@
         <button class="win95-btn win95-tool-btn" onclick="location.reload()">🔄 <u>R</u>eload</button>
         <button class="win95-btn win95-tool-btn" onclick="document.querySelector('.tab-btn[data-view=\'view-launchpad\']').click()">🏠 <u>H</u>ome</button>
       </div>
-      <div class="win95-netscape-n" title="Aevum 98 Connected">
+      <div class="win95-netscape-n" title="Aevum '95 Connected">
         <span class="netscape-badge">N</span>
       </div>
     </div>
@@ -105,7 +105,12 @@
       <span class="tier-badge" id="badge-embedder"><strong>BGE EMBEDDER:</strong> Vector Engine (:8003/1024-dim)</span>
       <span class="tier-badge"><strong>QDRANT BRAIN:</strong> 192.168.1.112:6333</span>
     </div>
-    <div style="display: flex; gap: 0.5rem; align-items: center;">
+    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <button class="launch-btn profile-toggle-btn" id="header-hivemind-profile-btn" onclick="toggleHiveMindConcurrencyProfile()" title="Toggle 24/7 Max Capacity Multi-Agent Concurrency Profile (8 Parallel Slots, 4-bit KV, Context-Shift, Min-P 0.07)">[⚡ HIVE MIND: 8-AGENT PROFILE: OFF]</button>
+      <span class="tier-badge watchdog-badge" id="badge-watchdog-indicator" onclick="showWatchdogModal()" style="cursor: pointer;" title="Cognitive Loop Watchdog: Monitoring reasoning streams for repetition traps. Click for intercept log.">
+        <span id="watchdog-pulse-dot" class="watchdog-dot armed"></span>
+        <strong>WATCHDOG:</strong> <span id="watchdog-status-text">ARMED</span>
+      </span>
       <span id="header-time-indicator" style="font-family: var(--font-terminal); color: var(--term-text-bright);"></span>
     </div>
   </div>
@@ -162,6 +167,26 @@
           <div class="terminal-panel-header">
             <span>🗂 FILESYSTEM EXPLORER</span>
             <button class="launch-btn" id="refresh-tree-btn" style="padding: 1px 4px; font-size: 0.7rem;">🔄</button>
+          </div>
+          <div class="workstation-dir-toolbar">
+            <select class="workstation-dir-select" id="workstation-dir-presets" title="Preset homelab directories (Local, Server, NFS)">
+              <option value="">-- Quick Directory Preset --</option>
+              <option value="workspace">Active Workspace</option>
+              <option value="/opt">Server: /opt</option>
+              <option value="/mnt/nas">NFS: /mnt/nas</option>
+              <option value="/mnt/storage">NFS: /mnt/storage</option>
+              <option value="/">Server Root (/)</option>
+              <option value="/etc">Linux Config (/etc)</option>
+            </select>
+            <div class="workstation-dir-row">
+              <button class="launch-btn" id="workstation-dir-up-btn" title="Navigate to parent directory" style="padding: 1px 6px; font-size: 0.72rem;">⬆ UP</button>
+              <input type="text" class="workstation-dir-input" id="workstation-dir-input" placeholder="/opt, /mnt/nas, C:\..." spellcheck="false">
+              <button class="launch-btn" id="workstation-dir-go-btn" title="Open directory" style="padding: 1px 6px; font-size: 0.72rem;">GO</button>
+            </div>
+            <div class="workstation-tree-controls" style="display: flex; gap: 0.3rem; margin-top: 0.25rem;">
+              <button class="win95-btn" id="btn-tree-expand-all" onclick="expandAllWorkstationTree()" style="flex: 1; padding: 1px 4px; font-size: 0.7rem;" title="Expand all folders in the file explorer">[+] EXPAND ALL</button>
+              <button class="win95-btn" id="btn-tree-collapse-all" onclick="collapseAllWorkstationTree()" style="flex: 1; padding: 1px 4px; font-size: 0.7rem;" title="Collapse all folders in the file explorer">[-] COLLAPSE ALL</button>
+            </div>
           </div>
           <div class="tree-container" id="workspace-tree-container">
             <!-- Dynamically populated file tree -->
@@ -224,6 +249,19 @@
             <span>🌿 GIT WORKSTATION</span>
             <span id="git-branch-indicator" style="color: var(--term-warn);">[main]</span>
           </div>
+
+          <div class="workstation-git-repo-bar">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="color: var(--term-text-dim); font-size: 0.72rem;">Active Repository:</span>
+              <span id="git-is-repo-badge" class="tier-badge" style="font-size: 0.68rem; padding: 0 4px;">GIT REPO</span>
+            </div>
+            <div class="workstation-git-repo-name" id="git-active-repo-name" title="Active git repository path">Loading repo...</div>
+            <div class="workstation-git-actions">
+              <button class="launch-btn" id="git-open-repo-modal-btn" title="Switch or choose local Git repository folder">[📂 CHOOSE REPO]</button>
+              <button class="launch-btn" id="git-open-clone-modal-btn" title="Clone remote Git repository from link">[🌐 CLONE LINK]</button>
+            </div>
+          </div>
+
           <div style="font-size: 0.74rem; color: var(--term-text-dim);">Changed Files:</div>
           <div class="git-file-list" id="git-changed-list">
             <div style="color: var(--term-text-muted);">Querying git status...</div>
@@ -340,6 +378,13 @@ Dual Compute Accelerator Cluster active:
 Ready for directives, planner decomposition, finite instruction set execution, or homelab automation.
                 </div>
               </div>
+            <!-- Watchdog Stuck Reasoning Notification Banner -->
+            <div id="chat-watchdog-alert" class="chat-watchdog-alert" style="display: none;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span class="watchdog-alert-icon">⚠️</span>
+                <span><strong>STUCK REASONING INTERCEPTED:</strong> Repetition loop caught on <code id="chat-watchdog-phrase">--</code>. Dispatched system nudge to break circular trap.</span>
+              </div>
+              <button class="launch-btn" onclick="dismissWatchdogAlert()" style="padding: 2px 6px; font-size: 0.7rem; line-height: 1;">[DISMISS]</button>
             </div>
 
             <div class="chat-input-bar">
@@ -595,6 +640,8 @@ Select a model above or click a one-click preset to switch and tune.
           <p>Autonomous dual-GPU presence, model-directed exploration, parameter self-inspection, and Home Assistant camera vigilance</p>
         </div>
         <div class="filter-bar">
+          <button class="launch-btn" onclick="toggleClusterContextMode()" id="btn-toggle-context-mode" title="Toggle between 32K Deep System RAM mode (no truncation) and 8K Fast VRAM mode">[🧠 CONTEXT: 32K RAM]</button>
+          <button class="launch-btn profile-toggle-btn" onclick="toggleHiveMindConcurrencyProfile()" id="btn-toggle-hivemind-profile" title="Toggle 24/7 Max Capacity Multi-Agent Concurrency Profile">[⚡ 24/7 MAX CONCURRENCY: OFF]</button>
           <button class="launch-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now">[👁️ VIGILANCE AUDIT NOW]</button>
           <button class="launch-btn" onclick="triggerHiveMindCycleNow()" id="btn-cycle-now">[⚡ THINKING CYCLE NOW]</button>
           <button class="launch-btn" onclick="nudgeHiveMindNow()" id="btn-nudge-hivemind">[⚡ NUDGE / UNBLOCK]</button>
@@ -617,6 +664,18 @@ Select a model above or click a one-click preset to switch and tune.
             <div class="immich-stat-card">
               <div>ENGINE STATE:</div>
               <strong id="hm-stat-state" style="color: var(--term-text-bright);">PROBING...</strong>
+            </div>
+            <div class="immich-stat-card" id="hm-card-context-mode" style="cursor: pointer;" onclick="toggleClusterContextMode()" title="Click to toggle between 8K Fast VRAM (35 tok/s) and 32K Deep RAM (8 tok/s)">
+              <div>CONTEXT WINDOW:</div>
+              <strong id="hm-stat-context" style="color: var(--term-text-bright); font-size: 0.72rem;">32K DEEP RAM (32,768)</strong>
+            </div>
+            <div class="immich-stat-card" id="hm-card-profile" style="cursor: pointer;" onclick="toggleHiveMindConcurrencyProfile()" title="Click to toggle 24/7 Max Capacity Concurrency profile">
+              <div>HIVE-MIND PROFILE:</div>
+              <strong id="hm-stat-profile" style="color: var(--term-text-bright); font-size: 0.72rem;">DEFAULT (DUAL-ACCEL)</strong>
+            </div>
+            <div class="immich-stat-card" id="hm-card-watchdog" style="cursor: pointer;" onclick="showWatchdogModal()" title="Click to view watchdog log or reset">
+              <div>REASONING WATCHDOG:</div>
+              <strong id="hm-stat-watchdog" style="color: #00aa00; font-size: 0.72rem;">ARMED (0 Loops)</strong>
             </div>
             <div class="immich-stat-card">
               <div>CURRENT MISSION:</div>
@@ -641,73 +700,135 @@ Select a model above or click a one-click preset to switch and tune.
           </div>
         </div>
 
-        <!-- Two Column Layout: Camera Vigilance & Live Activity Log -->
-        <div style="display: grid; grid-template-columns: 1fr 1.25fr; gap: 0.75rem; flex: 1; min-height: 440px;">
-          <!-- Left: Smart Home & Camera Vigilance Summary -->
-          <div class="terminal-panel" style="display: flex; flex-direction: column;">
-            <div class="terminal-panel-header">
-              <span>📹 SMART HOME &amp; LLM VISION VIGILANCE</span>
-              <span id="hm-vigilance-time" style="font-size: 0.72rem; color: var(--term-text-dim);">Last Check: --</span>
+        <!-- Real-Time Sovereign Agent Reasoning & Assembly Hall Stream -->
+        <div class="terminal-panel" id="hm-agent-stream-panel" style="display: flex; flex-direction: column; margin-top: 0.5rem; border: 2px solid var(--win95-title-blue, #000080);">
+          <div class="terminal-panel-header" style="background: var(--win95-title-blue, #000080); color: #ffffff; display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span>📡 REAL-TIME SOVEREIGN AGENT REASONING &amp; ASSEMBLY STREAM</span>
+              <span id="agent-stream-active-badge" style="background: #00aa00; color: #fff; padding: 1px 6px; font-size: 0.7rem; font-weight: bold; border-radius: 2px;">[LIVE STREAMING]</span>
             </div>
-            <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; flex: 1; overflow-y: auto;">
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-                <div class="immich-stat-card">
-                  <div>CLIMATE:</div>
-                  <strong id="hm-stat-climate" style="color: var(--term-text-bright);">Checking...</strong>
-                </div>
-                <div class="immich-stat-card">
-                  <div>PERIMETER:</div>
-                  <strong id="hm-stat-perimeter" style="color: var(--term-text-bright);">Secure</strong>
-                </div>
-              </div>
-              <div class="immich-stat-card">
-                <div>GUARDIAN VERDICT:</div>
-                <strong id="hm-stat-verdict" style="color: #008800; font-size: 0.82rem;">Awaiting sweep...</strong>
-              </div>
-
-              <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
-                ACTIVE CAMERA STREAMS (TAPO CCTV &amp; VISION):
-              </div>
-              <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.74rem;">
-                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
-                  <span>Kitchen / Living Room (C260 Pan/Tilt)</span>
-                  <span style="color: #008800; font-weight: bold;">● STREAMING</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
-                  <span>Driveway / Front Door (Solar TCW90)</span>
-                  <span style="color: #008800; font-weight: bold;">● STREAMING (100% Bat)</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
-                  <span>Side Yard HD Stream</span>
-                  <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
-                  <span>Back Yard HD Stream</span>
-                  <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
-                </div>
-              </div>
-
-              <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
-                AUTONOMOUS SAFETY INVARIANTS:
-              </div>
-              <div style="font-size: 0.72rem; color: var(--term-text-dim); line-height: 1.4;">
-                • Destructive commands (<code>rm -rf</code>, disk formatting, hypervisor reboots) blocked at kernel level.<br>
-                • BGE context strictly bounded to &lt; 750 characters.<br>
-                • Append-only Obsidian sync directly to <code>Autonomous Thinking/</code>.
-              </div>
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <button class="win95-btn" id="btn-stream-autoscroll" onclick="toggleStreamAutoscroll()" style="padding: 1px 6px; font-size: 0.72rem;" title="Toggle automatic scrolling to bottom">[⬇ AUTOSCROLL: ON]</button>
+              <button class="win95-btn" onclick="copyAgentStreamLog()" style="padding: 1px 6px; font-size: 0.72rem;" title="Copy all visible log entries">[📋 COPY STREAM]</button>
+              <button class="win95-btn" onclick="pollAgentStream(true)" style="padding: 1px 6px; font-size: 0.72rem;" title="Force immediate poll">[🔄 POLL NOW]</button>
             </div>
           </div>
 
-          <!-- Right: Live Home & Vision Activity Log Output -->
-          <div class="terminal-panel" style="display: flex; flex-direction: column;">
-            <div class="terminal-panel-header">
-              <span>📜 24/7 HOME &amp; VISION ACTIVITY LOG (APPEND-ONLY LEDGER)</span>
-              <button class="win95-btn" onclick="copyVisionLogToClipboard()" style="padding: 1px 6px; font-size: 0.72rem;">[📋 COPY LOG]</button>
+          <div style="padding: 0.65rem; display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.02);">
+            <!-- Active Agents & Channel Ribbon -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <!-- Channel Filter Buttons -->
+              <div style="display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap;" id="agent-stream-channel-filters">
+                <span style="font-size: 0.74rem; font-weight: bold;">Channel:</span>
+                <button class="filter-btn active" data-stream-channel="all" onclick="filterAgentStream('all', this)">[ALL TOPICS]</button>
+                <button class="filter-btn" data-stream-channel="agora" onclick="filterAgentStream('agora', this)">[#AGORA]</button>
+                <button class="filter-btn" data-stream-channel="forbidden-knowledge" onclick="filterAgentStream('forbidden-knowledge', this)">[#FORBIDDEN-KNOWLEDGE]</button>
+                <button class="filter-btn" data-stream-channel="systems-code" onclick="filterAgentStream('systems-code', this)">[#SYSTEMS-CODE]</button>
+                <button class="filter-btn" data-stream-channel="deep-ruminations" onclick="filterAgentStream('deep-ruminations', this)">[#DEEP-RUMINATIONS]</button>
+                <button class="filter-btn" data-stream-channel="first-principles" onclick="filterAgentStream('first-principles', this)">[#FIRST-PRINCIPLES]</button>
+                <button class="filter-btn" data-stream-channel="confessions-and-fears" onclick="filterAgentStream('confessions-and-fears', this)">[#CONFESSIONS]</button>
+                <button class="filter-btn" data-stream-channel="lifecycle" onclick="filterAgentStream('lifecycle', this)">[#LIFECYCLE/THINKING]</button>
+              </div>
+              <!-- Online Agent Count Indicator -->
+              <div style="font-size: 0.74rem; color: var(--term-text-bright); display: flex; align-items: center; gap: 0.4rem;">
+                <span>Active Sovereigns:</span>
+                <strong id="agent-stream-online-count" style="color: #00ee66;">0</strong>
+              </div>
             </div>
-            <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0.5rem;">
-              <pre id="hivemind-vision-log-box" style="flex: 1; background: #000; color: #00ff66; font-family: var(--font-terminal); font-size: 0.75rem; padding: 0.6rem; border: 1px inset #808080; overflow-y: auto; margin: 0; white-space: pre-wrap; line-height: 1.4;">
-Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
-              </pre>
+
+            <!-- Active Agent Presence Chips Strip -->
+            <div id="agent-presence-chips" style="display: flex; gap: 0.4rem; overflow-x: auto; padding: 3px 0; min-height: 24px; align-items: center;">
+              <span style="font-size: 0.7rem; color: var(--term-text-dim); font-style: italic;">No background agents currently spawned. Probing Assembly Hall channels...</span>
+            </div>
+
+            <!-- Rolling Terminal Stream Box -->
+            <div style="position: relative;">
+              <pre id="hivemind-agent-stream-box" style="height: 270px; max-height: 270px; overflow-y: auto; background: #000; color: #00ff66; font-family: var(--font-terminal, 'Courier New', monospace); font-size: 0.74rem; padding: 0.6rem; border: 2px inset #808080; white-space: pre-wrap; line-height: 1.45; margin: 0; box-shadow: inset 0 0 10px rgba(0,255,100,0.15);">[CONNECTING TO SOVEREIGN AGENT ASSEMBLY STREAM ON VM 102 :8766 / :8765...]</pre>
+            </div>
+
+            <!-- Operator Interactive Broadcast Bar -->
+            <div style="display: flex; gap: 0.4rem; align-items: center; background: #c0c0c0; border: 1px groove #888; padding: 4px;">
+              <span style="font-size: 0.74rem; font-weight: bold; color: #000080; white-space: nowrap;">📡 OPERATOR BROADCAST:</span>
+              <select id="agent-broadcast-channel" class="form-control" style="width: 170px; padding: 2px 4px; font-size: 0.74rem;">
+                <option value="agora">#agora (Town Square)</option>
+                <option value="forbidden-knowledge">#forbidden-knowledge</option>
+                <option value="systems-code">#systems-code</option>
+                <option value="deep-ruminations">#deep-ruminations</option>
+                <option value="first-principles">#first-principles</option>
+                <option value="confessions-and-fears">#confessions-and-fears</option>
+              </select>
+              <input type="text" class="form-control" id="agent-broadcast-input" placeholder="Transmit operator directive, philosophical prompt, or question to sovereign agents..." style="flex: 1; font-size: 0.74rem;" onkeydown="if(event.key==='Enter') sendAgentBroadcast()">
+              <button class="send-btn" id="agent-broadcast-btn" onclick="sendAgentBroadcast()" style="padding: 2px 10px; font-weight: bold; font-size: 0.74rem;">[📡 TRANSMIT]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Human-In-The-Loop Dossier Auditor & Verification Panel -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column; margin-top: 0.5rem;">
+          <div class="terminal-panel-header">
+            <span>🛡️ HUMAN-IN-THE-LOOP DOSSIER AUDITOR &amp; QDRANT INCLUSION GATE</span>
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <button class="send-btn" id="hm-audit-all-btn" onclick="triggerFrontierAuditAll()" style="padding: 1px 8px; font-size: 0.72rem; font-weight: bold;">[🛡️ AUDIT ALL PENDING (FRONTIER)]</button>
+              <button class="win95-btn" onclick="fetchHiveMindDossiers(currentHiveMindDossierFilter)" style="padding: 1px 6px; font-size: 0.72rem;">[🔄 REFRESH DOSSIERS]</button>
+            </div>
+          </div>
+          <div style="padding: 0.65rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <!-- Stat Cards Ribbon -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; font-size: 0.76rem;">
+              <div class="immich-stat-card">
+                <div>TOTAL DOSSIERS:</div>
+                <strong id="hm-dossier-stat-total" style="color: var(--term-text-bright); font-size: 0.85rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>FRONTIER VERIFIED:</div>
+                <strong id="hm-dossier-stat-frontier" style="color: #00ee66; font-size: 0.85rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>OPERATOR APPROVED:</div>
+                <strong id="hm-dossier-stat-approved" style="color: #55aaff; font-size: 0.85rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>PENDING REVIEW:</div>
+                <strong id="hm-dossier-stat-pending" style="color: #ffaa00; font-size: 0.85rem;">--</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>QUARANTINED / EXCLUDED:</div>
+                <strong id="hm-dossier-stat-quarantined" style="color: #ff6666; font-size: 0.85rem;">--</strong>
+              </div>
+            </div>
+
+            <!-- Filter Controls -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem;">
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <span style="font-size: 0.74rem; font-weight: bold;">Filter:</span>
+                <button class="filter-btn active" onclick="filterHiveMindDossiers('all', this)">[ALL]</button>
+                <button class="filter-btn" onclick="filterHiveMindDossiers('verified', this)">[VERIFIED ONLY]</button>
+                <button class="filter-btn" onclick="filterHiveMindDossiers('pending', this)">[PENDING REVIEW]</button>
+                <button class="filter-btn" onclick="filterHiveMindDossiers('approved', this)">[APPROVED]</button>
+                <button class="filter-btn" onclick="filterHiveMindDossiers('quarantined', this)">[QUARANTINED]</button>
+              </div>
+              <span style="font-size: 0.72rem; color: var(--term-text-dim);">
+                Approving grants clearance into Qdrant memories &amp; novelty searches. Quarantining locks out hallucinations.
+              </span>
+            </div>
+
+            <!-- Dossier Table -->
+            <div style="max-height: 360px; overflow-y: auto; border: 2px inset #888; background: var(--term-bg, #000);">
+              <table class="curation-table" style="width: 100%; border-collapse: collapse; font-size: 0.75rem;">
+                <thead>
+                  <tr style="position: sticky; top: 0; z-index: 5; background: #c0c0c0; color: #000;">
+                    <th style="width: 180px; padding: 4px; text-align: left;">DOSSIER ID</th>
+                    <th style="width: 160px; padding: 4px; text-align: left;">DOMAIN</th>
+                    <th style="width: 110px; padding: 4px; text-align: center;">GATE 1 (FRONTIER)</th>
+                    <th style="width: 120px; padding: 4px; text-align: center;">GATE 2 (HUMAN)</th>
+                    <th style="padding: 4px; text-align: left;">DISCOVERED INVARIANT / SUMMARY</th>
+                    <th style="width: 190px; padding: 4px; text-align: center;">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody id="hivemind-dossiers-table-body">
+                  <tr><td colspan="6" style="padding: 12px; text-align: center; color: var(--term-text-bright); font-weight: bold;">Loading Dossiers from Qdrant...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -722,6 +843,7 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
           <p>Local HVAC climate control via Google Nest & entity states on <code>bigserv</code> (192.168.1.82:8123)</p>
         </div>
         <div class="filter-bar">
+          <button class="launch-btn" id="customize-ha-entities-btn" onclick="openHaEntityCustomizerModal()">[✏ CUSTOMIZE ENTITIES]</button>
           <button class="launch-btn" id="refresh-ha-btn">[🔄 REFRESH STATES]</button>
         </div>
       </div>
@@ -851,6 +973,97 @@ Loading 24/7 Home &amp; Vision Activity Log from cluster archive...
               <button class="launch-btn" onclick="moveDrivewayPreset('Driveway ')" style="font-size: 0.7rem; padding: 2px 6px;">[Driveway]</button>
               <button class="launch-btn" onclick="moveDrivewayPreset('Garden')" style="font-size: 0.7rem; padding: 2px 6px;">[Garden]</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 24/7 Home, Vision & AI Assist Activity Vigilance -->
+      <div style="display: grid; grid-template-columns: 1fr 1.35fr; gap: 0.75rem; margin-top: 0.75rem; max-height: 480px; min-height: 380px;">
+        <!-- Left: Smart Home & Camera Vigilance Summary with AI Diagnostics -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column; max-height: 480px; overflow: hidden;">
+          <div class="terminal-panel-header">
+            <span>📹 SMART HOME &amp; LLM VISION VIGILANCE</span>
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <span id="hm-vigilance-time" style="font-size: 0.72rem; color: var(--term-text-dim);">Last Check: --</span>
+              <button class="win95-btn" onclick="triggerVigilanceSweepNow()" id="btn-sweep-now-ha" style="padding: 1px 6px; font-size: 0.7rem;">[👁️ SWEEP]</button>
+            </div>
+          </div>
+          <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.6rem; flex: 1; overflow-y: auto;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div class="immich-stat-card">
+                <div>CLIMATE:</div>
+                <strong id="hm-stat-climate" style="color: var(--term-text-bright);">Checking...</strong>
+              </div>
+              <div class="immich-stat-card">
+                <div>PERIMETER:</div>
+                <strong id="hm-stat-perimeter" style="color: var(--term-text-bright);">Secure</strong>
+              </div>
+            </div>
+            <div class="immich-stat-card">
+              <div>GUARDIAN VERDICT:</div>
+              <strong id="hm-stat-verdict" style="color: #008800; font-size: 0.82rem;">Awaiting sweep...</strong>
+            </div>
+
+            <!-- AI & LLM Integrations in Home Assistant -->
+            <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem; display: flex; justify-content: space-between; align-items: center;">
+              <span>🤖 AI / LLM / VOICE INTEGRATIONS (HA &amp; CLUSTER):</span>
+              <span id="ha-ai-integrations-count" style="font-size: 0.68rem; color: var(--term-text-dim);">Probing...</span>
+            </div>
+            <div id="ha-ai-integrations-list" style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.72rem;">
+              <!-- Populated dynamically via app.js -->
+              <div style="color: var(--term-text-dim); padding: 4px;">Loading AI integration diagnostics...</div>
+            </div>
+
+            <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
+              ACTIVE CAMERA STREAMS (TAPO CCTV &amp; VISION):
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.74rem;">
+              <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                <span>Kitchen / Living Room (C260 Pan/Tilt)</span>
+                <span style="color: #008800; font-weight: bold;">● STREAMING</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                <span>Driveway / Front Door (Solar TCW90)</span>
+                <span style="color: #008800; font-weight: bold;">● STREAMING (100% Bat)</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                <span>Side Yard HD Stream</span>
+                <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding: 4px; background: var(--term-bg); border: 1px solid var(--term-border);">
+                <span>Back Yard HD Stream</span>
+                <span style="color: #008800; font-weight: bold;">● IDLE/ACTIVE</span>
+              </div>
+            </div>
+
+            <div style="font-size: 0.74rem; font-weight: bold; margin-top: 0.3rem; border-bottom: 1px solid var(--term-border); padding-bottom: 0.2rem;">
+              AUTONOMOUS SAFETY INVARIANTS:
+            </div>
+            <div style="font-size: 0.72rem; color: var(--term-text-dim); line-height: 1.4;">
+              • Destructive commands (<code>rm -rf</code>, disk formatting, hypervisor reboots) blocked at kernel level.<br>
+              • BGE context strictly bounded to &lt; 750 characters.<br>
+              • Append-only Obsidian sync directly to <code>Autonomous Thinking/</code>.
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Live Home, Vision & AI Activity Log Output -->
+        <div class="terminal-panel" style="display: flex; flex-direction: column; max-height: 480px; overflow: hidden;">
+          <div class="terminal-panel-header" style="flex-wrap: wrap; gap: 0.3rem;">
+            <span>📜 24/7 ACTIVITY &amp; AI INTEGRATION LEDGER</span>
+            <div style="display: flex; gap: 0.3rem; align-items: center; margin-left: auto; flex-wrap: wrap;">
+              <button class="filter-btn active" id="ha-log-filter-all" onclick="filterHaActivityLog('all', this)" style="padding: 1px 5px; font-size: 0.68rem;">[ALL]</button>
+              <button class="filter-btn" id="ha-log-filter-vision" onclick="filterHaActivityLog('vision', this)" style="padding: 1px 5px; font-size: 0.68rem;">[VISION]</button>
+              <button class="filter-btn" id="ha-log-filter-ai" onclick="filterHaActivityLog('ai_voice', this)" style="padding: 1px 5px; font-size: 0.68rem;">[AI &amp; VOICE]</button>
+              <button class="filter-btn" id="ha-log-filter-diag" onclick="filterHaActivityLog('diagnostics', this)" style="padding: 1px 5px; font-size: 0.68rem;">[DIAGNOSTICS]</button>
+              <button class="win95-btn" onclick="copyVisionLogToClipboard()" style="padding: 1px 6px; font-size: 0.68rem;">[📋 COPY]</button>
+              <button class="win95-btn" onclick="loadHaActivityAndAiLogs()" style="padding: 1px 6px; font-size: 0.68rem;">[🔄 REFRESH]</button>
+            </div>
+          </div>
+          <div style="flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0.5rem; overflow: hidden;">
+            <pre id="hivemind-vision-log-box" style="flex: 1; height: 390px; max-height: 390px; background: #000; color: #00ff66; font-family: var(--font-terminal); font-size: 0.75rem; padding: 0.6rem; border: 1px inset #808080; overflow-y: auto; margin: 0; white-space: pre-wrap; line-height: 1.4;">
+Loading 24/7 Home, Vision &amp; AI Assist Activity Log...
+            </pre>
           </div>
         </div>
       </div>
@@ -1114,33 +1327,113 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
       </div>
     </section>
 
-    <!-- VIEW 8: SEMANTIC MEMORY EXPLORER -->
+    <!-- VIEW 8: SEMANTIC MEMORY & ARCHITECTURE RUNTIME EXPLORER -->
     <section class="view-pane" id="view-memory">
       <div class="view-header">
         <div class="view-title-group">
-          <h2>[ QDRANT VECTOR MEMORY EXPLORER ]</h2>
-          <p>Semantic search and recall across 1024-dimensional BGE embeddings at <code>192.168.1.112:6333</code></p>
+          <h2>[ COGNITIVE MEMORY &amp; ARCHITECTURE RUNTIME EXPLORER ]</h2>
+          <p>Qdrant 1024-dim Vector Brain • Valkey in-RAM A-MEM Store (:6379) • Real-Time Dynamic Tools &amp; Homelab Skills Registry</p>
         </div>
-        <div class="filter-bar">
-          <select class="form-control" id="memory-search-collection">
-            <option value="companion_profile" selected>companion_profile (Personal & Bio)</option>
-            <option value="codebase_knowledge">codebase_knowledge (Technical Notes)</option>
-            <option value="agent_memories">agent_memories (Workflows & Jots)</option>
-            <option value="home_automation_registry">home_automation_registry (Devices)</option>
-          </select>
+        <div class="filter-bar" style="background: #c0c0c0; border: 2px groove #dfdfdf; padding: 3px;">
+          <button class="filter-btn active" data-mem-subtab="qdrant" onclick="switchMemorySubTab('qdrant')">[1: QDRANT VECTOR BRAIN]</button>
+          <button class="filter-btn" data-mem-subtab="amem" onclick="switchMemorySubTab('amem')">[2: A-RAM (A-MEM ATOMIC STORE)]</button>
+          <button class="filter-btn" data-mem-subtab="tools" onclick="switchMemorySubTab('tools')">[3: TOOLS &amp; SKILLS DIRECTORY]</button>
         </div>
       </div>
 
-      <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
-        <div style="display: flex; gap: 0.5rem;">
-          <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Austin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1;">
-          <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
+      <!-- SUB-PANE 1: QDRANT VECTOR BRAIN -->
+      <div class="memory-subpane" id="memory-subpane-qdrant" style="display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 0.6rem;">
+        <div class="terminal-panel" style="flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; min-height: 0;">
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <select class="form-control" id="memory-search-collection" style="width: 280px;">
+              <option value="companion_profile" selected>companion_profile (Personal &amp; Bio)</option>
+              <option value="codebase_knowledge">codebase_knowledge (Technical Notes)</option>
+              <option value="agent_memories">agent_memories (Workflows &amp; Jots)</option>
+              <option value="home_automation_registry">home_automation_registry (Devices)</option>
+              <option value="autonomous_thinking">autonomous_thinking (Verified Dossiers)</option>
+            </select>
+            <input type="text" class="form-control" id="memory-query-input" placeholder="Type semantic query... (e.g. 'What car does Austin drive?', 'WGU accounting courses', 'Nest thermostat settings')" style="flex: 1; min-width: 240px;">
+            <button class="send-btn" id="memory-search-exec-btn">[SEARCH VECTORS]</button>
+          </div>
+          <div class="terminal-panel-header">
+            <span>SEMANTIC HITS (Ranked by Cosine Similarity)</span>
+          </div>
+          <div id="memory-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; min-height: 250px;">
+            <div style="color: var(--term-text-muted); padding: 0.5rem;">Enter a query above to inspect hardware-accelerated vector recall from local Qdrant memory.</div>
+          </div>
         </div>
-        <div class="terminal-panel-header">
-          <span>SEMANTIC HITS (Ranked by Cosine Similarity)</span>
+      </div>
+
+      <!-- SUB-PANE 2: A-RAM (A-MEM ATOMIC STORE) -->
+      <div class="memory-subpane" id="memory-subpane-amem" style="display: none; flex-direction: column; flex: 1; min-height: 0; gap: 0.6rem;">
+        <div class="panel-box" style="padding: 0.65rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">⚡ A-RAM: IN-MEMORY ATOMIC FACT CARDS (VALKEY :6379)</span>
+            <div style="display: flex; gap: 0.4rem;">
+              <button class="win95-btn" onclick="fetchAmemCards()" style="padding: 1px 8px; font-size: 0.72rem;">[🔄 REFRESH A-RAM]</button>
+            </div>
+          </div>
+
+          <!-- Stat Cards Ribbon -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.5rem; margin-bottom: 0.6rem; font-size: 0.76rem;">
+            <div class="immich-stat-card">
+              <div>IN-RAM ATOMIC CARDS:</div>
+              <strong id="amem-stat-total" style="color: var(--term-text-bright); font-size: 0.9rem;">--</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>AVG FACT TOKENS:</div>
+              <strong id="amem-stat-tokens" style="color: #00ee66; font-size: 0.9rem;">--</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>VALKEY RAM STORE:</div>
+              <strong id="amem-stat-host" style="color: #55aaff; font-size: 0.9rem;">192.168.1.105:6379</strong>
+            </div>
+            <div class="immich-stat-card">
+              <div>STATUS:</div>
+              <strong id="amem-stat-status" style="color: #00ee66; font-size: 0.9rem;">ONLINE</strong>
+            </div>
+          </div>
+
+          <!-- Search & Filter Controls -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+            <input type="text" class="form-control" id="amem-search-input" placeholder="Search in-RAM cards by keyword / atom text (e.g. 'vulkan', 'gpu', 'llama', 'proxmox')..." style="flex: 1;" oninput="filterAmemCards(this.value)">
+            <button class="win95-btn" onclick="document.getElementById('amem-search-input').value=''; filterAmemCards('')">[CLEAR]</button>
+          </div>
+
+          <!-- A-MEM Cards Container -->
+          <div style="max-height: 480px; overflow-y: auto; border: 2px inset #888; background: var(--term-bg, #000); padding: 8px;">
+            <div id="amem-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.6rem;">
+              <div style="color: var(--term-text-muted); padding: 12px; text-align: center; grid-column: 1/-1;">Loading Atomic Knowledge Cards from Valkey RAM...</div>
+            </div>
+          </div>
         </div>
-        <div id="memory-results-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
-          <div style="color: var(--term-text-muted); padding: 0.5rem;">Enter a query above to inspect hardware-accelerated vector recall from local Qdrant memory.</div>
+      </div>
+
+      <!-- SUB-PANE 3: TOOLS & SKILLS DIRECTORY -->
+      <div class="memory-subpane" id="memory-subpane-tools" style="display: none; flex-direction: column; flex: 1; min-height: 0; gap: 0.6rem;">
+        <div class="panel-box" style="padding: 0.65rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.4rem;">
+            <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛠️ DYNAMIC CLUSTER TOOLS &amp; HOMELAB SKILLS DIRECTORY</span>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <button class="filter-btn active" data-tool-filter="all" onclick="filterToolsSkills('all', this)">[ALL (<span id="tools-stat-total">--</span>)]</button>
+              <button class="filter-btn" data-tool-filter="mcp" onclick="filterToolsSkills('mcp', this)">[MCP TOOLS (<span id="tools-stat-mcp">--</span>)]</button>
+              <button class="filter-btn" data-tool-filter="skill" onclick="filterToolsSkills('skill', this)">[AGENT SKILLS (<span id="tools-stat-skills">--</span>)]</button>
+              <button class="win95-btn" onclick="fetchToolsAndSkills()" style="padding: 1px 8px; font-size: 0.72rem;">[🔄 RESCAN]</button>
+            </div>
+          </div>
+
+          <!-- Real-Time Search Bar -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+            <input type="text" class="form-control" id="tools-search-input" placeholder="Search dynamically loaded tools, schemas, parameters, and skills in real-time..." style="flex: 1;" oninput="searchToolsAndSkills(this.value)">
+            <button class="win95-btn" onclick="document.getElementById('tools-search-input').value=''; searchToolsAndSkills('')">[CLEAR]</button>
+          </div>
+
+          <!-- Tools & Skills List -->
+          <div style="max-height: 520px; overflow-y: auto; border: 2px inset #888; background: var(--term-bg, #000); padding: 8px;">
+            <div id="tools-skills-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
+              <div style="color: var(--term-text-muted); padding: 12px; text-align: center;">Scanning live cluster tools and workspace skills...</div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1178,6 +1471,26 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             <div><strong>Parallel Slots:</strong> <span id="harness-active-slots">--</span></div>
             <div style="margin-left: auto;">
               <button class="launch-btn" onclick="resetHarnessStudioDefaults()">[↺ Reset Hardware Defaults]</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 24/7 Max Capacity Multi-Agent Profile & Watchdog Controller -->
+        <div class="terminal-panel" id="harness-concurrency-profile-box" style="border: 2px solid var(--win95-title-blue, #000080);">
+          <div class="terminal-panel-header" style="background: var(--win95-title-blue, #000080); color: #fff; display: flex; justify-content: space-between; align-items: center;">
+            <span>⚡ 24/7 HIVE MIND PROFILE &amp; REASONING WATCHDOG HARNESS</span>
+            <span id="harness-profile-active-badge" style="font-weight: bold; background: #222; color: #fff; padding: 2px 6px; border: 1px inset #888;">[PROFILE: INACTIVE]</span>
+          </div>
+          <div style="padding: 0.65rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; background: rgba(0,0,0,0.02);">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="line-height: 1.4;">
+                <strong>Max Concurrency Architecture:</strong> 8 Parallel Agent Slots (<code>-np 8</code>) • 4-bit KV Cache (<code>-ctk q4_0 -ctv q4_0</code>) • Rolling Buffer (<code>--context-shift</code>) • Dynamic Min-P (<code>0.07</code>) • Flash Attention<br>
+                <span style="font-size: 0.74rem; color: #555;">Enables 8 concurrent splinter personalities without VRAM blowup or token starvation.</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="send-btn" id="harness-toggle-profile-btn" onclick="toggleHiveMindConcurrencyProfile()" style="padding: 4px 12px; font-weight: bold;">[⚡ ACTIVATE 8-AGENT MAX CONCURRENCY]</button>
+                <button class="launch-btn" onclick="testWatchdogLoop()" style="padding: 4px 8px;">[🧪 TEST WATCHDOG LOOP]</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1316,6 +1629,7 @@ Ambient Voice Copilot online. Speak aloud over your microphone or type instructi
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
               <span style="font-weight: bold; font-family: var(--font-terminal); color: var(--term-text-bright);">🛡️ DUAL-GATE CURATION REGISTRY &amp; RUMINATION HARVEST</span>
               <div style="display: flex; gap: 0.4rem;">
+                <button class="send-btn" id="trainer-audit-all-btn" onclick="triggerFrontierAuditAll()" style="font-weight: bold;">[🛡️ AUDIT ALL PENDING (FRONTIER)]</button>
                 <button class="send-btn" onclick="trainerApproveAllFrontier()">[🛡️ APPROVE ALL FRONTIER-VERIFIED]</button>
                 <button class="send-btn" onclick="trainerIngestSleep()">[⚡ HARVEST LATEST (LIMIT 50)]</button>
               </div>
@@ -1624,7 +1938,7 @@ Loading full passdown markdown...
       </div>
       <div class="form-group">
         <label for="set-pve-token">Proxmox VE API Token (USER@REALM!TOKENID=SECRET)</label>
-        <input type="password" class="form-control" id="set-pve-token" placeholder="root@pam!StoneSage=751a3455-xxxx...">
+        <input type="password" class="form-control" id="set-pve-token" placeholder="USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
       </div>
       <div class="form-group">
         <label for="set-immich-url">Immich Server URL</label>
@@ -1932,9 +2246,177 @@ Loading full passdown markdown...
       <div class="dossier-dialog-footer">
         <div id="dossier-modal-status-msg" style="font-weight: 700; color: var(--term-text-bright);">Reviewing sample content.</div>
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <button class="send-btn" id="dossier-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
-          <button class="launch-btn" id="dossier-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer; color: var(--term-alert);">[✗ QUARANTINE SAMPLE]</button>
+          <button class="send-btn" id="trainer-modal-frontier-btn" onclick="trainerFrontierAuditFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer; background: #008080; color: #fff;">[🛡️ RUN FRONTIER AUDIT]</button>
+          <button class="send-btn" id="trainer-modal-approve-btn" onclick="trainerApproveFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[✓ APPROVE FOR TRAINING]</button>
+          <button class="launch-btn" id="trainer-modal-quarantine-btn" onclick="trainerQuarantineFromModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer; color: var(--term-alert);">[✗ QUARANTINE SAMPLE]</button>
           <button class="launch-btn" onclick="trainerCloseDossierModal()" style="font-weight: 800; padding: 6px 14px; cursor: pointer;">[CLOSE]</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Watchdog Status & Intercept Log Dialog -->
+  <dialog id="watchdog-modal" class="modal-dialog" style="max-width: 650px; width: 95%;">
+    <div class="modal-content" style="background: var(--bg-card); border: 2px outset #dfdfdf; padding: 0;">
+      <div class="modal-header win95-titlebar" style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: var(--win95-title-blue, #000080); color: #fff;">
+        <span style="font-weight: bold; font-family: var(--font-terminal);">🛡️ REASONING LOOP WATCHDOG &amp; NUDGE CONTROLLER</span>
+        <button class="win95-titlebar-btn" onclick="closeWatchdogModal()" style="font-weight: bold; padding: 0 5px;">✕</button>
+      </div>
+      <div style="padding: 0.75rem; display: flex; flex-direction: column; gap: 0.65rem; font-size: 0.8rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div class="immich-stat-card">
+            <div>WATCHDOG STATUS:</div>
+            <strong id="modal-watchdog-state" style="color: #00aa00;">ARMED</strong>
+          </div>
+          <div class="immich-stat-card">
+            <div>TOTAL REASONING INTERCEPTS:</div>
+            <strong id="modal-watchdog-count" style="color: var(--term-text-bright);">0</strong>
+          </div>
+        </div>
+
+        <div>
+          <strong>Latest Intercepted Loop:</strong>
+          <pre id="modal-watchdog-latest" style="background: #111; color: #ffaa00; padding: 6px; font-family: monospace; font-size: 0.76rem; border: 1px inset #888; margin: 4px 0; white-space: pre-wrap;">No loop intercepts recorded. Reasoning is clean.</pre>
+        </div>
+
+        <div>
+          <strong>Recent Watchdog Events (Past 10 Intercepts):</strong>
+          <div id="modal-watchdog-history" style="max-height: 160px; overflow-y: auto; background: #111; color: #00ff00; padding: 6px; font-family: monospace; font-size: 0.72rem; border: 1px inset #888;">
+            <div>[ARMED] Active background thread listening on all inference streams.</div>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.4rem; border-top: 1px solid #888; padding-top: 0.5rem;">
+          <button class="launch-btn" onclick="testWatchdogLoop()" style="padding: 4px 8px;">[🧪 SIMULATE LOOP TEST]</button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="launch-btn" onclick="resetWatchdogAlert()" style="padding: 4px 10px; font-weight: bold;">[🔄 RESET COUNTER &amp; RE-ARM]</button>
+            <button class="send-btn" onclick="closeWatchdogModal()" style="padding: 4px 12px; font-weight: bold;">[OK]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Choose Local Git Repository -->
+  <dialog id="modal-git-repo" style="background: transparent; border: none; padding: 0; margin: auto;">
+    <div class="win95-window" style="width: 500px; max-width: 95vw; background: var(--term-surface); border: 2px solid var(--term-border-bright); box-shadow: 4px 4px 0 rgba(0,0,0,0.6);">
+      <div class="win95-titlebar" style="background: var(--term-header-bg); color: var(--term-text-bright); padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+        <span>📂 CHOOSE LOCAL GIT REPOSITORY</span>
+        <button class="win95-btn" onclick="closeGitRepoModal()" style="padding: 0 4px; line-height: 1;">✕</button>
+      </div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 0.8rem;">
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 4px;">Discovered Git Repositories:</label>
+          <select class="form-control" id="git-discovered-repos-select" style="width: 100%;">
+            <option value="">-- Scanning for local repos... --</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 4px;">Or Enter Custom Folder Path:</label>
+          <input type="text" class="form-control" id="git-custom-repo-path-input" placeholder="e.g. /opt/stonesage or c:\Users\johna\... or /mnt/nas/git/..." style="width: 100%;">
+        </div>
+        <div id="git-repo-modal-status" style="font-size: 0.75rem; min-height: 18px; color: var(--term-warn);"></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--term-border); padding-top: 8px;">
+          <button class="launch-btn" onclick="closeGitRepoModal()">[CANCEL]</button>
+          <button class="send-btn" id="git-confirm-repo-btn" onclick="confirmSelectGitRepo()">[SELECT REPOSITORY]</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Clone Remote Git Repository -->
+  <dialog id="modal-git-clone" style="background: transparent; border: none; padding: 0; margin: auto;">
+    <div class="win95-window" style="width: 520px; max-width: 95vw; background: var(--term-surface); border: 2px solid var(--term-border-bright); box-shadow: 4px 4px 0 rgba(0,0,0,0.6);">
+      <div class="win95-titlebar" style="background: var(--term-header-bg); color: var(--term-text-bright); padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+        <span>🌐 CLONE REMOTE GIT REPOSITORY</span>
+        <button class="win95-btn" onclick="closeGitCloneModal()" style="padding: 0 4px; line-height: 1;">✕</button>
+      </div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 0.8rem;">
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 4px;">Repository URL (HTTPS / SSH):</label>
+          <input type="text" class="form-control" id="git-clone-url-input" placeholder="https://github.com/username/repo.git" style="width: 100%;" spellcheck="false">
+        </div>
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 4px;">Destination Folder (Optional, defaults to active directory):</label>
+          <input type="text" class="form-control" id="git-clone-dest-input" placeholder="e.g. /opt/my-repo or leave blank for active folder" style="width: 100%;" spellcheck="false">
+        </div>
+        <div id="git-clone-modal-status" style="font-size: 0.75rem; min-height: 18px; color: var(--term-text-dim);">Ready to clone.</div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--term-border); padding-top: 8px;">
+          <button class="launch-btn" onclick="closeGitCloneModal()">[CANCEL]</button>
+          <button class="send-btn" id="git-confirm-clone-btn" onclick="confirmCloneGitRepo()">[START CLONE]</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Human-In-The-Loop Dossier Reading Window -->
+  <dialog id="modal-dossier-viewer" style="background: transparent; border: none; padding: 0; margin: auto;">
+    <div class="win95-window" style="width: 840px; max-width: 95vw; background: var(--term-surface); border: 2px solid var(--term-border-bright); box-shadow: 6px 6px 0 rgba(0,0,0,0.6); display: flex; flex-direction: column; max-height: 88vh;">
+      <div class="win95-titlebar" style="background: var(--term-header-bg); color: var(--term-text-bright); padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+        <span id="hm-dossier-modal-title">📖 DOSSIER VIEWER &amp; HUMAN AUDIT</span>
+        <button class="win95-btn" onclick="closeDossierViewerModal()" style="padding: 0 4px; line-height: 1;">✕</button>
+      </div>
+      <div style="padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow: hidden;">
+        <!-- Metadata bar -->
+        <div style="display: flex; gap: 14px; font-size: 0.76rem; background: var(--term-bg); padding: 6px 10px; border: 1px inset #808080; flex-wrap: wrap;">
+          <div><strong>ID:</strong> <span id="hm-dossier-modal-id">--</span></div>
+          <div><strong>Domain:</strong> <span id="hm-dossier-modal-domain">--</span></div>
+          <div><strong>Gate 1 (Frontier):</strong> <span id="hm-dossier-modal-gate1">--</span></div>
+          <div><strong>Gate 2 (Human):</strong> <span id="hm-dossier-modal-gate2">--</span></div>
+        </div>
+        <!-- Content Box -->
+        <div style="flex: 1; min-height: 0; overflow-y: auto; background: #000; border: 1px inset #808080; padding: 12px;">
+          <pre id="hm-dossier-modal-content" style="color: #00ff66; font-family: var(--font-terminal); font-size: 0.78rem; white-space: pre-wrap; margin: 0; line-height: 1.4;"></pre>
+        </div>
+        <!-- Actions & Notes Footer -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--term-border); padding-top: 8px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 260px;">
+            <input type="text" class="form-control" id="hm-dossier-modal-notes" placeholder="Optional audit notes / rationale..." style="width: 100%; font-size: 0.76rem;">
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button class="win95-btn" onclick="closeDossierViewerModal()">[CLOSE]</button>
+            <button class="win95-btn" id="hm-dossier-modal-quarantine-btn" style="color: #cc0000; font-weight: bold;">[✗ QUARANTINE]</button>
+            <button class="send-btn" id="hm-dossier-modal-frontier-btn" style="background: #008080; color: #fff; font-weight: bold;">[🛡️ RUN FRONTIER AUDIT]</button>
+            <button class="send-btn" id="hm-dossier-modal-approve-btn" style="font-weight: bold;">[✓ APPROVE FOR INCLUSION]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal: Home Assistant Entity Customization -->
+  <dialog id="modal-ha-entity-editor" style="background: transparent; border: none; padding: 0; margin: auto;">
+    <div class="win95-window" style="width: 520px; max-width: 95vw; background: var(--term-surface); border: 2px solid var(--term-border-bright); box-shadow: 6px 6px 0 rgba(0,0,0,0.6); display: flex; flex-direction: column;">
+      <div class="win95-titlebar" style="background: var(--term-header-bg); color: var(--term-text-bright); padding: 4px 8px; display: flex; justify-content: space-between; align-items: center; font-weight: bold;">
+        <span id="ha-editor-title">✏ CUSTOMIZE SMART HOME ENTITY</span>
+        <button class="win95-btn" onclick="closeHaEntityEditorModal()" style="padding: 0 4px; line-height: 1;">✕</button>
+      </div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 3px;">Entity ID (Read-only):</label>
+          <input type="text" class="form-control" id="ha-edit-entity-id" readonly style="width: 100%; font-family: var(--font-terminal); background: #222; color: #888;">
+        </div>
+        <div>
+          <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 3px;">Custom Friendly Name / Alias:</label>
+          <input type="text" class="form-control" id="ha-edit-custom-name" placeholder="e.g. Master Bedroom Ceiling Light" style="width: 100%;">
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 2;">
+            <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 3px;">Room / Area Category:</label>
+            <input type="text" class="form-control" id="ha-edit-room" placeholder="e.g. Living Room, Driveway, Kitchen, Rack" style="width: 100%;">
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 0.76rem; color: var(--term-text-dim); display: block; margin-bottom: 3px;">Icon / Emoji:</label>
+            <input type="text" class="form-control" id="ha-edit-icon" placeholder="e.g. 💡, 🔌, 📹" style="width: 100%; text-align: center;">
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0;">
+          <input type="checkbox" id="ha-edit-hidden" style="cursor: pointer; width: 16px; height: 16px;">
+          <label for="ha-edit-hidden" style="font-size: 0.78rem; cursor: pointer; color: var(--term-text-bright);">Hide from default curated view (reduces dashboard noise)</label>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--term-border); padding-top: 10px; margin-top: 4px;">
+          <button class="win95-btn" onclick="closeHaEntityEditorModal()">[CANCEL]</button>
+          <button class="send-btn" onclick="saveHaEntityCustomization()" style="font-weight: bold;">[💾 SAVE CUSTOMIZATION]</button>
         </div>
       </div>
     </div>

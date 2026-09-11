@@ -20,16 +20,24 @@ const state = {
 
   // CPTR Workstation State
   workstation: {
-    activeFile: null,
+    activeFile: localStorage.getItem('stonesage_ws_active_file') || null,
+    currentDir: '',
+    parentDir: null,
     originalContent: '',
     dirty: false,
     showingDiff: false,
+    treeLoaded: false,
+    collapsedDirs: new Set(JSON.parse(localStorage.getItem('stonesage_ws_collapsed') || '[]')),
     git: {
+      isRepo: false,
+      repoDir: '',
       branch: 'main',
+      remoteUrl: '',
       changed: [],
       commits: []
     }
   },
+  harnessLoaded: false,
 
   // AI Cognitive Harness
   ai: {
@@ -51,6 +59,15 @@ const state = {
     mode: 'heat',
     humidity: 45,
     state: 'heat'
+  },
+
+  ha: {
+    lights: [],
+    switches: [],
+    all: [],
+    filter: 'curated',
+    searchQuery: '',
+    customizations: {}
   },
 
   // Obsidian User Brain
@@ -133,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettings();
   initGlobalShortcuts();
   initClusterHealth();
+  initHiveMindProfileAndWatchdog();
+  initUniversalStatePersistence();
+  initAgentStream();
 });
 
 /* ==========================================================================
@@ -213,21 +233,52 @@ function initNavigation() {
       }
 
       const viewId = btn.dataset.view;
+      if (viewId === 'view-workstation') {
+        document.body.classList.add('workstation-mode');
+      } else {
+        document.body.classList.remove('workstation-mode');
+      }
       if (viewId !== 'view-proxmox') stopProxmoxPolling();
+      if (viewId !== 'view-hivemind') stopAgentStreamPolling();
 
-      // Hook up view refreshes
+      // Hook up view refreshes without destroying active user inputs
       if (viewId === 'view-launchpad') fetchServices();
-      if (viewId === 'view-workstation') { fetchWorkspaceTree(); fetchGitStatus(); }
+      if (viewId === 'view-workstation') {
+        if (!state.workstation.treeLoaded) {
+          fetchWorkspaceTree();
+        }
+        fetchGitStatus();
+      }
       if (viewId === 'view-ai') { fetchStmStatus(); fetchKnowledgeBaseStatus(); }
-      if (viewId === 'view-hivemind') { loadHiveMindStatus(); loadHiveMindVisionLog(); }
+      if (viewId === 'view-hivemind') {
+        loadHiveMindStatus();
+        loadHiveMindVisionLog();
+        fetchHiveMindDossiers();
+        startAgentStreamPolling();
+      }
       if (viewId === 'view-ha') fetchHaDashboard();
       if (viewId === 'view-obsidian') { fetchObsidianNotes(); fetchBrainSyncStatus(); fetchCouchDbStatus(); }
       if (viewId === 'view-proxmox') { fetchProxmoxData(); startProxmoxPolling(); }
       if (viewId === 'view-canvas') initLiveCanvas();
-      if (viewId === 'view-harness') switchHarnessStudio(currentHarnessId);
+      if (viewId === 'view-harness') {
+        if (!state.harnessLoaded) {
+          switchHarnessStudio(currentHarnessId);
+        }
+      }
       if (viewId === 'view-immich') fetchImmichData();
-      if (viewId === 'view-memory') fetchMemoryTelemetry();
-      if (viewId === 'view-trainer') fetchTrainerAll();
+      if (viewId === 'view-memory') {
+        fetchMemoryTelemetry();
+        if (typeof currentMemorySubTab !== 'undefined') {
+          if (currentMemorySubTab === 'amem') {
+            if (typeof currentAmemCards === 'undefined' || !currentAmemCards || currentAmemCards.length === 0) fetchAmemCards();
+          } else if (currentMemorySubTab === 'tools') {
+            if (typeof allToolsSkillsData === 'undefined' || !allToolsSkillsData) fetchToolsAndSkills();
+          }
+        }
+      }
+      if (viewId === 'view-trainer') {
+        if (typeof trainerDataLoaded === 'undefined' || !trainerDataLoaded) fetchTrainerAll();
+      }
     });
   });
 }
@@ -276,7 +327,7 @@ function initWorkstation() {
   const refreshTreeBtn = document.getElementById('refresh-tree-btn');
   if (refreshTreeBtn) refreshTreeBtn.addEventListener('click', async () => {
     refreshTreeBtn.textContent = '⏳';
-    await fetchWorkspaceTree();
+    await fetchWorkspaceTree(state.workstation.currentDir || null, true);
     refreshTreeBtn.textContent = '🔄';
   });
 
@@ -309,18 +360,68 @@ function initWorkstation() {
   const newFileBtn = document.getElementById('workstation-new-file-btn');
   if (newFileBtn) newFileBtn.addEventListener('click', createNewWorkstationFile);
 
-  // Gutter update on typing
+  // Gutter update on typing and draft auto-save
   const textarea = document.getElementById('editor-textarea');
   if (textarea) {
     textarea.addEventListener('input', () => {
       updateEditorGutter();
       markEditorDirty(textarea.value !== state.workstation.originalContent);
+      if (state.workstation.activeFile) {
+        try {
+          localStorage.setItem('stonesage_editor_draft_' + state.workstation.activeFile, textarea.value);
+        } catch (_) {}
+      }
     });
     textarea.addEventListener('scroll', () => {
       const gutter = document.getElementById('editor-line-gutter');
       if (gutter) gutter.scrollTop = textarea.scrollTop;
     });
   }
+
+  // Filesystem Directory Navigation Controls
+  const dirInput = document.getElementById('workstation-dir-input');
+  const dirGoBtn = document.getElementById('workstation-dir-go-btn');
+  const dirUpBtn = document.getElementById('workstation-dir-up-btn');
+  const dirPresets = document.getElementById('workstation-dir-presets');
+
+  if (dirGoBtn && dirInput) {
+    dirGoBtn.addEventListener('click', () => {
+      const val = dirInput.value.trim();
+      if (val) fetchWorkspaceTree(val);
+    });
+  }
+
+  if (dirInput) {
+    dirInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const val = dirInput.value.trim();
+        if (val) fetchWorkspaceTree(val);
+      }
+    });
+  }
+
+  if (dirUpBtn) {
+    dirUpBtn.addEventListener('click', () => {
+      if (state.workstation.parentDir) {
+        fetchWorkspaceTree(state.workstation.parentDir);
+      }
+    });
+  }
+
+  if (dirPresets) {
+    dirPresets.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val) fetchWorkspaceTree(val);
+    });
+  }
+
+  // Git Workstation Modal Triggers
+  const chooseRepoBtn = document.getElementById('git-open-repo-modal-btn');
+  if (chooseRepoBtn) chooseRepoBtn.addEventListener('click', openGitRepoModal);
+
+  const cloneLinkBtn = document.getElementById('git-open-clone-modal-btn');
+  if (cloneLinkBtn) cloneLinkBtn.addEventListener('click', openGitCloneModal);
 
   initWorkstationResizer();
   fetchWorkspaceTree();
@@ -368,15 +469,45 @@ function initWorkstationResizer() {
   });
 }
 
-async function fetchWorkspaceTree() {
+async function fetchWorkspaceTree(targetDir, force = false) {
   const container = document.getElementById('workspace-tree-container');
+  const dirInput = document.getElementById('workstation-dir-input');
+  const dirUpBtn = document.getElementById('workstation-dir-up-btn');
+  const dirPresets = document.getElementById('workstation-dir-presets');
   if (!container) return;
+
+  const savedScroll = container.scrollTop;
   try {
+    if (!force && state.workstation.treeLoaded && !targetDir && container.children.length > 0) {
+      return;
+    }
     container.innerHTML = '<div style="color:var(--term-text-muted);">Reading workspace tree...</div>';
-    const res = await fetch('/api/workspace/tree');
+    const query = targetDir ? `?dir=${encodeURIComponent(targetDir)}` : '';
+    const res = await fetch(`/api/workspace/tree${query}`);
     const data = await res.json();
     if (data.ok && Array.isArray(data.tree)) {
+      state.workstation.currentDir = data.current_dir || '';
+      state.workstation.parentDir = data.parent_dir || null;
+      state.workstation.treeLoaded = true;
+
+      if (dirInput) dirInput.value = data.current_dir || '';
+      if (dirUpBtn) {
+        dirUpBtn.disabled = !data.parent_dir;
+        dirUpBtn.title = data.parent_dir ? `Go up to ${data.parent_dir}` : 'At root directory';
+      }
+
+      if (dirPresets && Array.isArray(data.presets)) {
+        dirPresets.innerHTML = '<option value="">-- Quick Directory Preset --</option>' +
+          data.presets.map(p => `<option value="${escapeHtml(p.path)}">${escapeHtml(p.label)} (${escapeHtml(p.path)})</option>`).join('');
+        if (data.current_dir) {
+          const match = Array.from(dirPresets.options).find(o => o.value === data.current_dir);
+          if (match) dirPresets.value = data.current_dir;
+        }
+      }
+
+      updateTerminalPrompt();
       renderTree(data.tree, container);
+      container.scrollTop = savedScroll;
     } else {
       container.innerHTML = `<div style="color:var(--term-alert);">Error loading tree: ${escapeHtml(data.error || 'Unknown')}</div>`;
     }
@@ -397,15 +528,33 @@ function renderTree(nodes, container, level = 0) {
       row.innerHTML = `<span>${icon}</span><span>${escapeHtml(node.name)}</span>`;
       
       if (node.type === 'file') {
-        row.addEventListener('click', () => openWorkstationFile(node.path));
+        const filePath = node.full_path || node.path;
+        row.addEventListener('click', () => openWorkstationFile(filePath));
       } else if (node.type === 'directory') {
-        let open = true;
+        const dirPath = node.full_path || node.path || node.name;
+        const isCollapsed = state.workstation.collapsedDirs && state.workstation.collapsedDirs.has(dirPath);
         const sub = document.createElement('div');
+        sub.className = 'tree-subfolder';
+        sub.dataset.dirPath = dirPath;
+        sub.style.display = isCollapsed ? 'none' : 'block';
+
+        row.classList.add('tree-dir-row');
+        row.dataset.dirPath = dirPath;
+        row.querySelector('span:first-child').textContent = isCollapsed ? '📂' : '📁';
+
         row.addEventListener('click', (e) => {
           e.stopPropagation();
-          open = !open;
-          sub.style.display = open ? 'block' : 'none';
-          row.querySelector('span:first-child').textContent = open ? '📁' : '📂';
+          const closed = sub.style.display === 'none';
+          sub.style.display = closed ? 'block' : 'none';
+          row.querySelector('span:first-child').textContent = closed ? '📁' : '📂';
+          if (closed) {
+            if (state.workstation.collapsedDirs) state.workstation.collapsedDirs.delete(dirPath);
+          } else {
+            if (state.workstation.collapsedDirs) state.workstation.collapsedDirs.add(dirPath);
+          }
+          try {
+            localStorage.setItem('stonesage_ws_collapsed', JSON.stringify(Array.from(state.workstation.collapsedDirs || [])));
+          } catch (_) {}
         });
         target.appendChild(row);
         target.appendChild(sub);
@@ -420,26 +569,60 @@ function renderTree(nodes, container, level = 0) {
   renderNodes(nodes, container, level);
 }
 
+window.expandAllWorkstationTree = function() {
+  if (state.workstation.collapsedDirs) {
+    state.workstation.collapsedDirs.clear();
+    try { localStorage.setItem('stonesage_ws_collapsed', '[]'); } catch (_) {}
+  }
+  const container = document.getElementById('workspace-tree-container');
+  if (!container) return;
+  container.querySelectorAll('.tree-subfolder').forEach(sub => sub.style.display = 'block');
+  container.querySelectorAll('.tree-dir-row').forEach(row => {
+    const icon = row.querySelector('span:first-child');
+    if (icon) icon.textContent = '📁';
+  });
+};
+
+window.collapseAllWorkstationTree = function() {
+  const container = document.getElementById('workspace-tree-container');
+  if (!container) return;
+  container.querySelectorAll('.tree-dir-row').forEach(row => {
+    const p = row.dataset.dirPath;
+    if (p && state.workstation.collapsedDirs) state.workstation.collapsedDirs.add(p);
+    const icon = row.querySelector('span:first-child');
+    if (icon) icon.textContent = '📂';
+  });
+  container.querySelectorAll('.tree-subfolder').forEach(sub => sub.style.display = 'none');
+  try {
+    localStorage.setItem('stonesage_ws_collapsed', JSON.stringify(Array.from(state.workstation.collapsedDirs || [])));
+  } catch (_) {}
+};
+
 async function openWorkstationFile(path) {
   try {
     const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(path)}`);
     const data = await res.json();
     if (data.ok) {
-      state.workstation.activeFile = path;
+      state.workstation.activeFile = data.path || path;
       state.workstation.originalContent = data.content;
-      
+      try { localStorage.setItem('stonesage_ws_active_file', state.workstation.activeFile); } catch (_) {}
+
+      const draft = localStorage.getItem('stonesage_editor_draft_' + state.workstation.activeFile);
+      const initialContent = (draft !== null && draft !== undefined) ? draft : data.content;
+
       const pathElem = document.getElementById('editor-active-filepath');
       const textarea = document.getElementById('editor-textarea');
-      if (pathElem) pathElem.textContent = path;
+      if (pathElem) pathElem.textContent = data.path || path;
       if (textarea) {
-        textarea.value = data.content;
+        textarea.value = initialContent;
         updateEditorGutter();
       }
-      markEditorDirty(false);
+      markEditorDirty(initialContent !== data.content);
 
       // Highlight in tree
+      const filename = (data.path || path).split('/').pop().split('\\').pop();
       document.querySelectorAll('.tree-node').forEach(n => {
-        n.classList.toggle('active', n.textContent.includes(path.split('/').pop()));
+        n.classList.toggle('active', n.textContent.includes(filename));
       });
     } else {
       alert(`Could not open file: ${data.error}`);
@@ -487,6 +670,7 @@ async function saveWorkstationFile() {
     if (data.ok) {
       state.workstation.originalContent = content;
       markEditorDirty(false);
+      try { localStorage.removeItem('stonesage_editor_draft_' + state.workstation.activeFile); } catch (_) {}
       fetchGitStatus();
       logToTerminal(`[SAVED] ${state.workstation.activeFile} (${data.size} bytes written)`);
     } else {
@@ -505,6 +689,7 @@ function revertWorkstationFile() {
       textarea.value = state.workstation.originalContent;
       updateEditorGutter();
       markEditorDirty(false);
+      try { localStorage.removeItem('stonesage_editor_draft_' + state.workstation.activeFile); } catch (_) {}
     }
   }
 }
@@ -579,17 +764,53 @@ function createNewWorkstationFile() {
 async function fetchGitStatus() {
   const branchElem = document.getElementById('git-branch-indicator');
   const listElem = document.getElementById('git-changed-list');
+  const repoNameElem = document.getElementById('git-active-repo-name');
+  const repoBadgeElem = document.getElementById('git-is-repo-badge');
   if (!listElem) return;
 
   try {
     const res = await fetch('/api/git/status');
     const data = await res.json();
     if (data.ok) {
-      state.workstation.git.branch = data.branch;
+      state.workstation.git.isRepo = Boolean(data.is_repo);
+      state.workstation.git.repoDir = data.repo_dir || '';
+      state.workstation.git.branch = data.branch || 'main';
+      state.workstation.git.remoteUrl = data.remote_url || '';
       state.workstation.git.changed = data.changed_files || [];
       state.workstation.git.commits = data.recent_commits || [];
 
-      if (branchElem) branchElem.textContent = `[${data.branch}]`;
+      if (repoNameElem) {
+        repoNameElem.textContent = data.repo_dir || 'No repository selected';
+        repoNameElem.title = data.remote_url ? `${data.repo_dir} (${data.remote_url})` : data.repo_dir;
+      }
+
+      if (repoBadgeElem) {
+        if (data.is_repo) {
+          repoBadgeElem.textContent = '[GIT REPO]';
+          repoBadgeElem.style.color = 'var(--term-text-bright)';
+          repoBadgeElem.style.borderColor = 'var(--term-border-bright)';
+        } else {
+          repoBadgeElem.textContent = '[NOT A REPO]';
+          repoBadgeElem.style.color = 'var(--term-warn)';
+          repoBadgeElem.style.borderColor = 'var(--term-warn)';
+        }
+      }
+
+      if (branchElem) {
+        branchElem.textContent = data.is_repo ? `[${data.branch || 'main'}]` : '[-]';
+      }
+
+      if (!data.is_repo) {
+        listElem.innerHTML = `
+          <div style="color:var(--term-warn); padding: 8px 4px; font-size: 0.74rem;">
+            ⚠️ Current directory is not a Git repository.<br>
+            <div style="display:flex; gap:6px; margin-top:6px;">
+              <button class="launch-btn" onclick="openGitRepoModal()" style="font-size:0.7rem; padding:2px 4px;">[📂 Choose Repo]</button>
+              <button class="launch-btn" onclick="openGitCloneModal()" style="font-size:0.7rem; padding:2px 4px;">[🌐 Clone Link]</button>
+            </div>
+          </div>`;
+        return;
+      }
 
       if (state.workstation.git.changed.length === 0) {
         listElem.innerHTML = '<div style="color:var(--term-text-muted);">Working tree clean.</div>';
@@ -681,11 +902,168 @@ async function commitWorkstationGit() {
 }
 
 /* ==========================================================================
+   Git Workstation Repository Modals (Choose Local & Clone Remote)
+   ========================================================================== */
+async function openGitRepoModal() {
+  const modal = document.getElementById('modal-git-repo');
+  const select = document.getElementById('git-discovered-repos-select');
+  const input = document.getElementById('git-custom-repo-path-input');
+  const status = document.getElementById('git-repo-modal-status');
+  if (!modal) return;
+  if (status) status.textContent = '';
+  if (input) input.value = state.workstation.currentDir || '';
+  if (select) {
+    select.innerHTML = '<option value="">-- Scanning for local repos... --</option>';
+    try {
+      const res = await fetch('/api/git/repos/discovered');
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.repos)) {
+        if (data.repos.length === 0) {
+          select.innerHTML = '<option value="">(No other git repos found nearby)</option>';
+        } else {
+          select.innerHTML = '<option value="">-- Select a discovered repo --</option>' +
+            data.repos.map(r => `<option value="${escapeHtml(r.path)}">${escapeHtml(r.name)} (${escapeHtml(r.path)})</option>`).join('');
+          select.onchange = () => {
+            if (select.value && input) input.value = select.value;
+          };
+        }
+      }
+    } catch (e) {
+      select.innerHTML = '<option value="">Error scanning repos</option>';
+    }
+  }
+  if (typeof modal.showModal === 'function') modal.showModal();
+  else modal.style.display = 'block';
+}
+
+function closeGitRepoModal() {
+  const modal = document.getElementById('modal-git-repo');
+  if (modal) {
+    if (typeof modal.close === 'function') modal.close();
+    else modal.style.display = 'none';
+  }
+}
+
+async function confirmSelectGitRepo() {
+  const input = document.getElementById('git-custom-repo-path-input');
+  const status = document.getElementById('git-repo-modal-status');
+  const targetPath = input ? input.value.trim() : '';
+  if (!targetPath) {
+    if (status) status.textContent = 'Please select or enter a repository path.';
+    return;
+  }
+  if (status) status.textContent = 'Switching repository...';
+  try {
+    const res = await fetch('/api/git/repo/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: targetPath })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeGitRepoModal();
+      await fetchGitStatus();
+      if (data.repo_dir) await fetchWorkspaceTree(data.repo_dir);
+    } else {
+      if (status) status.textContent = `Error: ${data.error || 'Failed to select repository'}`;
+    }
+  } catch (err) {
+    if (status) status.textContent = `Error: ${err.message}`;
+  }
+}
+
+function openGitCloneModal() {
+  const modal = document.getElementById('modal-git-clone');
+  const destInput = document.getElementById('git-clone-dest-input');
+  const status = document.getElementById('git-clone-modal-status');
+  if (!modal) return;
+  if (status) {
+    status.textContent = 'Ready to clone.';
+    status.style.color = 'var(--term-text-dim)';
+  }
+  if (destInput) destInput.value = state.workstation.currentDir || '';
+  if (typeof modal.showModal === 'function') modal.showModal();
+  else modal.style.display = 'block';
+}
+
+function closeGitCloneModal() {
+  const modal = document.getElementById('modal-git-clone');
+  if (modal) {
+    if (typeof modal.close === 'function') modal.close();
+    else modal.style.display = 'none';
+  }
+}
+
+async function confirmCloneGitRepo() {
+  const urlInput = document.getElementById('git-clone-url-input');
+  const destInput = document.getElementById('git-clone-dest-input');
+  const status = document.getElementById('git-clone-modal-status');
+  const btn = document.getElementById('git-confirm-clone-btn');
+
+  const url = urlInput ? urlInput.value.trim() : '';
+  const dest = destInput ? destInput.value.trim() : '';
+
+  if (!url) {
+    if (status) {
+      status.textContent = 'Please enter a repository URL.';
+      status.style.color = 'var(--term-alert)';
+    }
+    return;
+  }
+
+  if (status) {
+    status.textContent = 'Cloning repository... this may take a moment.';
+    status.style.color = 'var(--term-warn)';
+  }
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/git/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url, dest: dest })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (status) {
+        status.textContent = 'Clone complete!';
+        status.style.color = 'var(--term-text-bright)';
+      }
+      setTimeout(() => {
+        closeGitCloneModal();
+        fetchGitStatus();
+        if (data.repo_dir) fetchWorkspaceTree(data.repo_dir);
+      }, 700);
+    } else {
+      if (status) {
+        status.textContent = `Clone failed: ${data.error || 'Unknown error'}`;
+        status.style.color = 'var(--term-alert)';
+      }
+    }
+  } catch (err) {
+    if (status) {
+      status.textContent = `Clone error: ${err.message}`;
+      status.style.color = 'var(--term-alert)';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+window.openGitRepoModal = openGitRepoModal;
+window.closeGitRepoModal = closeGitRepoModal;
+window.confirmSelectGitRepo = confirmSelectGitRepo;
+window.openGitCloneModal = openGitCloneModal;
+window.closeGitCloneModal = closeGitCloneModal;
+window.confirmCloneGitRepo = confirmCloneGitRepo;
+
+/* ==========================================================================
    5. Interactive Host Terminal Shell Console
    ========================================================================== */
 function getTerminalPromptText() {
+  const base = state.workstation.currentDir || 'PS C:\\.ai';
   const rel = (state.terminal.currentDir || '').replace(/\//g, '\\');
-  return `PS C:\\.ai${rel ? '\\' + rel : ''}>`;
+  return `${base}${rel ? '\\' + rel : ''}>`;
 }
 
 function updateTerminalPrompt() {
@@ -1589,16 +1967,29 @@ function initAiHarness() {
   loadHarnessCapabilities();
 
   if (modelSelect) {
+    const savedModel = localStorage.getItem('stonesage_ai_active_model');
+    if (savedModel) {
+      state.ai.activeModel = savedModel;
+      modelSelect.value = savedModel;
+    }
     modelSelect.addEventListener('change', (e) => {
       state.ai.activeModel = e.target.value;
+      try { localStorage.setItem('stonesage_ai_active_model', e.target.value); } catch (_) {}
     });
   }
 
   if (ragToggle) {
+    const savedRag = localStorage.getItem('stonesage_ai_rag_enabled');
+    if (savedRag !== null) {
+      state.ai.ragEnabled = savedRag === 'true';
+      ragToggle.classList.toggle('active', state.ai.ragEnabled);
+      ragToggle.textContent = state.ai.ragEnabled ? '[RAG: ON]' : '[RAG: OFF]';
+    }
     ragToggle.addEventListener('click', () => {
       state.ai.ragEnabled = !state.ai.ragEnabled;
       ragToggle.classList.toggle('active', state.ai.ragEnabled);
       ragToggle.textContent = state.ai.ragEnabled ? '[RAG: ON]' : '[RAG: OFF]';
+      try { localStorage.setItem('stonesage_ai_rag_enabled', String(state.ai.ragEnabled)); } catch (_) {}
     });
   }
 
@@ -1611,6 +2002,7 @@ function initAiHarness() {
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
       state.ai.messages = [];
+      try { localStorage.removeItem('stonesage_chat_messages'); } catch (_) {}
       const stream = document.getElementById('chat-stream');
       if (stream) stream.innerHTML = '';
       logChatMessage('assistant', 'Session cleared. Ready for new instructions.');
@@ -1675,8 +2067,10 @@ async function submitChatPrompt() {
   if (!prompt || state.ai.isGenerating) return;
 
   input.value = '';
+  try { localStorage.removeItem('stonesage_chat_draft'); } catch (_) {}
   logChatMessage('user', prompt);
   state.ai.messages.push({ role: 'user', content: prompt });
+  try { localStorage.setItem('stonesage_chat_messages', JSON.stringify(state.ai.messages.slice(-50))); } catch (_) {}
 
   state.ai.isGenerating = true;
   const sendBtn = document.getElementById('chat-send-btn');
@@ -1779,6 +2173,11 @@ async function submitChatPrompt() {
             if (delta.reasoning_content) {
               reasoningBuffer += delta.reasoning_content;
             }
+            if (parsed.watchdog_intercept) {
+              const phrase = parsed.intercept_phrase || 'repetition loop';
+              window.showChatWatchdogAlert(phrase);
+              window.pollWatchdogStatus();
+            }
             if (delta.content) {
               fullResponse += delta.content;
             }
@@ -1797,6 +2196,7 @@ async function submitChatPrompt() {
     }
 
     state.ai.messages.push({ role: 'assistant', content: fullResponse });
+    try { localStorage.setItem('stonesage_chat_messages', JSON.stringify(state.ai.messages.slice(-50))); } catch (_) {}
     const timer = msgBlock.querySelector('.chat-timer');
     if (timer) timer.textContent = timeNow();
 
@@ -2284,8 +2684,10 @@ async function fetchHaDashboard() {
       // Cache entities in state
       state.ha.lights = data.lights || [];
       state.ha.switches = data.switches || [];
+      state.ha.customizations = data.customizations || {};
       state.ha.all = [...state.ha.lights, ...state.ha.switches];
       renderHaFilteredDevices();
+      loadHaActivityAndAiLogs();
     }
   } catch (err) {
     console.warn('Failed to fetch Home Assistant states:', err);
@@ -2522,6 +2924,10 @@ function isNoisyEntity(entity_id, name) {
 }
 
 function cleanEntityDisplayName(item) {
+  const custom = (state.ha && state.ha.customizations && state.ha.customizations[item.entity_id]) || {};
+  if (custom.custom_name) {
+    return custom.custom_name;
+  }
   if (item.name && item.name !== 'None' && item.name.trim()) {
     return item.name.trim();
   }
@@ -2539,6 +2945,8 @@ function cleanEntityDisplayName(item) {
 }
 
 function categorizeEntity(entity_id, name) {
+  const custom = (state.ha && state.ha.customizations && state.ha.customizations[entity_id]) || {};
+  if (custom.room) return `🏷️ ${custom.room.toUpperCase()}`;
   const s = `${entity_id} ${name || ''}`.toLowerCase();
   if (s.includes('living_room') || s.includes('living room') || s.includes('couch') || s.includes('tv') || s.includes('roku')) return '🏠 LIVING ROOM';
   if (s.includes('office') || s.includes('desk') || s.includes('pc') || s.includes('monitor')) return '💻 OFFICE & WORKSPACE';
@@ -2569,8 +2977,12 @@ function renderHaFilteredDevices() {
       return s.includes('camera') || s.includes('doorbell') || s.includes('floodlight') || isNoisyEntity(item.entity_id, item.name);
     });
   } else if (filter === 'curated') {
-    // Curated view: filter out granular security camera switches completely
-    list = list.filter(item => !isNoisyEntity(item.entity_id, item.name));
+    // Curated view: filter out granular security camera switches and custom-hidden entities
+    list = list.filter(item => {
+      const custom = (state.ha && state.ha.customizations && state.ha.customizations[item.entity_id]) || {};
+      if (custom.hidden) return false;
+      return !isNoisyEntity(item.entity_id, item.name);
+    });
   }
 
   // Apply search query filter if typed
@@ -2628,20 +3040,25 @@ function renderHaFilteredDevices() {
 }
 
 function renderEntityRow(item) {
+  const custom = (state.ha && state.ha.customizations && state.ha.customizations[item.entity_id]) || {};
   const isLight = item.entity_id.startsWith('light.');
-  const icon = isLight ? '💡' : '🔌';
+  const icon = custom.icon || (isLight ? '💡' : '🔌');
   const cleanName = cleanEntityDisplayName(item);
+  const isHidden = Boolean(custom.hidden);
   return `
     <tr style="border-bottom: 1px dashed var(--term-border-dim);">
       <td style="padding: 4px;">
         <span style="margin-right: 4px;">${icon}</span>
         <span style="font-weight: 700; color: var(--term-text-bright);">${escapeHtml(cleanName)}</span>
+        ${custom.room ? `<span style="font-size:0.68rem; background:#333; color:#55aaff; padding:1px 4px; margin-left:4px; border:1px solid #555;">${escapeHtml(custom.room)}</span>` : ''}
+        ${isHidden ? '<span style="font-size:0.68rem; background:#441111; color:#ff6666; padding:1px 4px; margin-left:4px; border:1px solid #771111;">HIDDEN</span>' : ''}
         <div style="font-size: 0.7rem; color: var(--term-text-dim);">${escapeHtml(item.entity_id)}</div>
       </td>
       <td style="padding: 4px; font-weight: 700; color: ${item.state === 'on' ? 'var(--term-text-bright)' : 'var(--term-text-muted)'};">
         [${(item.state || 'off').toUpperCase()}]
       </td>
-      <td style="padding: 4px; text-align: right;">
+      <td style="padding: 4px; text-align: right; white-space: nowrap;">
+        <button class="card-icon-btn" onclick="openHaEntityEditor('${item.entity_id}')" title="Customize Friendly Name, Room, Icon, Visibility" style="margin-right: 4px;">[✏]</button>
         <button class="launch-btn" onclick="toggleHassDevice('${item.entity_id}', '${item.state}')" style="padding: 2px 8px;">
           ${item.state === 'on' ? '[TURN OFF]' : '[TURN ON]'}
         </button>
@@ -4405,6 +4822,53 @@ window.loadHiveMindStatus = async function(manual = false) {
         const vd = new Date(s.last_home_check_timestamp * 1000);
         elVigTime.textContent = `Last Check: ${vd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
       }
+
+      // Context mode indicator
+      const cmInfo = s.cluster_mode_info || {};
+      const ctxMode = cmInfo.context_mode || (s.rumination && s.rumination.cluster_mode === 'unified_35b_moe' ? 'quad_128k_ram' : 'standard_8k');
+      const elContextStat = document.getElementById('hm-stat-context');
+      if (elContextStat) {
+        if (ctxMode === 'quad_128k_ram') {
+          elContextStat.textContent = '128K SWARM RAM (4x 32K)';
+          elContextStat.style.color = '#00ffff';
+          elContextStat.title = '131,072 total tokens in Host RAM across 4 parallel slots (32K per agent). 8.67 tok/s aggregate.';
+        } else if (ctxMode === 'deep_128k_ram') {
+          elContextStat.textContent = '128K DEEP RAM (131,072)';
+          elContextStat.style.color = '#00ee66';
+          elContextStat.title = '131,072 single continuous tokens in Host RAM. 5.92 tok/s.';
+        } else if (ctxMode === 'dual_64k_ram' || ctxMode === 'dual_128k_ram') {
+          elContextStat.textContent = '64K DUAL RAM (2x 32K)';
+          elContextStat.style.color = '#00ee66';
+          elContextStat.title = '65,536 tokens in Host RAM across 2 parallel slots (32K per agent). 7.41 tok/s aggregate.';
+        } else if (ctxMode === 'deep_32k_ram') {
+          elContextStat.textContent = '32K DEEP RAM (32,768)';
+          elContextStat.style.color = '#00ee66';
+          elContextStat.title = '32,768 tokens in Host RAM. 5.74 tok/s.';
+        } else {
+          elContextStat.textContent = '8K FAST VRAM (8,192)';
+          elContextStat.style.color = 'var(--term-text-bright)';
+          elContextStat.title = '8,192 tokens in Dual GPU VRAM. ~35 tok/s.';
+        }
+      }
+      const elContextBtn = document.getElementById('btn-toggle-context-mode');
+      if (elContextBtn) {
+        if (ctxMode === 'quad_128k_ram') {
+          elContextBtn.textContent = '[⚡ CONTEXT: 128K QUAD SWARM]';
+          elContextBtn.style.color = '#00ffff';
+        } else if (ctxMode === 'deep_128k_ram') {
+          elContextBtn.textContent = '[🧠 CONTEXT: 128K DEEP RAM]';
+          elContextBtn.style.color = '#00ee66';
+        } else if (ctxMode === 'dual_64k_ram') {
+          elContextBtn.textContent = '[👥 CONTEXT: 64K DUAL AGENT]';
+          elContextBtn.style.color = '#00ee66';
+        } else if (ctxMode === 'deep_32k_ram') {
+          elContextBtn.textContent = '[🧠 CONTEXT: 32K RAM]';
+          elContextBtn.style.color = '#00ee66';
+        } else {
+          elContextBtn.textContent = '[⚡ CONTEXT: 8K VRAM]';
+          elContextBtn.style.color = '';
+        }
+      }
     }
   } catch (err) {
     console.error('Error loading Hive-Mind status:', err);
@@ -4417,22 +4881,300 @@ window.loadHiveMindStatus = async function(manual = false) {
   loadHiveMindVisionLog();
 };
 
-window.loadHiveMindVisionLog = async function() {
-  const box = document.getElementById('hivemind-vision-log-box');
+/* ==========================================================================
+   Real-Time Sovereign Agent Reasoning & Assembly Stream
+   ========================================================================== */
+let currentAgentStreamChannel = 'all';
+let agentStreamAutoscroll = true;
+let agentStreamTimer = null;
+let cachedAgentStreamEntries = [];
+
+function initAgentStream() {
+  const broadcastInput = document.getElementById('agent-broadcast-input');
+  if (broadcastInput) {
+    const draft = localStorage.getItem('stonesage_agent_broadcast_draft');
+    if (draft && !broadcastInput.value) broadcastInput.value = draft;
+    broadcastInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_agent_broadcast_draft', e.target.value); } catch (_) {}
+    });
+  }
+}
+
+function startAgentStreamPolling() {
+  if (agentStreamTimer) return;
+  pollAgentStream(false);
+  agentStreamTimer = setInterval(() => {
+    pollAgentStream(false);
+  }, 3500);
+}
+
+function stopAgentStreamPolling() {
+  if (agentStreamTimer) {
+    clearInterval(agentStreamTimer);
+    agentStreamTimer = null;
+  }
+}
+
+window.toggleStreamAutoscroll = function() {
+  agentStreamAutoscroll = !agentStreamAutoscroll;
+  const btn = document.getElementById('btn-stream-autoscroll');
+  if (btn) {
+    btn.textContent = agentStreamAutoscroll ? '[⬇ AUTOSCROLL: ON]' : '[⬇ AUTOSCROLL: OFF]';
+    btn.classList.toggle('active', agentStreamAutoscroll);
+  }
+  if (agentStreamAutoscroll) {
+    const box = document.getElementById('hivemind-agent-stream-box');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+};
+
+window.copyAgentStreamLog = function() {
+  const box = document.getElementById('hivemind-agent-stream-box');
   if (!box) return;
+  const text = box.innerText || box.textContent || '';
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = event?.target;
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = '[COPIED! ✓]';
+      setTimeout(() => { btn.textContent = orig; }, 1800);
+    }
+  }).catch(() => {
+    alert('Failed to copy stream log.');
+  });
+};
+
+window.filterAgentStream = function(channel, btn) {
+  currentAgentStreamChannel = channel;
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  pollAgentStream(true);
+};
+
+window.pollAgentStream = async function(force = false) {
+  const box = document.getElementById('hivemind-agent-stream-box');
+  const onlineCountEl = document.getElementById('agent-stream-online-count');
+  const chipsContainer = document.getElementById('agent-presence-chips');
+  const activeBadge = document.getElementById('agent-stream-active-badge');
+  if (!box) return;
+
   try {
-    const res = await fetch('/api/hivemind/vision_log?limit=150');
+    const res = await fetch(`/api/hivemind/agent_stream?channel=${encodeURIComponent(currentAgentStreamChannel)}&limit=60`);
     const data = await res.json();
-    if (data.ok && data.log) {
-      box.textContent = data.log;
-      box.scrollTop = box.scrollHeight;
-      parseVigilanceQuickStats(data.log);
-    } else {
-      box.textContent = 'No vigilance log entries yet.';
+    if (!data.ok) {
+      if (box.textContent.includes('CONNECTING')) {
+        box.textContent = `[STREAM RECONNECTING: ${data.error || 'Server bridge offline'}]`;
+      }
+      return;
+    }
+
+    if (activeBadge) {
+      activeBadge.textContent = '[LIVE STREAMING]';
+      activeBadge.style.background = '#00aa00';
+    }
+
+    if (onlineCountEl) {
+      onlineCountEl.textContent = data.agents_online || 0;
+    }
+
+    // Update active presence chips
+    if (chipsContainer) {
+      const agents = data.active_agents || [];
+      if (agents.length > 0) {
+        chipsContainer.innerHTML = agents.map(a => {
+          const name = escapeHtml(a.name || a.agent_name || a.id || 'Agent');
+          const role = escapeHtml(a.role || 'Autonomous Sovereign');
+          const st = escapeHtml(a.state || 'active');
+          const isAlive = st === 'running' || st === 'active';
+          const dotCol = isAlive ? '#00ff66' : '#ffaa00';
+          return `<div class="tier-badge" style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; font-size:0.69rem; background:#111; border:1px solid #444; color:#fff;" title="Role: ${role}">
+            <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:${dotCol};"></span>
+            <strong>${name}</strong> [${role}]
+          </div>`;
+        }).join('');
+      } else {
+        const thinkingState = data.thinking?.running ? '⚡ 24/7 Cognitive Loop Active' : 'Idle';
+        chipsContainer.innerHTML = `<span style="font-size:0.7rem; color:var(--term-text-dim); font-style:italic;">No spawned background agents currently active. Assembly Hall duplex streaming on :8766. (${thinkingState})</span>`;
+      }
+    }
+
+    const entries = data.entries || data.events || [];
+    cachedAgentStreamEntries = entries;
+
+    if (entries.length === 0) {
+      box.textContent = `[${new Date().toLocaleTimeString()}] No messages in channel #${currentAgentStreamChannel} yet.\nTransmit an operator directive below to engage the sovereign agents.`;
+      return;
+    }
+
+    const lines = entries.map(e => {
+      const ts = e.timestamp || '';
+      const chan = (e.channel || 'agora').toUpperCase();
+      const sender = e.sender || 'AGENT';
+      const role = e.role ? ` [${e.role}]` : '';
+      const content = e.content || '';
+
+      if (e.type === 'lifecycle') {
+        return `[${ts}] ⚡ [LIFECYCLE] <${sender}>: ${content}`;
+      } else if (e.type === 'thinking') {
+        return `[${ts}] 🧠 [COGNITIVE LOOP] <${sender}>: ${content}`;
+      } else {
+        return `[${ts}] [#${chan}] <${sender}${role}>: ${content}`;
+      }
+    });
+
+    const newText = lines.join('\n\n');
+    if (box.textContent !== newText) {
+      box.textContent = newText;
+      if (agentStreamAutoscroll) {
+        box.scrollTop = box.scrollHeight;
+      }
     }
   } catch (err) {
-    box.textContent = 'Error fetching activity log: ' + err.message;
+    if (activeBadge) {
+      activeBadge.textContent = '[STREAM PAUSED]';
+      activeBadge.style.background = '#888800';
+    }
   }
+};
+
+window.sendAgentBroadcast = async function() {
+  const chanSelect = document.getElementById('agent-broadcast-channel');
+  const msgInput = document.getElementById('agent-broadcast-input');
+  const btn = document.getElementById('agent-broadcast-btn');
+  if (!msgInput) return;
+
+  const msg = msgInput.value.trim();
+  if (!msg) return;
+
+  const channel = chanSelect ? chanSelect.value : 'agora';
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '[TRANSMITTING...]';
+  }
+
+  try {
+    const res = await fetch('/api/hivemind/agent_broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: channel,
+        message: msg,
+        agent_name: 'Antigravity Operator',
+        agent_id: 'operator-console'
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      msgInput.value = '';
+      try { localStorage.removeItem('stonesage_agent_broadcast_draft'); } catch (_) {}
+      await pollAgentStream(true);
+    } else {
+      alert(`Broadcast error: ${data.error || 'Failed to transmit'}`);
+    }
+  } catch (err) {
+    alert(`Broadcast failed: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '[📡 TRANSMIT]';
+    }
+  }
+};
+
+let currentHaLogFilter = 'all';
+
+window.filterHaActivityLog = function(filterType, btn) {
+  currentHaLogFilter = filterType;
+  document.querySelectorAll('#view-ha .terminal-panel-header .filter-btn').forEach(b => {
+    b.classList.remove('active');
+  });
+  if (btn) btn.classList.add('active');
+  loadHaActivityAndAiLogs(filterType);
+};
+
+window.loadHaActivityAndAiLogs = async function(filterType = null) {
+  if (filterType) currentHaLogFilter = filterType;
+  const box = document.getElementById('hivemind-vision-log-box');
+  const aiList = document.getElementById('ha-ai-integrations-list');
+  const aiCount = document.getElementById('ha-ai-integrations-count');
+  const timeSpan = document.getElementById('hm-vigilance-time');
+
+  try {
+    const res = await fetch(`/api/ha/activity_and_ai_logs?filter=${currentHaLogFilter}&limit=150`);
+    const data = await res.json();
+    if (data.ok) {
+      if (box && data.log) {
+        box.textContent = data.log;
+        box.scrollTop = box.scrollHeight;
+      }
+      if (timeSpan && data.timestamp) {
+        timeSpan.textContent = `Last Check: ${data.timestamp.split(' ')[1] || data.timestamp}`;
+      }
+      if (data.stats) {
+        const climEl = document.getElementById('hm-stat-climate');
+        const perimEl = document.getElementById('hm-stat-perimeter');
+        const verdEl = document.getElementById('hm-stat-verdict');
+        if (climEl && data.stats.climate) climEl.textContent = data.stats.climate;
+        if (perimEl && data.stats.perimeter) perimEl.textContent = data.stats.perimeter;
+        if (verdEl && data.stats.verdict) {
+          verdEl.textContent = data.stats.verdict;
+          const vLow = data.stats.verdict.toLowerCase();
+          verdEl.style.color = (vLow.includes('secure') || vLow.includes('nominal')) ? '#008800' : '#cc6600';
+        }
+      }
+      if (aiCount) {
+        aiCount.textContent = `${data.total_ai_configured || 0}/${data.total_ai_entities || 0} Ready`;
+      }
+      if (aiList && (data.ai_entities || data.voice_stack)) {
+        renderHaAiIntegrationsList(aiList, data.ai_entities || [], data.voice_stack || {});
+      }
+    } else if (box) {
+      box.textContent = 'Error loading activity log: ' + (data.error || 'Unknown error');
+    }
+  } catch (err) {
+    if (box) box.textContent = 'Error fetching activity log: ' + err.message;
+  }
+};
+
+function renderHaAiIntegrationsList(container, entities, voiceStack) {
+  let html = '';
+  // Voice Stack entries first
+  if (voiceStack) {
+    for (const [key, svc] of Object.entries(voiceStack)) {
+      const isOnline = svc.online;
+      const badgeStyle = isOnline ? 'color: #008800; font-weight: bold;' : 'color: #cc0000; font-weight: bold;';
+      const statusText = isOnline ? '● ONLINE' : '○ OFFLINE';
+      html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 5px; background: var(--term-bg); border: 1px solid var(--term-border);">
+          <span style="font-weight: 500;">:${svc.port} ${svc.service}</span>
+          <span style="${badgeStyle}; font-size: 0.68rem;">${statusText}</span>
+        </div>`;
+    }
+  }
+
+  // Home Assistant entities
+  if (entities && entities.length > 0) {
+    for (const e of entities) {
+      const isConfigured = e.configured;
+      const badgeStyle = isConfigured ? 'color: #008800; font-weight: bold;' : 'color: #cc6600; font-weight: bold;';
+      const statusText = isConfigured ? `✓ READY (${e.state.toUpperCase()})` : `⚠️ UNLINKED (${e.state.toUpperCase()})`;
+      const cleanName = e.friendly_name || e.entity_id;
+      html += `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 5px; background: var(--term-bg); border: 1px solid var(--term-border);" title="${e.entity_id}">
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65%;">${cleanName}</span>
+          <span style="${badgeStyle}; font-size: 0.68rem;">${statusText}</span>
+        </div>`;
+    }
+  }
+
+  container.innerHTML = html || '<div style="color: var(--term-text-dim); padding: 4px;">No AI entities found.</div>';
+}
+
+window.loadHiveMindVisionLog = function() {
+  return loadHaActivityAndAiLogs();
 };
 
 function parseVigilanceQuickStats(logText) {
@@ -4458,12 +5200,15 @@ function parseVigilanceQuickStats(logText) {
 
 window.triggerVigilanceSweepNow = async function() {
   const btn = document.getElementById('btn-sweep-now');
+  const btnHa = document.getElementById('btn-sweep-now-ha');
   if (btn) { btn.disabled = true; btn.textContent = '[⏳ SWEEPING SENSORS & VISION...]'; }
+  if (btnHa) { btnHa.disabled = true; btnHa.textContent = '[⏳ SWEEPING...]'; }
   try {
     const res = await fetch('/api/hivemind/vigilance', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     const data = await res.json();
     if (data.ok) {
-      await loadHiveMindStatus(true);
+      if (typeof loadHiveMindStatus === 'function') await loadHiveMindStatus(true);
+      await loadHaActivityAndAiLogs();
     } else {
       alert('Vigilance Sweep Error: ' + (data.error || 'Unknown'));
     }
@@ -4471,6 +5216,7 @@ window.triggerVigilanceSweepNow = async function() {
     alert('Vigilance Sweep Failed: ' + err.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '[👁️ VIGILANCE AUDIT NOW]'; }
+    if (btnHa) { btnHa.disabled = false; btnHa.textContent = '[👁️ SWEEP]'; }
   }
 };
 
@@ -4539,6 +5285,538 @@ window.nudgeHiveMindNow = async function() {
     if (btn) { btn.disabled = false; btn.textContent = '[⚡ NUDGE / UNBLOCK]'; }
   }
 };
+
+// ==========================================
+// HIVE-MIND HUMAN-IN-THE-LOOP DOSSIER AUDITOR
+// ==========================================
+let currentHiveMindDossierFilter = 'all';
+let currentViewingHiveMindDossierId = null;
+
+window.fetchHiveMindDossiers = async function(filter = currentHiveMindDossierFilter) {
+  currentHiveMindDossierFilter = filter;
+  const tbody = document.getElementById('hivemind-dossiers-table-body');
+  try {
+    const res = await fetch(`/api/hivemind/dossiers?limit=100&filter=${filter}`);
+    const data = await res.json();
+    if (!data.ok) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 10px; text-align: center; color: #ff6666;">Error: ${data.error || 'Failed to load dossiers'}</td></tr>`;
+      return;
+    }
+
+    // Update stat cards
+    const statTotal = document.getElementById('hm-dossier-stat-total');
+    if (statTotal) statTotal.textContent = data.total || 0;
+    const statFrontier = document.getElementById('hm-dossier-stat-frontier');
+    if (statFrontier) statFrontier.textContent = data.frontier_verified_count || 0;
+    const statApproved = document.getElementById('hm-dossier-stat-approved');
+    if (statApproved) statApproved.textContent = data.human_approved_count || 0;
+    const statPending = document.getElementById('hm-dossier-stat-pending');
+    if (statPending) statPending.textContent = data.pending_count || 0;
+    const statQuarantined = document.getElementById('hm-dossier-stat-quarantined');
+    if (statQuarantined) statQuarantined.textContent = data.quarantined_count || 0;
+
+    if (!tbody) return;
+    const dossiers = data.dossiers || [];
+    if (dossiers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding: 12px; text-align: center; color: #888;">No dossiers found matching filter (${filter}).</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = dossiers.map(d => {
+      const isFrontier = d.frontier_verified;
+      const fBadge = isFrontier 
+        ? '<span class="cb-badge cb-badge-pass" title="Frontier Invariant Audit Passed (Tier-1 Verified)">✓ VERIFIED</span>' 
+        : '<span class="cb-badge cb-badge-unverified" title="Pending Tier-1 Frontier Audit">? UNVERIFIED</span>';
+
+      let hBadge = '<span class="cb-badge cb-badge-pending" title="Pending Operator Review">? PENDING</span>';
+      if (d.human_approved) {
+        hBadge = '<span class="cb-badge cb-badge-approved" title="Approved by Operator for Qdrant Inclusion">✓ APPROVED</span>';
+      } else if (d.quarantined) {
+        hBadge = '<span class="cb-badge cb-badge-quarantined" title="Quarantined from Qdrant by Operator">✗ QUARANTINE</span>';
+      }
+
+      const rawSummary = d.summary || d.target_invariant || d.core_lesson || d.title || '';
+      const cleanSummary = rawSummary.replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 130) + (rawSummary.length > 130 ? '...' : '');
+
+      return `
+        <tr class="curation-row" style="border-bottom: 1px solid var(--term-border-dim);">
+          <td style="padding: 6px 8px; font-family: monospace;">
+            <a class="curation-sample-link" onclick="openHiveMindDossierViewer('${d.id}')" title="Click to read full dossier" style="cursor: pointer; color: var(--term-text-bright); text-decoration: underline;">
+              📖 <strong>${d.id}</strong>
+            </a>
+          </td>
+          <td style="padding: 6px 8px; font-weight: bold; color: var(--term-text-bright);">${d.domain || '--'}</td>
+          <td style="padding: 6px 8px; text-align: center;">${fBadge}</td>
+          <td style="padding: 6px 8px; text-align: center;">${hBadge}</td>
+          <td style="padding: 6px 8px; color: var(--term-text-dim);" title="${rawSummary.replace(/"/g, '&quot;')}">${cleanSummary}</td>
+          <td style="padding: 6px 8px; text-align: center; white-space: nowrap;">
+            <button class="win95-btn" onclick="openHiveMindDossierViewer('${d.id}')" style="font-size: 0.74rem; font-weight: bold; padding: 2px 6px; margin-right: 3px;" title="View complete dossier">[👁 View]</button>
+            <button class="win95-btn" onclick="triggerFrontierAudit('${d.id}')" style="font-size: 0.74rem; font-weight: bold; padding: 2px 6px; color: #008080; margin-right: 3px;" title="Run Tier-1 Frontier Audit & Invariant Extraction">[🛡️ Audit]</button>
+            <button class="win95-btn" onclick="hivemindApproveDossier('${d.id}')" style="font-size: 0.74rem; font-weight: bold; padding: 2px 6px; color: #00aa00; margin-right: 3px;" title="Approve for Qdrant inclusion">[✓ Appr]</button>
+            <button class="win95-btn" onclick="hivemindQuarantineDossier('${d.id}')" style="font-size: 0.74rem; font-weight: bold; padding: 2px 6px; color: #cc0000;" title="Quarantine / exclude from Qdrant">[✗ Quar]</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="padding: 10px; text-align: center; color: #ff6666;">Fetch error: ${err.message}</td></tr>`;
+  }
+};
+
+window.filterHiveMindDossiers = function(filterType, btn) {
+  currentHiveMindDossierFilter = filterType;
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  fetchHiveMindDossiers(filterType);
+};
+
+window.hivemindApproveDossier = async function(dossierId, notes = '') {
+  try {
+    const res = await fetch('/api/hivemind/dossier/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: dossierId, action: 'approve', notes: notes || 'Approved via StoneSage Hive-Mind Auditor' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fetchHiveMindDossiers(currentHiveMindDossierFilter);
+      if (typeof fetchCurationRegistry === 'function') fetchCurationRegistry();
+    } else {
+      alert('Approval Error: ' + (data.error || 'Failed to update dossier'));
+    }
+  } catch (err) {
+    alert('Approval Failed: ' + err.message);
+  }
+};
+
+window.hivemindQuarantineDossier = async function(dossierId, notes = '') {
+  try {
+    const res = await fetch('/api/hivemind/dossier/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: dossierId, action: 'quarantine', notes: notes || 'Quarantined via StoneSage Hive-Mind Auditor' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      fetchHiveMindDossiers(currentHiveMindDossierFilter);
+      if (typeof fetchCurationRegistry === 'function') fetchCurationRegistry();
+    } else {
+      alert('Quarantine Error: ' + (data.error || 'Failed to update dossier'));
+    }
+  } catch (err) {
+    alert('Quarantine Failed: ' + err.message);
+  }
+};
+
+window.openHiveMindDossierViewer = async function(dossierId) {
+  currentViewingHiveMindDossierId = dossierId;
+  const dialog = document.getElementById('modal-dossier-viewer');
+  if (!dialog) return;
+
+  const idEl = document.getElementById('hm-dossier-modal-id');
+  const domEl = document.getElementById('hm-dossier-modal-domain');
+  const g1El = document.getElementById('hm-dossier-modal-gate1');
+  const g2El = document.getElementById('hm-dossier-modal-gate2');
+  const contentEl = document.getElementById('hm-dossier-modal-content');
+  const notesEl = document.getElementById('hm-dossier-modal-notes');
+
+  if (idEl) idEl.textContent = dossierId;
+  if (domEl) domEl.textContent = 'Loading...';
+  if (g1El) { g1El.textContent = 'Loading...'; g1El.style.color = 'inherit'; }
+  if (g2El) g2El.textContent = 'Loading...';
+  if (contentEl) contentEl.textContent = `Fetching markdown content for dossier ${dossierId}...`;
+  if (notesEl) notesEl.value = '';
+
+  dialog.showModal();
+
+  try {
+    const res = await fetch(`/api/hivemind/dossier/content?id=${encodeURIComponent(dossierId)}`);
+    const data = await res.json();
+    if (data.ok) {
+      const raw = data.content || '(Empty dossier content)';
+      if (contentEl) contentEl.textContent = raw;
+      
+      // Parse metadata from markdown header
+      const domMatch = raw.match(/\*\*Domain\*\*:\s*`?([^`\n]+)`?/);
+      if (domMatch && domEl) domEl.textContent = domMatch[1].trim();
+
+      const fvMatch = raw.match(/\*\*Frontier Verified\*\*:\s*`?([A-Za-z0-9_ \(\)]+)`?/);
+      if (fvMatch && g1El) {
+        const val = fvMatch[1].trim();
+        g1El.textContent = val;
+        g1El.style.color = (val.includes('True') || val.includes('CONFIRM') || val.includes('REVISE')) ? '#00ee66' : '#ffaa00';
+      } else if (g1El) {
+        g1El.textContent = 'UNVERIFIED';
+        g1El.style.color = '#ffaa00';
+      }
+
+      if (g2El) {
+        if (raw.includes('[x] HUMAN_APPROVED') || raw.includes('**Human Approved**: `True`')) {
+          g2El.textContent = '✓ APPROVED';
+          g2El.style.color = '#55aaff';
+        } else if (raw.includes('[x] QUARANTINED') || raw.includes('**Quarantined**: `True`')) {
+          g2El.textContent = '✗ QUARANTINED';
+          g2El.style.color = '#ff6666';
+        } else {
+          g2El.textContent = '? PENDING';
+          g2El.style.color = '#ffaa00';
+        }
+      }
+    } else {
+      if (contentEl) contentEl.textContent = `Error loading dossier: ${data.error}`;
+    }
+  } catch (err) {
+    if (contentEl) contentEl.textContent = `Fetch error: ${err.message}`;
+  }
+
+  // Wire buttons inside modal
+  const apprBtn = document.getElementById('hm-dossier-modal-approve-btn');
+  if (apprBtn) {
+    apprBtn.onclick = async () => {
+      const notes = notesEl ? notesEl.value : '';
+      await hivemindApproveDossier(dossierId, notes);
+      closeDossierViewerModal();
+    };
+  }
+  const quarBtn = document.getElementById('hm-dossier-modal-quarantine-btn');
+  if (quarBtn) {
+    quarBtn.onclick = async () => {
+      const notes = notesEl ? notesEl.value : '';
+      await hivemindQuarantineDossier(dossierId, notes);
+      closeDossierViewerModal();
+    };
+  }
+  const frontierBtn = document.getElementById('hm-dossier-modal-frontier-btn');
+  if (frontierBtn) {
+    frontierBtn.onclick = async () => {
+      await triggerFrontierAudit(dossierId);
+    };
+  }
+};
+
+window.closeDossierViewerModal = function() {
+  const dialog = document.getElementById('modal-dossier-viewer');
+  if (dialog) dialog.close();
+};
+
+window.triggerFrontierAudit = async function(dossierId) {
+  try {
+    const btn = event?.target;
+    const origText = btn ? btn.textContent : '';
+    if (btn) btn.textContent = '⏳ Auditing...';
+    
+    logToTerminal(`[Frontier Audit] Dispatching Tier-1 Meta-Verifier for dossier: ${dossierId}...`);
+    const res = await fetch('/api/hivemind/dossier/frontier_audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: dossierId })
+    });
+    const data = await res.json();
+    if (btn) btn.textContent = origText;
+    
+    if (data.ok) {
+      alert(`[TIER-1 FRONTIER AUDIT COMPLETE]\n\nDossier: ${dossierId}\nVerdict: ${data.verdict}\nModel: ${data.model} (${data.provider})\n\nFrontier Refined Invariant:\n${data.refined_limits}\n\nCritical Notes:\n${data.frontier_notes}`);
+      fetchHiveMindDossiers(currentHiveMindDossierFilter);
+      if (typeof fetchCurationRegistry === 'function') fetchCurationRegistry();
+      const modal = document.getElementById('modal-dossier-viewer');
+      if (modal && modal.open) {
+        openHiveMindDossierViewer(dossierId);
+      }
+    } else {
+      alert('Frontier Audit Failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Frontier Audit Exception: ' + err.message);
+  }
+};
+
+window.triggerFrontierAuditAll = async function() {
+  if (!confirm('Run Tier-1 Frontier Audit on pending unverified dossiers via Frontier Bridge (:8085)?')) return;
+  try {
+    const btn1 = document.getElementById('hm-audit-all-btn');
+    const btn2 = document.getElementById('trainer-audit-all-btn');
+    if (btn1) btn1.textContent = '⏳ AUDITING...';
+    if (btn2) btn2.textContent = '⏳ AUDITING...';
+    
+    logToTerminal('[Frontier Audit] Dispatching batch audit across unverified dossiers...');
+    const res = await fetch('/api/hivemind/dossier/frontier_audit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier_id: 'all_pending' })
+    });
+    const data = await res.json();
+    if (btn1) btn1.textContent = '[🛡️ AUDIT ALL PENDING (FRONTIER)]';
+    if (btn2) btn2.textContent = '[🛡️ AUDIT ALL PENDING (FRONTIER)]';
+    
+    if (data.ok) {
+      alert(`[BATCH FRONTIER AUDIT FINISHED]\nAudited ${data.audited_count} pending dossiers with Tier-1 Meta-Verifier.`);
+      fetchHiveMindDossiers(currentHiveMindDossierFilter);
+      if (typeof fetchCurationRegistry === 'function') fetchCurationRegistry();
+    } else {
+      alert('Batch Frontier Audit Error: ' + (data.error || 'Failed'));
+    }
+  } catch (err) {
+    alert('Batch Audit Exception: ' + err.message);
+  }
+};
+
+// ==========================================
+// SMART HOME ENTITY CUSTOMIZER
+// ==========================================
+window.openHaEntityCustomizerModal = function() {
+  const all = state.ha.all || [];
+  if (all.length > 0) {
+    openHaEntityEditor(all[0].entity_id);
+  } else {
+    alert('No Home Assistant entities loaded yet. Click [🔄 REFRESH STATES] first.');
+  }
+};
+
+window.openHaEntityEditor = function(entityId) {
+  const dialog = document.getElementById('modal-ha-entity-editor');
+  if (!dialog) return;
+  const item = (state.ha.all || []).find(e => e.entity_id === entityId) || { entity_id: entityId };
+  const custom = (state.ha.customizations && state.ha.customizations[entityId]) || {};
+  
+  document.getElementById('ha-edit-entity-id').value = entityId;
+  document.getElementById('ha-edit-custom-name').value = custom.custom_name || item.name || '';
+  document.getElementById('ha-edit-room').value = custom.room || '';
+  document.getElementById('ha-edit-icon').value = custom.icon || '';
+  document.getElementById('ha-edit-hidden').checked = Boolean(custom.hidden);
+  
+  dialog.showModal();
+};
+
+window.closeHaEntityEditorModal = function() {
+  const dialog = document.getElementById('modal-ha-entity-editor');
+  if (dialog) dialog.close();
+};
+
+window.saveHaEntityCustomization = async function() {
+  const entityId = document.getElementById('ha-edit-entity-id').value;
+  const customName = document.getElementById('ha-edit-custom-name').value.trim();
+  const room = document.getElementById('ha-edit-room').value.trim();
+  const icon = document.getElementById('ha-edit-icon').value.trim();
+  const hidden = document.getElementById('ha-edit-hidden').checked;
+  
+  try {
+    const res = await fetch('/api/ha/entity/customize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entity_id: entityId,
+        custom_name: customName,
+        room: room,
+        icon: icon,
+        hidden: hidden
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (!state.ha.customizations) state.ha.customizations = {};
+      state.ha.customizations[entityId] = data.customization;
+      closeHaEntityEditorModal();
+      renderHaFilteredDevices();
+      logToTerminal(`[HA] Customization saved for ${entityId}`, 'success');
+    } else {
+      alert('Save Error: ' + (data.error || 'Failed to save customization'));
+    }
+  } catch (err) {
+    alert('Save Exception: ' + err.message);
+  }
+};
+
+// ==========================================
+// MEMORY TAB: SUB-TAB SWITCHER & A-RAM / TOOLS
+// ==========================================
+let currentMemorySubTab = 'qdrant';
+let currentAmemCards = [];
+let allToolsSkillsData = { tools: [], skills: [] };
+
+window.switchMemorySubTab = function(subTab) {
+  currentMemorySubTab = subTab;
+  document.querySelectorAll('#view-memory .filter-bar .filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.memSubtab === subTab);
+  });
+  
+  document.querySelectorAll('.memory-subpane').forEach(pane => {
+    pane.style.display = 'none';
+  });
+  
+  const activePane = document.getElementById(`memory-subpane-${subTab}`);
+  if (activePane) activePane.style.display = 'flex';
+  
+  if (subTab === 'amem' && currentAmemCards.length === 0) {
+    fetchAmemCards();
+  } else if (subTab === 'tools' && allToolsSkillsData.tools.length === 0) {
+    fetchToolsAndSkills();
+  }
+};
+
+window.fetchAmemCards = async function(query = '') {
+  const container = document.getElementById('amem-cards-grid');
+  const searchInput = document.getElementById('amem-search-input');
+  const activeQ = query !== '' ? query : (searchInput ? searchInput.value.trim() : '');
+  try {
+    const res = await fetch(`/api/memory/amem?q=${encodeURIComponent(activeQ)}`);
+    const data = await res.json();
+    if (data.ok) {
+      currentAmemCards = data.cards || [];
+      const statTotal = document.getElementById('amem-stat-total');
+      if (statTotal) statTotal.textContent = data.total_cards || 0;
+      const statTokens = document.getElementById('amem-stat-tokens');
+      if (statTokens) statTokens.textContent = `${data.average_tokens || 0} tok (<35)`;
+      const statHost = document.getElementById('amem-stat-host');
+      if (statHost) statHost.textContent = data.valkey_host || '192.168.1.105:6379';
+      const statStatus = document.getElementById('amem-stat-status');
+      if (statStatus) {
+        statStatus.textContent = data.valkey_online ? 'ONLINE (RAM)' : 'FALLBACK CACHE';
+        statStatus.style.color = data.valkey_online ? '#00ee66' : '#ffaa00';
+      }
+      
+      if (searchInput && searchInput.value.trim()) {
+        filterAmemCards(searchInput.value.trim());
+      } else {
+        renderAmemCards(currentAmemCards);
+      }
+    }
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="color:#ff6666; grid-column:1/-1;">Error loading A-RAM: ${err.message}</div>`;
+  }
+};
+
+window.filterAmemCards = function(query) {
+  if (!currentAmemCards) return;
+  const q = (query || '').trim().toLowerCase();
+  if (!q) {
+    renderAmemCards(currentAmemCards);
+    return;
+  }
+  const filtered = currentAmemCards.filter(c => 
+    (c.id || '').toLowerCase().includes(q) ||
+    (c.atom || '').toLowerCase().includes(q) ||
+    (c.keywords || []).some(k => (k || '').toLowerCase().includes(q)) ||
+    (c.category || '').toLowerCase().includes(q)
+  );
+  renderAmemCards(filtered);
+};
+
+function renderAmemCards(cards) {
+  const container = document.getElementById('amem-cards-grid');
+  if (!container) return;
+  if (cards.length === 0) {
+    container.innerHTML = '<div style="color:var(--term-text-muted); padding:16px; text-align:center; grid-column:1/-1;">No atomic fact cards matched your query.</div>';
+    return;
+  }
+  
+  container.innerHTML = cards.map(c => `
+    <div class="amem-card">
+      <div class="amem-card-header">
+        <span class="amem-card-id" title="${escapeHtml(c.id || '')}">⚡ ${escapeHtml(c.id || '')}</span>
+        <span style="color:#00ee66; font-size:0.68rem; font-weight:bold;">${c.token_count || 20} tok</span>
+      </div>
+      <div class="amem-card-atom">${escapeHtml(c.atom || '')}</div>
+      <div class="amem-card-tags">
+        <span class="amem-tag" style="color:#55aaff; font-weight:bold;">[${escapeHtml(c.category || 'core')}]</span>
+        ${(c.keywords || []).slice(0, 6).map(k => `<span class="amem-tag">${escapeHtml(k)}</span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+let activeToolFilter = 'all';
+let currentToolsSearch = '';
+
+window.fetchToolsAndSkills = async function() {
+  const container = document.getElementById('tools-skills-list');
+  const searchInput = document.getElementById('tools-search-input');
+  try {
+    const res = await fetch('/api/system/tools_and_skills');
+    const data = await res.json();
+    if (data.ok) {
+      allToolsSkillsData = data;
+      const statTotal = document.getElementById('tools-stat-total');
+      if (statTotal) statTotal.textContent = (data.total_tools || 0) + (data.total_skills || 0);
+      const statMcp = document.getElementById('tools-stat-mcp');
+      if (statMcp) statMcp.textContent = data.total_tools || 0;
+      const statSkills = document.getElementById('tools-stat-skills');
+      if (statSkills) statSkills.textContent = data.total_skills || 0;
+
+      if (searchInput && searchInput.value.trim()) {
+        currentToolsSearch = searchInput.value.trim().toLowerCase();
+      }
+      renderToolsAndSkills();
+    }
+  } catch (err) {
+    if (container) container.innerHTML = `<div style="color:#ff6666;">Error loading tools & skills: ${err.message}</div>`;
+  }
+};
+
+window.filterToolsSkills = function(filterType, btn) {
+  activeToolFilter = filterType;
+  if (btn && btn.parentElement) {
+    btn.parentElement.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+  renderToolsAndSkills();
+};
+
+window.searchToolsAndSkills = function(query) {
+  currentToolsSearch = (query || '').trim().toLowerCase();
+  renderToolsAndSkills();
+};
+
+function renderToolsAndSkills() {
+  const container = document.getElementById('tools-skills-list');
+  if (!container) return;
+  
+  let items = [];
+  if (activeToolFilter === 'all' || activeToolFilter === 'mcp') {
+    items.push(...(allToolsSkillsData.tools || []));
+  }
+  if (activeToolFilter === 'all' || activeToolFilter === 'skill') {
+    items.push(...(allToolsSkillsData.skills || []));
+  }
+  
+  if (currentToolsSearch) {
+    items = items.filter(it => 
+      (it.name || '').toLowerCase().includes(currentToolsSearch) ||
+      (it.description || '').toLowerCase().includes(currentToolsSearch) ||
+      (it.id || '').toLowerCase().includes(currentToolsSearch) ||
+      JSON.stringify(it.inputSchema || {}).toLowerCase().includes(currentToolsSearch)
+    );
+  }
+  
+  if (items.length === 0) {
+    container.innerHTML = '<div style="color:var(--term-text-muted); padding:16px; text-align:center;">No tools or skills matched your filter / search query.</div>';
+    return;
+  }
+  
+  container.innerHTML = items.map(it => {
+    const isSkill = it.type === 'agent_skill';
+    const badgeClass = isSkill ? 'tool-card-badge skill' : 'tool-card-badge';
+    const badgeLabel = isSkill ? 'AGENT SKILL' : 'MCP TOOL';
+    const schemaHtml = it.inputSchema && Object.keys(it.inputSchema).length > 0
+      ? `<div class="tool-card-schema"><strong>Arguments Schema:</strong>\n${escapeHtml(JSON.stringify(it.inputSchema, null, 2))}</div>`
+      : (it.body ? `<div class="tool-card-schema"><strong>Skill Instructions / Triggers:</strong>\n${escapeHtml(it.body)}</div>` : '');
+      
+    return `
+      <div class="tool-card">
+        <div class="tool-card-header">
+          <span class="tool-card-name">${isSkill ? '🧠' : '🛠️'} ${escapeHtml(it.name)}</span>
+          <div style="display:flex; gap:0.4rem; align-items:center;">
+            <span class="${badgeClass}">${badgeLabel}</span>
+            <button class="win95-btn" onclick="navigator.clipboard.writeText('${escapeHtml(it.name)}'); alert('Copied ${escapeHtml(it.name)} to clipboard!')" style="font-size:0.68rem; padding:1px 4px;">[📋 COPY]</button>
+          </div>
+        </div>
+        <div class="tool-card-desc">${escapeHtml(it.description || 'No description provided.')}</div>
+        ${schemaHtml}
+      </div>
+    `;
+  }).join('');
+}
 
 // ==========================================
 // AEVUM APK DOWNLOAD MODAL (FIREFOX FIX)
@@ -4648,6 +5926,7 @@ async function loadHarnessStudioData(harnessId) {
 
     renderHarnessForm(harnessId, d);
     updateHarnessPreview();
+    state.harnessLoaded = true;
   } catch (err) {
     if (healthBadge) healthBadge.textContent = '[HEALTH: ERROR]';
     if (container) container.innerHTML = `<div style="color: var(--term-alert); padding: 1rem;">Error connecting to harness API: ${err.message}</div>`;
@@ -6178,6 +7457,7 @@ window.fetchCurationRegistry = async function() {
           <td style="padding: 6px 8px; font-weight: 600; color: var(--term-text-dim);" title="${(s.prompt || s.full_prompt || '').replace(/"/g, '&quot;')}">${promptSnippet}</td>
           <td style="padding: 6px 8px; text-align: center; white-space: nowrap;">
             <button class="win95-btn" onclick="trainerOpenDossier('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; margin-right:3px;" title="Open full dossier in reading window">[👁 View]</button>
+            <button class="win95-btn" onclick="triggerFrontierAudit('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#008080; margin-right:3px;" title="Run Tier-1 Frontier Audit & Invariant Extraction">[🛡️ Audit]</button>
             <button class="win95-btn" onclick="trainerApproveSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#00aa00; margin-right:3px;" title="Approve for training">[✓ Appr]</button>
             <button class="win95-btn" onclick="trainerQuarantineSample('${s.id}')" style="font-size:0.75rem; font-weight:bold; padding:2px 6px; color:#cc0000;" title="Quarantine from dataset">[✗ Quar]</button>
           </td>
@@ -6363,6 +7643,17 @@ window.trainerQuarantineFromModal = async function() {
     }
   } catch (e) {
     document.getElementById('dossier-modal-status-msg').textContent = `Quarantine error: ${e.message}`;
+  }
+};
+
+window.trainerFrontierAuditFromModal = async function() {
+  if (!currentViewingSampleId) return;
+  try {
+    document.getElementById('dossier-modal-status-msg').textContent = 'Running Tier-1 Frontier Audit...';
+    await triggerFrontierAudit(currentViewingSampleId);
+    await trainerOpenDossier(currentViewingSampleId);
+  } catch (e) {
+    document.getElementById('dossier-modal-status-msg').textContent = `Audit error: ${e.message}`;
   }
 };
 
@@ -6605,6 +7896,404 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+/* ==========================================================================
+   24/7 Hive-Mind Concurrency Profile & Reasoning Loop Watchdog
+   ========================================================================== */
+window.loadActiveHarnessProfile = async function() {
+  try {
+    const res = await fetch('/api/harness/profiles/active');
+    const data = await res.json();
+    const active = data.ok ? data.active_profile : null;
+    state.activeHarnessProfile = active;
+
+    const isHiveMindActive = (active === 'HiveMind_MaxConcurrency');
+
+    // Header bar button
+    const headerBtn = document.getElementById('header-hivemind-profile-btn');
+    if (headerBtn) {
+      if (isHiveMindActive) {
+        headerBtn.textContent = '[⚡ HIVE MIND: 8-AGENT ON]';
+        headerBtn.classList.add('active');
+        headerBtn.title = 'Active: 8 Parallel Slots (-np 8), 4-bit KV Cache (q4_0), Context-Shift. Click to deselect.';
+      } else {
+        headerBtn.textContent = '[⚡ HIVE MIND: 8-AGENT OFF]';
+        headerBtn.classList.remove('active');
+        headerBtn.title = 'Inactive: Click to select 24/7 Max Capacity Multi-Agent Concurrency Profile.';
+      }
+    }
+
+    // View 4: Hive Mind filter button & stat card
+    const hmBtn = document.getElementById('btn-toggle-hivemind-profile');
+    if (hmBtn) {
+      if (isHiveMindActive) {
+        hmBtn.textContent = '[⚡ 24/7 MAX CONCURRENCY: ACTIVE]';
+        hmBtn.classList.add('active');
+      } else {
+        hmBtn.textContent = '[⚡ 24/7 MAX CONCURRENCY: OFF]';
+        hmBtn.classList.remove('active');
+      }
+    }
+
+    const hmStatProfile = document.getElementById('hm-stat-profile');
+    if (hmStatProfile) {
+      hmStatProfile.textContent = isHiveMindActive ? '8-AGENT (Q4_0 KV / 8-NP)' : 'DEFAULT (DUAL-ACCEL)';
+      hmStatProfile.style.color = isHiveMindActive ? '#00ee66' : 'var(--term-text-bright)';
+    }
+
+    // View 9: Harness Studio box & button
+    const harnessBadge = document.getElementById('harness-profile-active-badge');
+    if (harnessBadge) {
+      harnessBadge.textContent = isHiveMindActive ? '[PROFILE: 8-AGENT MAX CONCURRENCY (ACTIVE)]' : '[PROFILE: INACTIVE]';
+      harnessBadge.style.color = isHiveMindActive ? '#ffff00' : '#888';
+      harnessBadge.style.borderColor = isHiveMindActive ? '#00ee66' : '#888';
+    }
+
+    const harnessBtn = document.getElementById('harness-toggle-profile-btn');
+    if (harnessBtn) {
+      harnessBtn.textContent = isHiveMindActive ? '[⚡ DESELECT PROFILE (RESTORE DEFAULT)]' : '[⚡ ACTIVATE 8-AGENT MAX CONCURRENCY]';
+    }
+  } catch (err) {
+    console.warn('Error loading active harness profile:', err);
+  }
+};
+
+window.toggleHiveMindConcurrencyProfile = async function() {
+  const isCurrentlyActive = (state.activeHarnessProfile === 'HiveMind_MaxConcurrency');
+  const targetProfile = isCurrentlyActive ? null : 'HiveMind_MaxConcurrency';
+
+  try {
+    const res = await fetch('/api/harness/profiles/active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile: targetProfile })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await window.loadActiveHarnessProfile();
+      alert(`✅ ${data.message || (isCurrentlyActive ? 'Profile deselected.' : 'Hive-Mind profile activated.')}`);
+    } else {
+      alert(`Failed to update profile: ${data.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    alert(`Error updating profile: ${err.message}`);
+  }
+};
+
+window.toggleClusterContextMode = async function() {
+  const btn = document.getElementById('btn-toggle-context-mode');
+  if (btn) {
+    btn.textContent = '[⏳ SWITCHING CONTEXT...]';
+    btn.disabled = true;
+  }
+
+  const modeCycle = {
+    'standard_8k': 'deep_32k_ram',
+    'deep_32k_ram': 'dual_64k_ram',
+    'dual_64k_ram': 'deep_128k_ram',
+    'deep_128k_ram': 'quad_128k_ram',
+    'quad_128k_ram': 'standard_8k'
+  };
+
+  const modeLabels = {
+    'standard_8k': '8K Fast VRAM (8,192 tokens, ~35 tok/s)',
+    'deep_32k_ram': '32K Deep System RAM (32,768 tokens, ~5.8 tok/s)',
+    'dual_64k_ram': '64K Dual Agent RAM (2x 32K slots, ~7.4 tok/s agg)',
+    'deep_128k_ram': '128K Deep System RAM (131,072 single slot, ~5.9 tok/s)',
+    'quad_128k_ram': '128K Quad Swarm RAM (4x 32K slots, ~8.7 tok/s agg)'
+  };
+
+  try {
+    const curRes = await fetch('/api/cluster/mode');
+    const curData = await curRes.json();
+    const currentMode = (curData.ok && curData.mode) ? (curData.mode.context_mode || 'quad_128k_ram') : 'quad_128k_ram';
+    const targetMode = modeCycle[currentMode] || 'quad_128k_ram';
+
+    const res = await fetch('/api/cluster/context_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context_mode: targetMode })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await window.loadHiveMindStatus(true);
+      alert(`✅ Context window architecture successfully switched to ${modeLabels[targetMode] || targetMode}!\n\n${data.message || ''}`);
+    } else {
+      alert(`Failed to switch context mode: ${data.error || 'Unknown error'}`);
+      await window.loadHiveMindStatus(true);
+    }
+  } catch (err) {
+    alert(`Error switching context mode: ${err.message}`);
+    await window.loadHiveMindStatus(true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.pollWatchdogStatus = async function() {
+  try {
+    const res = await fetch('/api/watchdog/status');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const count = data.intercept_count || 0;
+    const badge = document.getElementById('badge-watchdog-indicator');
+    const dot = document.getElementById('watchdog-pulse-dot');
+    const statusText = document.getElementById('watchdog-status-text');
+
+    if (badge && dot && statusText) {
+      if (count > 0) {
+        badge.classList.add('alert');
+        dot.className = 'watchdog-dot alert';
+        statusText.textContent = `STUCK INTERCEPTED (${count})`;
+        badge.title = `Watchdog intercepted ${count} repetition loop(s). Click to view log or reset.`;
+      } else {
+        badge.classList.remove('alert');
+        dot.className = 'watchdog-dot armed';
+        statusText.textContent = 'ARMED';
+        badge.title = 'Cognitive Loop Watchdog: Monitoring reasoning streams for repetition traps. Click for intercept log.';
+      }
+    }
+
+    const hmWatchdog = document.getElementById('hm-stat-watchdog');
+    if (hmWatchdog) {
+      if (count > 0) {
+        hmWatchdog.textContent = `⚠️ ALERT: ${count} LOOPS`;
+        hmWatchdog.style.color = '#ff3333';
+      } else {
+        hmWatchdog.textContent = 'ARMED (0 Loops)';
+        hmWatchdog.style.color = '#00aa00';
+      }
+    }
+
+    // Modal updates if open
+    const modalState = document.getElementById('modal-watchdog-state');
+    if (modalState) {
+      modalState.textContent = count > 0 ? `ALERT (${count} INTERCEPTS)` : 'ARMED (HEALTHY)';
+      modalState.style.color = count > 0 ? '#ff3333' : '#00aa00';
+    }
+    const modalCount = document.getElementById('modal-watchdog-count');
+    if (modalCount) modalCount.textContent = String(count);
+
+    const modalLatest = document.getElementById('modal-watchdog-latest');
+    if (modalLatest) {
+      if (data.last_intercept) {
+        modalLatest.textContent = `[${data.last_intercept.timestamp}] Repetition phrase: "${data.last_intercept.phrase}" (Model: ${data.last_intercept.model}, Agent: ${data.last_intercept.agent_id})`;
+      } else {
+        modalLatest.textContent = 'No loop intercepts recorded. Reasoning is clean.';
+      }
+    }
+
+    const modalHistory = document.getElementById('modal-watchdog-history');
+    if (modalHistory && Array.isArray(data.history)) {
+      if (data.history.length === 0) {
+        modalHistory.innerHTML = '<div>[ARMED] Active background thread listening on all inference streams.</div>';
+      } else {
+        modalHistory.innerHTML = data.history.map(ev => 
+          `<div>[${ev.timestamp?.split('T')?.[1]?.slice(0,8) || '--'}] Intercept #${ev.count}: "${escapeHtml(ev.phrase || '')}" (Nudge sent to ${escapeHtml(ev.agent_id || 'coordinator')})</div>`
+        ).join('');
+      }
+    }
+  } catch (err) {
+    console.warn('Error polling watchdog status:', err);
+  }
+};
+
+window.showWatchdogModal = function() {
+  const dlg = document.getElementById('watchdog-modal');
+  if (dlg) {
+    window.pollWatchdogStatus();
+    if (typeof dlg.showModal === 'function') dlg.showModal();
+    else dlg.style.display = 'block';
+  }
+};
+
+window.closeWatchdogModal = function() {
+  const dlg = document.getElementById('watchdog-modal');
+  if (dlg) {
+    if (typeof dlg.close === 'function') dlg.close();
+    else dlg.style.display = 'none';
+  }
+};
+
+window.resetWatchdogAlert = async function() {
+  try {
+    const res = await fetch('/api/watchdog/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.dismissWatchdogAlert();
+      await window.pollWatchdogStatus();
+    }
+  } catch (err) {
+    alert(`Failed to reset watchdog: ${err.message}`);
+  }
+};
+
+window.dismissWatchdogAlert = function() {
+  const alertEl = document.getElementById('chat-watchdog-alert');
+  if (alertEl) alertEl.style.display = 'none';
+};
+
+window.showChatWatchdogAlert = function(phrase) {
+  const alertEl = document.getElementById('chat-watchdog-alert');
+  const phraseEl = document.getElementById('chat-watchdog-phrase');
+  if (phraseEl) phraseEl.textContent = phrase || 'repetition loop';
+  if (alertEl) alertEl.style.display = 'flex';
+};
+
+window.testWatchdogLoop = async function() {
+  try {
+    const res = await fetch('/api/watchdog/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phrase: 'beam_orig_shapes' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      window.showChatWatchdogAlert('beam_orig_shapes');
+      await window.pollWatchdogStatus();
+      alert('⚠️ Test loop intercepted! Stuck reasoning indicator activated and nudge logged.');
+    }
+  } catch (err) {
+    alert(`Test error: ${err.message}`);
+  }
+};
+
+function initHiveMindProfileAndWatchdog() {
+  window.loadActiveHarnessProfile();
+  window.pollWatchdogStatus();
+  setInterval(window.pollWatchdogStatus, 15000);
+}
+
+/* ==========================================================================
+   Universal Cross-Tab State & Draft Persistence
+   ========================================================================== */
+function initUniversalStatePersistence() {
+  // 1. F2 Workstation Editor Draft Auto-Save
+  const editorTextarea = document.getElementById('editor-textarea');
+  if (editorTextarea) {
+    editorTextarea.addEventListener('input', () => {
+      updateEditorGutter();
+      const isDirty = editorTextarea.value !== (state.workstation.originalContent || '');
+      markEditorDirty(isDirty);
+      if (state.workstation.activeFile) {
+        try {
+          localStorage.setItem('stonesage_editor_draft_' + state.workstation.activeFile, editorTextarea.value);
+        } catch (_) {}
+      }
+    });
+  }
+
+  // Restore previously opened file in F2
+  const savedActiveFile = localStorage.getItem('stonesage_ws_active_file');
+  if (savedActiveFile && !state.workstation.activeFile) {
+    openWorkstationFile(savedActiveFile);
+  }
+
+  // 2. F3 AI Cockpit Chat Draft, Planner Goal Draft, & Chat Message History
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    const savedDraft = localStorage.getItem('stonesage_chat_draft');
+    if (savedDraft && !chatInput.value) chatInput.value = savedDraft;
+    chatInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_chat_draft', e.target.value); } catch (_) {}
+    });
+  }
+
+  const plannerGoal = document.getElementById('planner-goal-input');
+  if (plannerGoal) {
+    const savedGoal = localStorage.getItem('stonesage_planner_goal_draft');
+    if (savedGoal && !plannerGoal.value) plannerGoal.value = savedGoal;
+    plannerGoal.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_planner_goal_draft', e.target.value); } catch (_) {}
+    });
+  }
+
+  try {
+    const savedMessages = JSON.parse(localStorage.getItem('stonesage_chat_messages') || '[]');
+    if (Array.isArray(savedMessages) && savedMessages.length > 0) {
+      state.ai.messages = savedMessages;
+      const stream = document.getElementById('chat-stream');
+      if (stream && stream.querySelectorAll('.chat-msg').length <= 1) {
+        savedMessages.forEach(m => {
+          logChatMessage(m.role, m.content);
+        });
+      }
+    }
+  } catch (_) {}
+
+  // 3. F8 Live Canvas Buffer & Copilot Input
+  const canvasTextarea = document.getElementById('canvas-textarea');
+  if (canvasTextarea) {
+    const savedBuffer = localStorage.getItem('stonesage_canvas_buffer');
+    if (savedBuffer && !canvasTextarea.value) canvasTextarea.value = savedBuffer;
+    canvasTextarea.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_canvas_buffer', e.target.value); } catch (_) {}
+    });
+  }
+
+  const canvasCopilotInput = document.getElementById('canvas-copilot-input');
+  if (canvasCopilotInput) {
+    const savedCopilot = localStorage.getItem('stonesage_canvas_copilot_draft');
+    if (savedCopilot && !canvasCopilotInput.value) canvasCopilotInput.value = savedCopilot;
+    canvasCopilotInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_canvas_copilot_draft', e.target.value); } catch (_) {}
+    });
+  }
+
+  // 4. F11 Memory Search Inputs
+  const memQueryInput = document.getElementById('memory-query-input');
+  if (memQueryInput) {
+    const savedMemQ = localStorage.getItem('stonesage_mem_qdrant_query');
+    if (savedMemQ && !memQueryInput.value) memQueryInput.value = savedMemQ;
+    memQueryInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_mem_qdrant_query', e.target.value); } catch (_) {}
+    });
+  }
+
+  const amemSearchInput = document.getElementById('amem-search-input');
+  if (amemSearchInput) {
+    const savedAmem = localStorage.getItem('stonesage_amem_query');
+    if (savedAmem && !amemSearchInput.value) amemSearchInput.value = savedAmem;
+    amemSearchInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_amem_query', e.target.value); } catch (_) {}
+    });
+  }
+
+  const toolsSearchInput = document.getElementById('tools-search-input');
+  if (toolsSearchInput) {
+    const savedTools = localStorage.getItem('stonesage_tools_query');
+    if (savedTools && !toolsSearchInput.value) toolsSearchInput.value = savedTools;
+    toolsSearchInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_tools_query', e.target.value); } catch (_) {}
+    });
+  }
+
+  // 5. F12 LLM Trainer Ingest URL & Raw Text Draft
+  const trainerUrlInput = document.getElementById('trainer-url-input');
+  if (trainerUrlInput) {
+    const savedUrl = localStorage.getItem('stonesage_trainer_url_draft');
+    if (savedUrl && !trainerUrlInput.value) trainerUrlInput.value = savedUrl;
+    trainerUrlInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_trainer_url_draft', e.target.value); } catch (_) {}
+    });
+  }
+
+  const trainerRawInput = document.getElementById('trainer-raw-text-input');
+  if (trainerRawInput) {
+    const savedRaw = localStorage.getItem('stonesage_trainer_raw_draft');
+    if (savedRaw && !trainerRawInput.value) trainerRawInput.value = savedRaw;
+    trainerRawInput.addEventListener('input', (e) => {
+      try { localStorage.setItem('stonesage_trainer_raw_draft', e.target.value); } catch (_) {}
+    });
+  }
+}
+
+
 
 
 
