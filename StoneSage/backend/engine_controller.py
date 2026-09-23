@@ -11,40 +11,30 @@ from typing import Generator, Dict, Any, List
 
 logger = logging.getLogger("StoneSage.EngineController")
 
-ENGINE_REGISTRY = {
-    "coordinator": {
-        "port": 8001,
-        "host": "192.168.1.105",
-        "service": "llama-coordinator",
-        "device": "AMD RX 6750 XT 12GB (Vulkan0)",
-        "role": "Primary Reasoning & Code Generation",
-        "is_local": True,
-    },
-    "worker": {
-        "port": 8002,
-        "host": "192.168.1.105",
-        "service": "llama-worker",
-        "device": "AMD RX 6600 XT 8GB (Vulkan1)",
-        "role": "Home Agent & Draft Accelerator",
-        "is_local": True,
-    },
-    "embedder": {
-        "port": 8003,
-        "host": "192.168.1.105",
-        "service": "llama-embedder",
-        "device": "AMD RX 6600 XT 8GB (Vulkan1)",
-        "role": "BGE-Large 1024-d Vector Embedder",
-        "is_local": True,
-    },
-    "vision": {
-        "port": 8004,
-        "host": "192.168.1.105",
-        "service": "vision-server",
-        "device": "CPU (12 cores)",
-        "role": "Multimodal Vision (Qwen2.5-VL-7B)",
-        "is_local": True,
-    },
-}
+def engine_registry() -> Dict[str, Dict[str, Any]]:
+    """Engines from config.json (URLs) and the live system profile (GPU, model, systemd unit). Nothing hardcoded."""
+    import system_profile
+    from urllib.parse import urlparse
+    cfg = system_profile.load_cfg()
+    prof = system_profile.get_profile(cfg)
+    reg = {}
+    for role, key, purpose in system_profile.ROLES:
+        url = cfg.get("cluster", {}).get(key)
+        if not url:
+            continue
+        u = urlparse(url)
+        eng = prof.get("engines", {}).get(role) or {}
+        gpu = eng.get("gpu") or {}
+        device = gpu.get("name") or ("CPU" if eng.get("offloaded") else "unknown")
+        reg[role] = {
+            "port": u.port, "host": u.hostname,
+            "service": eng.get("unit") or f"llama-{role}",
+            "device": device,
+            "role": f"{purpose} ({eng['model']})" if eng.get("model") else purpose,
+            "is_local": True,
+        }
+    return reg
+
 
 def _is_valid_service_name(service_name: str) -> bool:
     return bool(re.match(r"^[a-zA-Z0-9\-]+$", service_name))
@@ -136,10 +126,11 @@ def fetch_engine_metrics(host: str, port: int, timeout: float = 1.5) -> dict:
 
 def build_engine_state(engine_key: str) -> dict:
     """Builds a unified engine state dictionary."""
-    if engine_key not in ENGINE_REGISTRY:
+    registry = engine_registry()
+    if engine_key not in registry:
         return {"error": f"Unknown engine key: {engine_key}"}
     
-    config = ENGINE_REGISTRY[engine_key]
+    config = registry[engine_key]
     host = config["host"]
     port = config["port"]
     
@@ -177,8 +168,9 @@ def build_engine_state(engine_key: str) -> dict:
 def build_all_engine_states() -> dict:
     """Builds state for all registered engines in parallel."""
     states = {}
-    with ThreadPoolExecutor(max_workers=len(ENGINE_REGISTRY)) as executor:
-        futures = {executor.submit(build_engine_state, key): key for key in ENGINE_REGISTRY.keys()}
+    registry = engine_registry()
+    with ThreadPoolExecutor(max_workers=max(len(registry), 1)) as executor:
+        futures = {executor.submit(build_engine_state, key): key for key in registry}
         for future in futures:
             key = futures[future]
             states[key] = future.result()
@@ -283,7 +275,8 @@ def reload_service(service_name: str, ssh_host: str = "192.168.1.105", ssh_user:
         
     # Poll for health
     engine_key = None
-    for k, v in ENGINE_REGISTRY.items():
+    registry = engine_registry()
+    for k, v in registry.items():
         if v["service"] == service_name and v["host"] == ssh_host:
             engine_key = k
             break
@@ -291,7 +284,7 @@ def reload_service(service_name: str, ssh_host: str = "192.168.1.105", ssh_user:
     if not engine_key:
         return {"ok": True, "restart_time_ms": (time.time() - start_time) * 1000, "new_state": {}}
         
-    config = ENGINE_REGISTRY[engine_key]
+    config = registry[engine_key]
     host = config["host"]
     port = config["port"]
     

@@ -1,7 +1,8 @@
 """
-Dual-GPU Cluster, Qdrant Vector Brain & Frontier Provider Client for StoneSage
-Bridges the 14B Coordinator (:8001), 3B Worker (:8002), BGE Embedder (:8003),
-Qdrant Memory (:6333), and external frontier APIs (OpenRouter, OpenAI, Anthropic, Gemini).
+Local cluster, Qdrant and frontier provider client for StoneSage.
+Bridges the engines in config.json cluster.* (coordinator, worker, embedder, vision), Qdrant memory,
+and external frontier APIs (OpenRouter, OpenAI, Anthropic, Gemini). Model names, context sizes and
+hardware come from system_profile at runtime.
 """
 
 import os
@@ -41,6 +42,21 @@ class ClusterClient:
         self.embedder_url = self.cluster_cfg.get("embedder_url", "http://192.168.1.105:8003/v1")
         self.mcp_url = self.cluster_cfg.get("mcp_url", "http://192.168.1.105:8765")
         self.qdrant_url = self.cluster_cfg.get("qdrant_url", "http://192.168.1.112:6333")
+        self.vision_url = self.cluster_cfg.get("vision_url", "http://192.168.1.105:8004/v1")
+        self.config = config
+
+    def _context_budget(self, model_name: str, reply_tokens: int) -> int:
+        """Prompt budget = the engine's real context per slot minus the reply, from the live profile."""
+        if model_name not in ("coordinator", "worker", "vision"):
+            return 30000  # frontier APIs
+        try:
+            import system_profile
+            ctx = ((system_profile.get_profile(self.config).get("engines") or {}).get(model_name) or {}).get("ctx_per_slot")
+        except Exception:
+            ctx = None
+        if not ctx:
+            return 3000  # unknown: stay small rather than overflow
+        return max(1024, int(ctx * 0.9) - min(reply_tokens, ctx // 2))
 
     def ping_endpoint(self, url: str, path: str = "/models", timeout: float = 2.0) -> Dict[str, Any]:
         """Probe latency and status of an AI endpoint, returning real model info if available."""
@@ -79,9 +95,7 @@ class ClusterClient:
         """Concurrently check status and latency across all local cluster nodes."""
         nodes = {
             "coordinator": (self.coordinator_url, "/models"),
-            "coordinator_14b": (self.coordinator_url, "/models"),  # legacy alias
             "worker": (self.worker_url, "/models"),
-            "worker_3b": (self.worker_url, "/models"),  # legacy alias
             "embedder_bge": (self.embedder_url, "/models"),
             "mcp_bridge": (self.mcp_url, "/health"),
             "qdrant_brain": (self.qdrant_url, "/readyz")
@@ -279,13 +293,13 @@ class ClusterClient:
     def stream_chat(self, target: str, messages: List[Dict[str, str]], params: Dict[str, Any]) -> Generator[str, None, None]:
         """
         Stream chat completions line-by-line via SSE.
-        Supports Local Cluster (14B Coordinator, 3B Worker), Google Gemini (OpenAI-compatible),
+        Supports the local engines (coordinator, worker, vision), Google Gemini (OpenAI-compatible),
         OpenAI, Anthropic, and OpenRouter with graceful local fallback if keys are unconfigured.
         """
         target_lower = target.lower()
         notice = None
 
-        if target_lower in ["worker", "3b", "worker_3b", "qwen-3b", "ornith-worker", "ornith-9b-worker"]:
+        if target_lower in ["worker", "fast", "draft"]:
             # Auto-failover check: probe worker endpoint connectivity
             w_stat = self.ping_endpoint(self.worker_url, timeout=0.8)
             if not w_stat.get("online"):
@@ -301,21 +315,13 @@ class ClusterClient:
                 base_url = self.worker_url
                 model_name = "worker"
             headers = {"Content-Type": "application/json"}
-        elif target_lower in ["moe", "ornith-1.5-35b-moe", "35b"]:
-            # MoE is a model architecture type hosted on the Primary Coordinator endpoint (:8001)
+        elif target_lower in ["coordinator", "moe", "hermes", "hermes_agentic", "agentic"]:
+            # "moe"/"hermes" are older config names for the coordinator engine
             base_url = self.coordinator_url
             model_name = "coordinator"
             headers = {"Content-Type": "application/json"}
-        elif target_lower in ["qwen38", "qwen3.8", "qwen3.8-27b", "qwen38_27b"]:
-            base_url = self.coordinator_url
-            model_name = "coordinator"
-            headers = {"Content-Type": "application/json"}
-        elif target_lower in ["coordinator", "14b", "coordinator_14b", "qwen-14b", "pve-coordinator", "ornith", "ornith-9b", "ornith-1.5-9b", "ornith-coordinator", "hermes", "hermes_agentic", "hermes-3", "agentic"]:
-            base_url = self.coordinator_url
-            model_name = "coordinator"
-            headers = {"Content-Type": "application/json"}
-        elif target_lower in ["vision", "gemma-4-vision", "vlm", "camera"]:
-            base_url = "http://192.168.1.105:8004/v1"
+        elif target_lower in ["vision", "vlm", "camera"]:
+            base_url = self.vision_url
             model_name = "vision"
             headers = {"Content-Type": "application/json"}
         elif target_lower in ["antigravity", "antigravity_director", "hybrid", "hybrid_frontier", "director"]:
@@ -506,12 +512,7 @@ class ClusterClient:
 
         # Context budgeting & sliding-window pruning
         # Prevents "request exceeds available context size" HTTP 400 errors.
-        if model_name in ["worker", "worker_3b"]:
-            context_budget = 7500
-        elif model_name in ["coordinator", "14b", "moe"]:
-            context_budget = 11000
-        else:
-            context_budget = 30000
+        context_budget = self._context_budget(model_name, int(params.get("max_tokens", 768)))
         dispatch_messages = self.prune_context_history(dispatch_messages, budget_tokens=context_budget)
 
         # Optimal quantized model sampling invariant

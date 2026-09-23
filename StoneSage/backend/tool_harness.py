@@ -506,6 +506,41 @@ import threading
 _SUBAGENT_TASKS: Dict[str, Dict[str, Any]] = {}
 _SUBAGENT_LOCK = threading.Lock()
 
+def _delegate_targets() -> List[tuple]:
+    """(chat URL, label) in fallback order: worker, edge nodes from config, coordinator. From config + live profile."""
+    import system_profile
+    cfg = system_profile.load_cfg()
+    cl = cfg.get("cluster", {})
+    out = []
+    if cl.get("worker_url"):
+        out.append((system_profile._base(cl["worker_url"]) + "/v1/chat/completions", system_profile.engine_label(cfg, "worker")))
+    for inst in cfg.get("harness_instances", []):
+        url = (inst.get("url") or "").rstrip("/")
+        if inst.get("engine") or url.endswith(":1234") or url.endswith(":11434"):
+            out.append((url + "/v1/chat/completions", inst.get("name", inst.get("id", "edge"))))
+    if cl.get("coordinator_url"):
+        out.append((system_profile._base(cl["coordinator_url"]) + "/v1/chat/completions",
+                    system_profile.engine_label(cfg, "coordinator") + " (fallback)"))
+    return out
+
+
+def _topology_lines() -> str:
+    """One line per live engine and configured edge node, e.g. '- worker (:8002): Qwen2.5 Coder 3B · RX 6750 XT'."""
+    try:
+        import system_profile
+        cfg = system_profile.load_cfg()
+        prof = system_profile.get_profile(cfg)
+        lines = [f"- {r} (:{e['port']}): {e['label']}" + (f", {e['ctx_per_slot']} ctx x {e['slots']} slots" if e.get("ctx_per_slot") else "")
+                 for r, e in (prof.get("engines") or {}).items() if e.get("online")]
+        for inst in cfg.get("harness_instances", []):
+            hw = inst.get("hardware") or {}
+            if inst.get("engine"):
+                lines.append(f"- edge: {inst.get('name')}" + (f" ({hw.get('cpu')}, {hw.get('ram_gb')} GB RAM)" if hw else ""))
+        return "\n".join(lines) or "- (no engines reachable)"
+    except Exception:
+        return "- (engine list unavailable)"
+
+
 def tool_delegate_worker(
     task: str,
     system_prompt: Optional[str] = None,
@@ -514,14 +549,14 @@ def tool_delegate_worker(
 ) -> Dict[str, Any]:
     """
     Delegates a bounded technical task, unit test, JSON schema, or code drafting
-    to the fast Worker node (RX 6600 XT :8002 running Qwen2.5-Coder-3B at 100+ tok/s).
+    to the fast worker engine (then any edge node from config, then the coordinator as a fallback).
     """
     clean_task = (task or "").strip()
     if not clean_task:
         return {"ok": False, "error": "Task description is required."}
 
     sys_sp = system_prompt or (
-        "You are the agile 3B Worker engine on the local cluster (RX 6600 XT :8002). "
+        "You are the fast worker engine on the local cluster. "
         "Austin and the Lead Coordinator rely on your speed. Deliver pure, production-grade code, "
         "tests, or data schemas immediately with zero boilerplate, conversational preamble, or markdown stage directions."
     )
@@ -531,11 +566,7 @@ def tool_delegate_worker(
         {"role": "user", "content": clean_task}
     ]
 
-    worker_urls = [
-        ("http://192.168.1.105:8002/v1/chat/completions", "worker-3b (RX 6600 XT :8002)"),
-        ("http://192.168.1.213:1234/v1/chat/completions", "rog-ally (LM Studio :1234)"),
-        ("http://192.168.1.105:8001/v1/chat/completions", "coordinator-fallback (:8001)")
-    ]
+    worker_urls = _delegate_targets()
 
     t0 = time.time()
     last_err = None
@@ -1035,7 +1066,7 @@ class ToolRegistry:
 
         self.register_tool(
             name="delegate_worker",
-            description="Delegates a bounded task, unit test, JSON schema, docstring, or code drafting to the fast local 3B Worker node (RX 6600 XT :8002 running Qwen2.5-Coder-3B at 100+ tok/s).",
+            description="Delegates a bounded task, unit test, JSON schema, docstring, or code drafting to the fast local worker engine.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -1412,13 +1443,10 @@ class ToolRegistry:
             tool_lines.append(f"- `{name}({', '.join(param_names)})`: {t['description']}")
         return (
             "### [HOMELAB AUTONOMOUS SOVEREIGN AGENT TOOL ENGINE]\n"
-            "You are operating within Austin's dual-GPU local cluster and homelab environment.\n"
-            "CLUSTER TOPOLOGY:\n"
-            "- Primary Coordinator (:8001): 14B deep logic & architecture engine on RX 6750 XT 12GB.\n"
-            "- Dedicated Worker (:8002): Fast 3B utility engine on RX 6600 XT 8GB running at 100+ tok/s.\n"
-            "- Roaming Edge Fleet (:1234): ROG Ally X running LM Studio.\n\n"
+            "You are operating within Austin's local cluster and homelab environment.\n"
+            f"CLUSTER TOPOLOGY (live):\n{_topology_lines()}\n\n"
             "MULTI-AGENT DELEGATION INVARIANTS:\n"
-            "1. Grunt Work Delegation: For generating unit tests, linting, docstrings, JSON transforms, or drafting boilerplate, CALL `delegate_worker(task=...)` to offload work to the 3B worker node without consuming coordinator tokens.\n"
+            "1. Grunt Work Delegation: For generating unit tests, linting, docstrings, JSON transforms, or drafting boilerplate, CALL `delegate_worker(task=...)` to offload work to the worker engine without consuming coordinator tokens.\n"
             "2. Background Multi-Step Missions: For multi-step exploration or autonomous tasks, CALL `spawn_subagent(name=..., role=..., mission=...)`.\n"
             "3. Autonomous Loop Holding: Hold the autonomous loop. Take consecutive tool actions (up to 15 turns) to inspect, execute, verify, and refine. Never ask the user to do what your tools can accomplish.\n\n"
             "SMART HOME REAL-TIME SENSORY INVARIANTS:\n"

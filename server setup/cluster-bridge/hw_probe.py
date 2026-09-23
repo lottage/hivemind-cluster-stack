@@ -107,6 +107,7 @@ def engines():
             "gpu_layers": _arg(args, "-ngl", "--n-gpu-layers"),
             "kv_cache_type": _arg(args, "-ctk", "--cache-type-k"),
             "visible_devices": env.get("GGML_VK_VISIBLE_DEVICES"),
+            "unit": (re.search(r"/([\w@.-]+\.service)", _read(f"/proc/{pid}/cgroup")) or [None, None])[1],
             "vram_mb_by_gpu": vram,  # pci -> MB actually resident in VRAM
             "rss_mb": int(re.search(r"VmRSS:\s*(\d+)", _read(f"/proc/{pid}/status")).group(1)) // 1024
             if "VmRSS" in _read(f"/proc/{pid}/status") else None,

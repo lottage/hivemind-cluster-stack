@@ -35,7 +35,7 @@ TRAILING_OFFER = re.compile(r"\s*(?:(?:would you like|do you want|shall i|should
                             r"\banything else\b[^.?!]*[?.!]|(?:let me know|feel free)[^.?!]*[.!])\s*$", re.I)
 NUDGE = "You described a tool call instead of making it. Call the right tool now; do not reply in text."
 
-HISTORY_TURNS = 4  # 2 exchanges: enough for follow-ups; longer history made the 14B skip tools (live eval)
+HISTORY_TURNS = 4  # 2 exchanges: enough for follow-ups; longer history made the coordinator model skip tools (live eval, Qwen3-14B)
 FRESH_FACTS = ("For the next message: device states, temperatures, who is where, camera views and household notes "
                "(cars, preferences, past events) must come from a tool call you make now, not from earlier replies or guesses.")
 
@@ -128,7 +128,7 @@ class CourageAgent:
             if text:
                 msgs.append({"role": m["role"], "content": text})
         if len(msgs) > 2:
-            # With history in context the 14B stops calling tools and answers from thin air; a late reminder fixes it
+            # With history in context the model stops calling tools and answers from thin air; a late reminder fixes it
             msgs.insert(len(msgs) - 1, {"role": "system", "content": FRESH_FACTS})
         return msgs
 

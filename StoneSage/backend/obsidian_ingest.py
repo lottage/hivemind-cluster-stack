@@ -417,7 +417,7 @@ class ObsidianIngestEngine:
         database: str = "ai_obsidian"
     ) -> Dict[str, Any]:
         """
-        Ingests a photo, executes Qwen2.5-VL vision analysis at :8004 (with 640px Lanczos resizing),
+        Ingests a photo, runs the vision engine (cluster.vision_url) on it (resized to 640px),
         creates a rich Obsidian note, and indexes into Qdrant & Valkey.
         """
         try:
@@ -461,7 +461,7 @@ class ObsidianIngestEngine:
             except Exception as e:
                 logger.debug(f"Pillow resizing error: {e}")
 
-        # Vision Model Inspection (:8004 Qwen2.5-VL-7B)
+        # Vision engine inspection (cluster.vision_url)
         vision_prompt = (
             "Analyze this image comprehensively for Austin's homelab archive. Provide:\n"
             "1. Concise Title (3-6 words)\n"

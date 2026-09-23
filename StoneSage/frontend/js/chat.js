@@ -4,6 +4,7 @@
  */
 
 import { State, saveChatHistory, safeStorage } from './state.js';
+import { engineLabel } from './profile.js';
 
 let autoScrollChat = true;
 
@@ -1191,7 +1192,7 @@ function formatChatContent(raw) {
   escaped = escaped.replace(/:::TOOL_CALL:::(.*?):::([\s\S]*?):::END_TOOL_CALL:::/g, (match, name, payload) => {
     const isSubagent = name === 'delegate_worker' || name === 'spawn_subagent';
     if (isSubagent) {
-      const label = name === 'delegate_worker' ? 'WORKER (:8002 Qwen2.5-Coder-3B)' : 'BACKGROUND SUBAGENT';
+      const label = name === 'delegate_worker' ? `WORKER (${escapeHtml(engineLabel('worker'))})` : 'BACKGROUND SUBAGENT';
       return `<div class="subagent-card">
         <div class="subagent-card-header">
           <span class="subagent-badge">🤖 SUBAGENT DISPATCH</span>
@@ -1213,7 +1214,7 @@ function formatChatContent(raw) {
   escaped = escaped.replace(/:::TOOL_RESULT:::(.*?):::([\s\S]*?):::END_TOOL_RESULT:::/g, (match, name, payload) => {
     const isSubagent = name === 'delegate_worker' || name === 'spawn_subagent' || name === 'get_subagent_task';
     if (isSubagent) {
-      const label = name === 'delegate_worker' ? 'WORKER (:8002 Qwen2.5-Coder-3B)' : 'BACKGROUND SUBAGENT';
+      const label = name === 'delegate_worker' ? `WORKER (${escapeHtml(engineLabel('worker'))})` : 'BACKGROUND SUBAGENT';
       return `<div class="subagent-result-card">
         <div class="subagent-card-header">
           <span class="subagent-badge success">🤖 SUBAGENT OUTPUT</span>

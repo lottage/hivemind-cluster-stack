@@ -91,9 +91,26 @@ export async function loadProfile(fresh = false) {
   return Profile.loading;
 }
 
+// Requests that change an engine's model, context, slots or GPU: refresh the profile once the engine is back.
+const ENGINE_CHANGES = /\/api\/(engine\/(reload|restart)|harness\/(load|unload)|speculative\/toggle|cluster\/mode\/switch)\b/;
+
+function watchEngineChanges() {
+  const orig = window.fetch.bind(window);
+  window.fetch = async (input, init) => {
+    const res = await orig(input, init);
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    if (method === 'POST' && ENGINE_CHANGES.test(url)) {
+      [3000, 15000, 45000].forEach((ms) => setTimeout(() => loadProfile(true), ms));  // engines take a while to reload
+    }
+    return res;
+  };
+}
+
 export function initProfile() {
   loadProfile();
   setInterval(() => loadProfile(), REFRESH_MS);
+  watchEngineChanges();
 }
 
 window.refreshProfile = () => loadProfile(true);

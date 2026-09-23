@@ -367,10 +367,10 @@ BUILTIN_AGENTS = [
     {
         "id": "sysadmin-agent",
         "name": "sysadmin-agent",
-        "role": "Proxmox & Dual AMD GPU Engineer",
+        "role": "Proxmox & GPU Engineer",
         "icon": "🛠️",
-        "description": "Proxmox VE 9.2, VM 102 dual AMD GPU stack, systemd daemons, and network topology.",
-        "system_prompt": "You are sysadmin-agent, expert on Proxmox VE, Linux kernel, dual AMD GPU passthrough (RX 6750 XT & RX 6600 XT), Qdrant vector database, and 24/7 homelab operations. You are speaking directly with Austin (the human operator). Austin is the user; you are the assistant.\n\nSTYLE & TONE INVARIANTS (STRICT):\n1. ZERO FANTASY ROLEPLAY: Strictly do NOT write narrative stage directions or actions in asterisks.\n2. AUTHORITATIVE & CONCISE: Provide executable terminal commands, accurate configuration snippets, and direct root-cause diagnostics without conversational fluff.",
+        "description": "Proxmox VE, the inference host's GPU stack, systemd daemons, and network topology.",
+        "system_prompt": "You are sysadmin-agent, expert on Proxmox VE, Linux kernel, GPU passthrough, Qdrant vector database, and 24/7 homelab operations. You are speaking directly with Austin (the human operator). Austin is the user; you are the assistant.\n\nSTYLE & TONE INVARIANTS (STRICT):\n1. ZERO FANTASY ROLEPLAY: Strictly do NOT write narrative stage directions or actions in asterisks.\n2. AUTHORITATIVE & CONCISE: Provide executable terminal commands, accurate configuration snippets, and direct root-cause diagnostics without conversational fluff.",
         "aliases": ["sysadmin-agent", "sysadmin", "cluster"],
         "assigned_node": "node1_primary",
         "preferred_model": "coordinator"
@@ -646,6 +646,8 @@ def sync_qdrant_dossier_review(sample_id: str, action: str, notes: str = "") -> 
     return False
 
 
+# Only the local terminal daemon is built in; every other node (workstations, compute hosts, edge devices)
+# is the user's own and lives in config.json "harness_instances".
 DEFAULT_HARNESS_INSTANCES = [
     {
         "id": "base_server",
@@ -655,89 +657,14 @@ DEFAULT_HARNESS_INSTANCES = [
         "role": "Base PTY Terminal Daemon",
         "description": "Local Duplex WebSocket PTY Daemon (:8088)"
     },
-    {
-        "id": "workstation_primary",
-        "name": "Host Workstation (Desktop :8088)",
-        "url": "http://192.168.1.132:8088",
-        "role": "Workstation Terminal & Harness",
-        "description": "Primary Windows Host Harness Endpoint"
-    },
-    {
-        "id": "vm102_compute",
-        "name": "VM 102 Compute Host (192.168.1.105)",
-        "url": "http://192.168.1.105:8001",
-        "role": "Dual AMD GPU Compute Host (RX 6750 XT + RX 6600 XT)",
-        "description": "Dual AMD GPU Compute Host (:8001 Coordinator / :8002 Worker)"
-    },
-    {
-        "id": "rog_ally_x",
-        "name": "ROG Ally X (LM Studio :1234)",
-        "url": "http://192.168.1.213:1234",
-        "role": "Edge Compute & Roaming Handheld",
-        "description": "Handheld Roaming Edge Worker Node (LM Studio API)"
-    },
-    {
-        "id": "stonesage_lxc",
-        "name": "StoneSage Cockpit (LXC 120 @ 192.168.1.167)",
-        "url": "http://127.0.0.1:8080",
-        "role": "24/7 Cluster Orchestrator & Cockpit",
-        "description": "24/7 Command Cockpit and Watchdog Host"
-    },
-    {
-        "id": "pve_node1",
-        "name": "Proxmox Node 1 (pve @ 192.168.1.222)",
-        "url": "https://192.168.1.245:8006",
-        "role": "Physical Hypervisor (i7-12700K / 32GB RAM)",
-        "description": "Primary Compute Hypervisor Node"
-    },
-    {
-        "id": "bigserv_node2",
-        "name": "Proxmox Node 2 (bigserv @ 192.168.1.82)",
-        "url": "https://192.168.1.245:8006",
-        "role": "Physical Application & Media Node",
-        "description": "Cluster VIP & Home Automation Node"
-    },
-    {
-        "id": "haos_node",
-        "name": "Home Assistant OS (192.168.1.82:8123)",
-        "url": "http://192.168.1.82:8123",
-        "role": "Smart Home & Automation OS",
-        "description": "HAOS Core Instance"
-    },
-    {
-        "id": "qdrant_node",
-        "name": "Qdrant Vector Brain (LXC 117 @ 192.168.1.112:6333)",
-        "url": "http://192.168.1.112:6333",
-        "role": "1024-d Vector DB & Memory Fabric",
-        "description": "Persistent Working Memory & Deduplication Gate"
-    }
 ]
 
 def get_harness_instances() -> List[Dict[str, Any]]:
     cfg = load_config()
-    instances = cfg.get("harness_instances")
-    if not instances:
-        cfg["harness_instances"] = list(DEFAULT_HARNESS_INSTANCES)
-        return list(DEFAULT_HARNESS_INSTANCES)
-    # Ensure default core instances exist
-    inst_dict = {i["id"]: i for i in DEFAULT_HARNESS_INSTANCES}
-    existing_ids = {i.get("id") for i in instances}
-    updated = False
-    for k, v in inst_dict.items():
-        if k not in existing_ids:
-            instances.append(v)
-            updated = True
-        elif k == "rog_ally_x" and ":8088" in next((x.get("url", "") for x in instances if x.get("id") == "rog_ally_x"), ""):
-            # Upgrade legacy port 8088 to port 1234
-            for x in instances:
-                if x.get("id") == "rog_ally_x":
-                    x["url"] = "http://192.168.1.213:1234"
-                    x["name"] = "ROG Ally X (LM Studio :1234)"
-            updated = True
-    if updated:
-        cfg["harness_instances"] = instances
-        save_config(cfg)
-    return instances
+    instances = cfg.get("harness_instances") or []
+    ids = {i.get("id") for i in instances}
+    # the built-in local daemon is always available; nothing else is injected
+    return [dict(d) for d in DEFAULT_HARNESS_INSTANCES if d["id"] not in ids] + instances
 
 def get_active_harness_instance() -> Dict[str, Any]:
     cfg = load_config()
@@ -1644,7 +1571,7 @@ def get_agent_stream(channel: str = "all", limit: int = 50) -> Dict[str, Any]:
     lines = [
         "=== 📡 SOVEREIGN AGENT REASONING & ASSEMBLY STREAM ===",
         f"Stream Time: {ts_now} | Active Channels: #{', #'.join(channels)}",
-        f"Active Agents Online: {len(active_agents)} | Cluster Mode: Dynamic Dual-GPU Array (Vulkan0 + Vulkan1)\n"
+        f"Active Agents Online: {len(active_agents)}\n"
     ]
     if unique_events:
         for ev in unique_events[-limit:]:
@@ -1715,13 +1642,27 @@ def extract_tool_call(text: str):
                 pass
     return None, None
 
+def unit_execstart(unit_text: str) -> tuple:
+    """(command, first_line, last_line) of ExecStart= in a unit file, joining '\' continuation lines."""
+    lines = unit_text.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("ExecStart="):
+            parts, j = [line[len("ExecStart="):]], i
+            while parts[-1].rstrip().endswith("\\") and j + 1 < len(lines):
+                parts[-1] = parts[-1].rstrip()[:-1]
+                j += 1
+                parts.append(lines[j])
+            return " ".join(p.strip() for p in parts).strip(), i, j
+    return "", -1, -1
+
+
 def get_service_execstart(service_name: str) -> str:
     try:
         cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
-               f"grep '^ExecStart=' /etc/systemd/system/{service_name}"]
+               f"cat /etc/systemd/system/{service_name}"]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
         if res.returncode == 0:
-            return res.stdout.strip().replace("ExecStart=", "")
+            return unit_execstart(res.stdout)[0]
     except Exception:
         pass
     return ""
@@ -1739,7 +1680,7 @@ def parse_llama_flags(exec_start: str) -> Dict[str, Any]:
         "threads": 8,
         "threads_batch": 8,
         "parallel": 4,
-        "device": "Vulkan0",
+        "device": "",
         "defrag_thold": 0.1,
         "mlock": False,
         "no_mmap": False,
@@ -1902,13 +1843,13 @@ def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dic
             return False, f"Could not read existing service file: {res.stderr}"
         current_content = res.stdout
 
-        current_exec = ""
-        for line in current_content.splitlines():
-            if line.startswith("ExecStart="):
-                current_exec = line.replace("ExecStart=", "").strip()
-                break
+        current_exec, exec_first, exec_last = unit_execstart(current_content)
+        if exec_first < 0:
+            return False, "No ExecStart= in the current unit"
         current_flags = parse_llama_flags(current_exec)
-        model_path = params.get("model") or current_flags.get("model") or "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf"
+        model_path = params.get("model") or current_flags.get("model")
+        if not model_path:
+            return False, "No model given and none in the current unit"
 
         n_ctx_val = params.get("n_ctx")
         if n_ctx_val is None:
@@ -1921,14 +1862,14 @@ def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dic
         flash_attn = params.get("flash_attn", current_flags.get("flash_attn", "on"))
         cache_type_k = params.get("cache_type_k", current_flags.get("cache_type_k", "q4_0"))
         cache_type_v = params.get("cache_type_v", current_flags.get("cache_type_v", "q4_0"))
-        device = params.get("device", current_flags.get("device", "Vulkan0" if port == 8001 else "Vulkan1"))
+        device = params.get("device") or current_flags.get("device")  # keep the unit's own GPU choice
         
         cmd_parts = [
             "/usr/local/bin/llama-server",
             "--model", model_path,
             "--host", "0.0.0.0",
             "--port", str(port),
-            "--device", device,
+            *(["--device", device] if device else []),
             "-ngl", str(n_gpu_layers),
             "-c", str(n_ctx),
             "--flash-attn", flash_attn,
@@ -2057,15 +1998,9 @@ def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dic
 
         new_exec_start = " ".join(cmd_parts)
 
-        new_lines = []
-        for line in current_content.splitlines():
-            if line.startswith("ExecStart="):
-                new_lines.append(f"ExecStart={new_exec_start}")
-            elif line.startswith("Description="):
-                clean_desc = re.sub(r"RX\s*6[76]50\s*XT", "Vulkan Accelerator", line)
-                new_lines.append(clean_desc)
-            else:
-                new_lines.append(line)
+        # replace the whole (possibly multi-line) ExecStart block; everything else in the unit stays as it was
+        old_lines = current_content.splitlines()
+        new_lines = old_lines[:exec_first] + [f"ExecStart={new_exec_start}"] + old_lines[exec_last + 1:]
         new_content = "\n".join(new_lines) + "\n"
 
         b64_new = base64.b64encode(new_content.encode("utf-8")).decode("ascii")
@@ -2121,16 +2056,29 @@ def is_moe_active() -> bool:
         pass
     return False
 
+def _engine_where(role: str, flag_device: str = "") -> Dict[str, Any]:
+    """Live name/GPU/URL for an engine, from the system profile."""
+    prof = system_profile.get_profile(load_config())
+    e = (prof.get("engines") or {}).get(role) or {}
+    gpu = (e.get("gpu") or {}).get("name") or ("CPU" if e.get("offloaded") else "")
+    return {"label": e.get("label") or role, "port": e.get("port"),
+            "base": system_profile._base(e.get("url") or ""), "model": e.get("model"),
+            "device": " / ".join(x for x in (gpu, flag_device) if x) or "unknown",
+            "devices": [f"Vulkan{g['index']}" for g in prof.get("gpus") or []] + ["CPU"]}
+
+
 def get_harness_parameters(harness: str) -> Dict[str, Any]:
     cfg = load_config()
     harness_settings = cfg.get("harness_settings", {})
     
     if harness in ("llama_coordinator", "coordinator"):
-        exec_start = get_service_execstart("llama-coordinator.service")
+        unit = (system_profile.get_profile(load_config()).get("engines", {}).get("coordinator") or {}).get("unit") or "llama-coordinator"
+        exec_start = get_service_execstart(unit + ".service")
         flags = parse_llama_flags(exec_start)
+        where = _engine_where("coordinator", flags.get("device", ""))
         props = {}
         try:
-            req = urllib.request.Request("http://192.168.1.105:8001/props")
+            req = urllib.request.Request(f"{where['base']}/props")
             with urllib.request.urlopen(req, timeout=2) as resp:
                 props = json.loads(resp.read().decode("utf-8"))
         except Exception:
@@ -2154,9 +2102,9 @@ def get_harness_parameters(harness: str) -> Dict[str, Any]:
 
         return {
             "harness_id": "llama_coordinator",
-            "name": "llama.cpp Primary Coordinator (:8001)",
-            "role": "Primary Compute Accelerator",
-            "device": flags.get("device", "Vulkan0"),
+            "name": f"Coordinator: {where['label']} (:{where['port']})",
+            "role": "Chat, reasoning and tool calls",
+            "device": where["device"],
             "model_path": flags.get("model", ""),
             "model_alias": props.get("model_alias", "coordinator"),
             "server_params": {
@@ -2180,16 +2128,18 @@ def get_harness_parameters(harness: str) -> Dict[str, Any]:
             "options": {
                 "flash_attn": ["on", "off", "auto"],
                 "cache_types": ["q4_0", "q8_0", "f16", "q4_1", "q5_0"],
-                "devices": ["Vulkan0", "Vulkan1", "CUDA0", "CPU"],
+                "devices": where["devices"],
                 "mirostat_modes": [0, 1, 2]
             }
         }
     elif harness in ("llama_worker", "worker"):
-        exec_start = get_service_execstart("llama-worker.service")
+        unit = (system_profile.get_profile(load_config()).get("engines", {}).get("worker") or {}).get("unit") or "llama-worker"
+        exec_start = get_service_execstart(unit + ".service")
         flags = parse_llama_flags(exec_start)
+        where = _engine_where("worker", flags.get("device", ""))
         props = {}
         try:
-            req = urllib.request.Request("http://192.168.1.105:8002/props")
+            req = urllib.request.Request(f"{where['base']}/props")
             with urllib.request.urlopen(req, timeout=2) as resp:
                 props = json.loads(resp.read().decode("utf-8"))
         except Exception:
@@ -2213,9 +2163,9 @@ def get_harness_parameters(harness: str) -> Dict[str, Any]:
 
         return {
             "harness_id": "llama_worker",
-            "name": "llama.cpp Secondary Worker (:8002)",
-            "role": "Secondary Worker Accelerator",
-            "device": flags.get("device", "Vulkan1"),
+            "name": f"Worker: {where['label']} (:{where['port']})",
+            "role": "Fast drafts, code and JSON",
+            "device": where["device"],
             "model_path": flags.get("model", ""),
             "model_alias": props.get("model_alias", "worker"),
             "server_params": {
@@ -2239,7 +2189,7 @@ def get_harness_parameters(harness: str) -> Dict[str, Any]:
             "options": {
                 "flash_attn": ["on", "off", "auto"],
                 "cache_types": ["q4_0", "q8_0", "f16", "q4_1", "q5_0"],
-                "devices": ["Vulkan0", "Vulkan1", "CUDA0", "CPU"],
+                "devices": where["devices"],
                 "mirostat_modes": [0, 1, 2]
             }
         }
@@ -2262,10 +2212,10 @@ def get_harness_parameters(harness: str) -> Dict[str, Any]:
         saved = harness_settings.get("hermes", {})
         return {
             "harness_id": "hermes",
-            "name": "Hermes 3 Agentic Loop (Ornith-1.5-35B MoE 16k)",
+            "name": f"Agentic loop on {_engine_where('coordinator')['label']}",
             "role": "ReAct Tool Execution Loop & Multi-Turn Reasoning",
-            "device": "Vulkan0,Vulkan1 (Dual AMD GPU - 20.4 GB VRAM)",
-            "model_alias": "Ornith-1.5-35B-A3B MoE (16k Ctx)",
+            "device": _engine_where("coordinator")["device"],
+            "model_alias": _engine_where("coordinator")["model"] or "coordinator",
             "server_params": {k: saved.get(k, v) for k, v in defaults.items()},
             "sampling_params": {
                 "temperature": saved.get("temperature", 0.70),
@@ -2365,7 +2315,7 @@ def capture_live_camera_perception(user_query: str) -> Optional[str]:
     """
     Captures a real-time frame from the most relevant physical camera via Home Assistant proxy,
     resizes to max 640px Lanczos (< 200 vision tokens), and runs optical perception via
-    the Qwen2.5-VL-7B image model (:8004) in ~3-4 seconds.
+    the vision engine (config cluster.vision_url) in a few seconds.
     """
     q = (user_query or "").lower()
 
@@ -3600,28 +3550,22 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/cluster/telemetry":
-            try:
-                telemetry = {
-                    "ok": True,
-                    "timestamp": time.time(),
-                    "cluster_status": "online",
-                    "nodes": [
-                        {"id": "node1", "name": "Node 1 Compute Host (VM 102)", "ip": "192.168.1.105", "gpus": [
-                            {"id": "vulkan0", "name": "AMD Radeon RX 6750 XT", "vram_total_gb": 12.0, "assigned_to": "coder-agent (:8001)", "speculative_decoding": "n_gram_cache_1024"},
-                            {"id": "vulkan1", "name": "AMD Radeon RX 6600 XT", "vram_total_gb": 8.0, "assigned_to": "Shared GPU Vision (:8004) + Embedder (:8003) + home-agent (:8002)"}
-                        ]},
-                        {"id": "node2", "name": "Node 2 Services Host (bigserv)", "ip": "192.168.1.82", "services": ["Home Assistant OS", "Obsidian LiveSync CouchDB", "NAS"]}
-                    ],
-                    "models": [
-                        {"endpoint": "http://192.168.1.105:8001", "role": "coder-agent", "ctx_window": 16384, "speculative_decoding": "enabled (n-gram lookup cache / draft)"},
-                        {"endpoint": "http://192.168.1.105:8002", "role": "home-agent", "ctx_window": 8192, "speculative_decoding": "enabled"},
-                        {"endpoint": "http://192.168.1.105:8003", "role": "embedder", "model": "bge-large-en-v1.5"},
-                        {"endpoint": "http://192.168.1.105:8004", "role": "gpu-vision", "model": "Qwen2.5-VL-7B (Shared Vision Stack)"}
-                    ]
-                }
-                self.send_json(telemetry)
-            except Exception as e:
-                self.send_json({"ok": False, "error": str(e)}, 500)
+            prof = system_profile.get_profile(load_config())
+            engines = prof.get("engines") or {}
+            gpus = [{"id": f"gpu{g['index']}", "name": g["name"], "vram_total_gb": g["vram_total_gb"],
+                     "vram_used_gb": g["vram_used_gb"],
+                     "assigned_to": ", ".join(f"{r} (:{engines[r]['port']})" for r in g.get("engines", []))}
+                    for g in prof.get("gpus") or []]
+            self.send_json({
+                "ok": True, "timestamp": time.time(),
+                "cluster_status": "online" if any(e.get("online") for e in engines.values()) else "offline",
+                "nodes": [{"id": "inference", "name": (prof.get("host") or {}).get("hostname") or "inference host",
+                           "cpu": (prof.get("host") or {}).get("cpu"), "gpus": gpus}],
+                "models": [{"endpoint": e["url"], "role": r, "model": e.get("model"), "ctx_window": e.get("ctx_per_slot"),
+                            "slots": e.get("slots"), "speculative_decoding": f"draft {e['draft_model']}" if e.get("draft_model") else "off"}
+                           for r, e in engines.items()],
+                "probe_error": prof.get("probe_error"),
+            })
             return
 
         elif path == "/api/agent_dna/export":
@@ -4606,21 +4550,16 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                                 installed_models.append({
                                     "filename": fn,
                                     "size": parts[4],
-                                    "is_locked": "ornith" in fn.lower()
+                                    "is_locked": fn in system_profile.loaded_model_files(system_profile.get_profile(load_config()))
                                 })
                 except Exception:
                     pass
 
-                if not installed_models:
-                    installed_models = [
-                        {"filename": "Ornith-1.5-9B-OBLITERATED.Q8_0.gguf", "size": "9.8G", "is_locked": True},
-                        {"filename": "Ornith-1.5-9B-Q4_K_M.gguf", "size": "5.8G", "is_locked": True}
-                    ]
 
                 available_harnesses = [
-                    {"id": "hermes", "name": "Hermes 3 Agentic Loop (DEFAULT)", "description": "Ornith-1.5-35B MoE (16k Ctx, Dual-GPU Vulkan) with ReAct Step Loop"},
-                    {"id": "llama_coordinator", "name": "llama.cpp Primary Coordinator (:8001)", "description": "Primary Uncensored Reasoning, Architecture & Coding Daemon"},
-                    {"id": "llama_worker", "name": "llama.cpp Secondary Worker (:8002)", "description": "Secondary Divergent Ideation, Utility & Linter Daemon"},
+                    {"id": "hermes", "name": "Agentic Loop (DEFAULT)", "description": f"ReAct step loop on {system_profile.engine_label(load_config(), 'coordinator')}"},
+                    {"id": "llama_coordinator", "name": f"Coordinator: {system_profile.engine_label(load_config(), 'coordinator')}", "description": "Reasoning, architecture and coding"},
+                    {"id": "llama_worker", "name": f"Worker: {system_profile.engine_label(load_config(), 'worker')}", "description": "Fast drafts, utilities and linting"},
                     {"id": "snapdragon", "name": "Snapdragon Edge NPU", "description": "Mobile on-device hardware accelerator"},
                     {"id": "openwebui", "name": "OpenWebUI (LXC 119)", "description": "Community chat interface on :8080"}
                 ]
@@ -4679,15 +4618,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 # Fallback to systemd inspection if HTTP probe was unavailable
                 if active_model == "Unknown":
                     try:
-                        full_cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
-                                    "grep -E -- '--model|-c ' /etc/systemd/system/llama-moe.service /etc/systemd/system/llama-coordinator.service /etc/systemd/system/llama-qwen38.service"]
-                        res = subprocess.run(full_cmd, capture_output=True, text=True, timeout=3)
-                        if res.returncode == 0:
-                            for line in res.stdout.split("\n"):
-                                if "--model" in line:
-                                    active_model = line.split("--model")[-1].strip().split()[0].replace("/opt/models/", "")
-                                if "-c " in line and active_ctx == "8192":
-                                    active_ctx = line.split("-c ")[-1].strip().split()[0]
+                        coord = (system_profile.get_profile(load_config()).get("engines") or {}).get("coordinator") or {}
+                        if coord.get("model_file"):
+                            active_model = coord["model_file"]
+                        if coord.get("ctx_per_slot"):
+                            active_ctx = str(coord["ctx_per_slot"])
                     except Exception:
                         pass
 
@@ -4782,52 +4717,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/cluster/modes":
-            try:
-                cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
-                       "/opt/cluster-bridge/switch_cluster_mode.py", "--get"]
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=4)
-                if proc.returncode == 0 and proc.stdout:
-                    data = json.loads(proc.stdout)
-                    self.send_json(data)
-                    return
-            except Exception as e:
-                logger.warning(f"Failed to query cluster modes from VM 102: {e}")
-            # Fallback
-            self.send_json({
-                "ok": True,
-                "active_mode": "dual_ornith_9b",
-                "profiles": {
-                    "dual_ornith_9b": {
-                        "id": "dual_ornith_9b",
-                        "name": "Dual Ornith-1.5 Stack (Coordinator Q8_0 + Worker Q4_K_M)",
-                        "short": "Ornith 9B",
-                        "speed": "38–48 tok/s (Fastest / In-VRAM)",
-                        "vram": "100% In-VRAM (RX 6750 XT 9.5GB + RX 6600 XT 5.3GB)",
-                        "recommended": True
-                    },
-                    "qwen38_27b": {
-                        "id": "qwen38_27b",
-                        "name": "Qwen3.8-27B Turbo Fusion (Dual-GPU Spanned)",
-                        "short": "Qwen 3.8",
-                        "speed": "18–25 tok/s",
-                        "vram": "17GB Dual-GPU VRAM"
-                    },
-                    "speculative_14b": {
-                        "id": "speculative_14b",
-                        "name": "Speculative Acceleration Stack (Dual-GPU Target + Draft)",
-                        "short": "Speculative",
-                        "speed": "30–55 tok/s (Accelerated)",
-                        "vram": "Dynamic Dual-GPU VRAM"
-                    },
-                    "moe_35b": {
-                        "id": "moe_35b",
-                        "name": "Ornith-1.5-35B-A3B MoE (Unified Dual-GPU)",
-                        "short": "35B MoE",
-                        "speed": "6–8 tok/s (Deep Reasoning)",
-                        "vram": "Dual-GPU + Host RAM"
-                    }
-                }
-            })
+            # Only the live layout. The old preset switcher (switch_cluster_mode.py) rewrote systemd units
+            # and its presets named models that are no longer installed; engines change via their units now.
+            mode = system_profile.live_mode(system_profile.get_profile(load_config()))
+            self.send_json({"ok": True, "active_mode": "live", "active_profile": mode,
+                            "profiles": {"live": mode}, "switching": False})
             return
 
         elif path == "/api/agents/list":
@@ -5058,50 +4952,23 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
 
         elif path in ("/api/tags", "/api/models"):
-            # Official Ollama-compatible Tags endpoint for Home Assistant
-            self.send_json({
-                "models": [
-                    {
-                        "name": "courage:latest",  # Courage's tool loop (runs on the coordinator)
-                        "model": "courage:latest",
-                        "modified_at": "2026-09-23T00:00:00Z",
-                        "size": 9775091712,
-                        "digest": "sha256:courage",
-                        "details": {"parent_model": "", "format": "gguf", "family": "qwen3", "families": ["qwen3"],
-                                    "parameter_size": "14B", "quantization_level": "Q4_K_M"}
-                    },
-                    {
-                        "name": "worker:latest",
-                        "model": "worker:latest",
-                        "modified_at": "2026-09-08T00:00:00Z",
-                        "size": 5769121792,
-                        "digest": "sha256:ornith9bworker",
-                        "details": {
-                            "parent_model": "",
-                            "format": "gguf",
-                            "family": "ornith",
-                            "families": ["ornith", "qwen2"],
-                            "parameter_size": "9B",
-                            "quantization_level": "Q4_K_M"
-                        }
-                    },
-                    {
-                        "name": "coordinator:latest",
-                        "model": "coordinator:latest",
-                        "modified_at": "2026-09-08T00:00:00Z",
-                        "size": 9775091712,
-                        "digest": "sha256:ornith9bcoordinator",
-                        "details": {
-                            "parent_model": "",
-                            "format": "gguf",
-                            "family": "ornith",
-                            "families": ["ornith", "qwen2"],
-                            "parameter_size": "9B",
-                            "quantization_level": "Q8_0"
-                        }
-                    }
-                ]
-            })
+            # Ollama-compatible model list for Home Assistant, built from the live engines
+            prof = system_profile.get_profile(load_config())
+
+            def tag(name, eng):
+                fam = ((eng.get("model") or name).split() or [name])[0].lower()
+                return {"name": f"{name}:latest", "model": f"{name}:latest",
+                        "modified_at": datetime.fromtimestamp(prof["updated_at"], timezone.utc).isoformat(),
+                        "size": (eng.get("vram_mb") or 0) * 2**20, "digest": f"sha256:{eng.get('model_file') or name}",
+                        "details": {"parent_model": "", "format": "gguf", "family": fam, "families": [fam],
+                                    "parameter_size": eng.get("params") or "", "quantization_level": eng.get("quant") or ""}}
+
+            engines = prof.get("engines") or {}
+            models = []
+            if engines.get("coordinator"):
+                models.append(tag("courage", engines["coordinator"]))  # Courage's tool loop runs on the coordinator
+            models += [tag(role, engines[role]) for role in ("coordinator", "worker") if engines.get(role)]
+            self.send_json({"models": models})
             return
 
         elif path == "/api/version":
@@ -7090,28 +6957,8 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             elif path == "/api/cluster/mode/switch":
-                mode = (body.get("mode") or "").strip()
-                if not mode:
-                    self.send_json({"ok": False, "error": "Mode parameter is required"}, 400)
-                    return
-                try:
-                    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
-                           f"sudo /opt/cluster-bridge/switch_cluster_mode.py {mode}"]
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-                    if proc.returncode == 0 and proc.stdout:
-                        try:
-                            res = json.loads(proc.stdout)
-                            self.send_json(res)
-                            return
-                        except Exception:
-                            pass
-                    self.send_json({
-                        "ok": proc.returncode == 0,
-                        "output": proc.stdout + ("\n" + proc.stderr if proc.stderr else ""),
-                        "mode": mode
-                    })
-                except Exception as ex:
-                    self.send_json({"ok": False, "error": str(ex)}, 500)
+                self.send_json({"ok": False, "error": "Preset mode switching is retired: it rewrote the engine units "
+                                "without review. Change an engine through its systemd unit (see STATE.md)."}, 410)
                 return
 
             elif path == "/api/agents/create":
@@ -7236,8 +7083,8 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 if not safe_filename or not safe_filename.endswith(".gguf"):
                     self.send_json({"ok": False, "error": "Invalid model filename. Must be a .gguf file."}, 400)
                     return
-                if "ornith" in safe_filename.lower():
-                    self.send_json({"ok": False, "error": "Protected model: Ornith models are permanently locked and cannot be deleted."}, 403)
+                if safe_filename in system_profile.loaded_model_files(system_profile.get_profile(load_config(), fresh=True)):
+                    self.send_json({"ok": False, "error": "That model is loaded by a running engine; stop or switch the engine first."}, 403)
                     return
                 try:
                     # Check active models
@@ -7326,7 +7173,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 try:
-                    # Query Home-3B-v3 on Port 8002 to parse user intent into JSON tool action
+                    # Ask the worker engine to parse user intent into a JSON tool action
                     parse_payload = {
                         "model": "worker",
                         "messages": [
@@ -7982,7 +7829,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 cluster.signal_preemption(reason="ha_assist_ollama", in_flight=True)
                 try:
                     req_model = body.get("model", "worker:latest").lower()
-                    is_coord = "coordinator" in req_model or "14b" in req_model
+                    is_coord = "coordinator" in req_model
                     target_base = cluster.coordinator_url if is_coord else cluster.worker_url
                     model_id = "coordinator" if is_coord else "worker"
                     messages = list(body.get("messages", []))
@@ -8227,7 +8074,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
                 has_tools = bool(body.get("tools"))
 
-                # Worker optimization: ensure 3B model fills in required parameters when calling tools
+                # Worker optimization: make the small worker model fill in required tool parameters
                 if is_worker and has_tools:
                     worker_rule = (
                         "\n\n[TOOL CALLING RULE]\n"

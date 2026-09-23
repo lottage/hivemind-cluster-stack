@@ -110,10 +110,12 @@ def _engine(role: str, purpose: str, url: str, probe_engines: Dict[int, Dict[str
         "role": role, "purpose": purpose, "url": url, "port": port, "online": online,
         "model": names["name"], "model_file": names["file"], "quant": names["quant"], "params": names["params"],
         "draft_model": model_names(live.get("draft_model_path"))["name"],
+        "draft_model_file": model_names(live.get("draft_model_path"))["file"],
         "mmproj": model_names(live.get("mmproj_path"))["file"],
         "ctx_per_slot": ctx_slot or (ctx_total // slots if ctx_total and slots else None),
         "ctx_total": ctx_total, "slots": slots, "kv_cache": live.get("kv_cache_type"),
         "flash_attn": live.get("flash_attn"),
+        "unit": (live.get("unit") or "").removesuffix(".service") or None,  # systemd unit on the inference host
         "gpu": {"index": gpu["index"], "name": gpu["name"], "short": gpu["short"]} if gpu else None,
         "vram_mb": sum(vram.values()) or None,
         "offloaded": bool(live) and not vram,  # running but nothing resident in VRAM: CPU/RAM
@@ -145,6 +147,18 @@ def build_profile(cfg: Dict[str, Any]) -> Dict[str, Any]:
             "gpus": gpus, "engines": engines, "probe_error": probe.get("error")}
 
 
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def load_cfg() -> Dict[str, Any]:
+    """config.json for modules that don't get it passed in (never raises)."""
+    try:
+        with open(CONFIG_PATH, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def get_profile(cfg: Dict[str, Any], fresh: bool = False) -> Dict[str, Any]:
     with _lock:
         if not fresh and _cache["profile"] and time.time() - _cache["at"] < CACHE_S:
@@ -162,3 +176,29 @@ def engine_label(cfg: Dict[str, Any], role: str, default: str = "") -> str:
         return (eng or {}).get("label") or default or role
     except Exception:
         return default or role
+
+
+def live_mode(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """The running engine layout as one 'cluster mode' entry (replaces the old hardcoded mode presets)."""
+    engines = profile.get("engines") or {}
+    coord, worker = engines.get("coordinator") or {}, engines.get("worker") or {}
+    vram = ", ".join(f"{g['short']} {g['vram_used_gb']}/{g['vram_total_gb']} GB" for g in profile.get("gpus") or [])
+    ctx = " / ".join(f"{e['ctx_per_slot']}×{e['slots'] or 1}" for e in (coord, worker) if e.get("ctx_per_slot"))
+    return {
+        "id": "live", "recommended": True,
+        "name": " + ".join(e["label"] for e in (coord, worker) if e.get("label")) or "No engines reachable",
+        "short": coord.get("params") or coord.get("model") or "offline",
+        "vram": vram or "unknown", "context": ctx,
+        "coordinator_model": coord.get("model_file"), "worker_model": worker.get("model_file"),
+        "description": "The engines as they are running now (read live, not a preset).",
+    }
+
+
+def loaded_model_files(profile: Dict[str, Any]) -> set:
+    """Model files the running engines have loaded (main, draft, mmproj): these must never be deleted."""
+    files = set()
+    for e in (profile.get("engines") or {}).values():
+        files.update(f for f in (e.get("model_file"), e.get("mmproj")) if f)
+        if e.get("draft_model_file"):
+            files.add(e["draft_model_file"])
+    return files

@@ -124,7 +124,7 @@ class ShortTermMemoryEngine:
 
     def compress_with_worker(self, raw_text: str) -> str:
         """
-        Call the 3B worker running at 80+ tok/s to compress raw text
+        Call the worker engine to compress raw text
         into a concise 1-2 sentence short-term memory entry.
         """
         prompt = (

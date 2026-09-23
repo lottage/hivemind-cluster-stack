@@ -271,10 +271,10 @@ export async function loadFleetInstances(forceRefresh = false) {
 
 function updateClusterHealthBadge(cluster, pingBadge, mobilePingBtn, topbarPingText, mobilePingText) {
   cluster = cluster || {};
-  const coord = cluster.coordinator || cluster.coordinator_14b;
+  const coord = cluster.coordinator;
   const embed = cluster.embedder_bge || cluster.embedder;
   const qdrant = cluster.qdrant_brain || cluster.qdrant;
-  const worker = cluster.worker || cluster.worker_3b;
+  const worker = cluster.worker;
 
   let bestLatency = coord?.online ? coord.latency_ms : (embed?.online ? embed.latency_ms : (qdrant?.online ? qdrant.latency_ms : null));
   const isOnline = Boolean(coord?.online || embed?.online || qdrant?.online);
@@ -327,8 +327,8 @@ function renderServiceHealth(res, pingBadge, mobilePingBtn, topbarPingText, mobi
 }
 
 function updateModelSelectors(cluster, topbarModelSelect, mobileModelText, modelsInfo = null, modesInfo = null) {
-  const coordData = cluster.coordinator || cluster.coordinator_14b || {};
-  const workerData = cluster.worker || cluster.worker_3b || {};
+  const coordData = cluster.coordinator || {};
+  const workerData = cluster.worker || {};
   const coordOnline = Boolean(coordData.online);
   const workerOnline = Boolean(workerData.online);
 
@@ -599,12 +599,12 @@ export function renderClusterModesList(modesData) {
             ${isAct ? '<span style="font-size:0.7rem; color:var(--term-accent-gold);">[ACTIVE]</span>' : ''}
           </div>
           <div style="font-size:0.72rem; color:var(--term-text-muted); margin-top:2px;">
-            Speed: <strong style="color:var(--term-accent-gold);">${escapeHtml(p.speed)}</strong> • VRAM: ${escapeHtml(p.vram || '')}
+            ${p.speed ? `Speed: <strong style="color:var(--term-accent-gold);">${escapeHtml(p.speed)}</strong> • ` : ''}${p.context ? `Context: ${escapeHtml(p.context)} • ` : ''}VRAM: ${escapeHtml(p.vram || '')}
           </div>
         </div>
-        <button type="button" class="term-cmd-btn" onclick="switchClusterMode('${p.id}')" ${isAct ? 'disabled' : ''} style="font-size:0.74rem; white-space:nowrap; ${isAct ? 'opacity:0.6;' : 'background:var(--term-accent-blue); color:#fff; font-weight:bold;'}">
+        ${modesData.switching === false ? '' : `<button type="button" class="term-cmd-btn" onclick="switchClusterMode('${p.id}')" ${isAct ? 'disabled' : ''} style="font-size:0.74rem; white-space:nowrap; ${isAct ? 'opacity:0.6;' : 'background:var(--term-accent-blue); color:#fff; font-weight:bold;'}">
           ${isAct ? '✔ LOADED' : '[⚡ ACTIVATE]'}
-        </button>
+        </button>`}
       </div>
     `;
   }).join('');
@@ -2767,3 +2767,11 @@ export async function handleSaveAgentDna() {
   }
 }
 
+
+// Re-label the model picker and health popover whenever the live profile changes (engine swap, new context size...)
+window.addEventListener('stonesage:profile', () => {
+  if (!cachedClusterHealth) return;
+  updateModelSelectors(cachedClusterHealth, document.getElementById('topbar-model-select'),
+    document.getElementById('mobile-model-text'), cachedModelsInfo, cachedClusterModes);
+  renderClusterHealthPopover(cachedClusterHealth, cachedProxmoxNodes);
+});
