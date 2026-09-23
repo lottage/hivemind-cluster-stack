@@ -25,8 +25,12 @@ DENY = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|do not|stop|never ?mind|leave
 TOOL_MARKUP = re.compile(r":::TOOL_(CALL|RESULT):::.*?:::END_TOOL_(CALL|RESULT):::", re.S)
 THINK = re.compile(r"<think>.*?</think>", re.S)
 # "I'll check the cameras", "let me look", "one moment": a promise to use a tool without calling it
-PROMISE = re.compile(r"\b(i'?ll|i will|let me|going to|one moment|checking)\b.{0,40}\b(check|look|see|find|search|increase|adjust|set|turn)"
+PROMISE = re.compile(r"\b(i'?ll|i will|let me|going to|one moment|checking|(would you like|do you want|want) me to)\b.{0,40}"
+                     r"\b(check|look|see|find|search|scan|increase|adjust|set|turn)"
                      r"|say yes to approve|\bshall i\b", re.I)  # an approval question only counts if a tool call made it
+# "Would you like me to check anything else?", "Let me know if...": filler that makes every reply end in a question
+TRAILING_OFFER = re.compile(r"\s*(?:(?:would you like|do you want|shall i|should i|want me to|can i|is there)[^.?!]*"
+                            r"\banything else\b[^.?!]*[?.!]|(?:let me know|feel free)[^.?!]*[.!])\s*$", re.I)
 NUDGE = "You described a tool call instead of making it. Call the right tool now; do not reply in text."
 
 HISTORY_TURNS = 4  # 2 exchanges: enough for follow-ups; longer history made the 14B skip tools (live eval)
@@ -159,13 +163,15 @@ class CourageAgent:
                 return
 
             calls = msg.get("tool_calls") or []
+            if not calls:
+                msg["content"] = TRAILING_OFFER.sub("", THINK.sub("", msg.get("content") or "")).strip()
             if not calls and not nudged and PROMISE.search(msg.get("content") or ""):
                 nudged = True
                 messages.append({"role": "assistant", "content": msg.get("content") or ""})
                 messages.append({"role": "user", "content": NUDGE})
                 continue
             if not calls:
-                text = THINK.sub("", msg.get("content") or "").strip()
+                text = msg["content"]
                 yield {"type": "final", "content": text or "I have nothing useful to add, which is rare."}
                 return
 

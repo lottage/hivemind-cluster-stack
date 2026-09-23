@@ -35,6 +35,8 @@ ALLOWED_SERVICES: Dict[str, List[str]] = {
 FILLER_WORDS = {"any", "all", "every", "the", "a", "an", "my", "our", "house", "home", "right", "now", "currently", "on", "off"}
 
 MAX_RESULT_CHARS = 1500
+STALE_MINUTES = 10  # presence_now(who) looks through a camera itself when the last sighting is older than this
+PEOPLE = ["austin", "savannah", "luna", "kylo"]
 MAX_ENTITIES = 25
 
 
@@ -66,8 +68,10 @@ class CourageTools:
         cams = list(CAMERAS)
         self.specs: Dict[str, Dict[str, Any]] = {
             "presence_now": {
-                "description": "Who (Austin, Savannah) and which pets (Luna the cat, Kylo the dog) were seen recently, when and on which camera.",
-                "parameters": _schema({}, []),
+                "description": "Where people (Austin, Savannah) and pets (Luna the cat, Kylo the dog) are: last camera sighting, when, "
+                               "and what they were doing. Pass `who` to find one of them: if their sighting is stale this also looks "
+                               "through the camera right now.",
+                "parameters": _schema({"who": {"type": "string", "enum": PEOPLE}}, []),
                 "handler": self._presence_now, "approval": False,
                 "status": "Checking who's about…",
             },
@@ -195,14 +199,30 @@ class CourageTools:
             return _clip({"ok": False, "error": f"{type(e).__name__}: {e}"})
 
     # ---- handlers ------------------------------------------------------------
-    def _presence_now(self) -> Dict[str, Any]:
+    @staticmethod
+    def _camera_key(label: Optional[str]) -> str:
+        """Sentry location label ('Kitchen/Living', 'Driveway/Front Door') -> CAMERAS key; indoor cam by default."""
+        first = (label or "").lower().split("/")[0].split()[0] if (label or "").strip() else ""
+        return next((k for k in CAMERAS if first and k.startswith(first)), "kitchen_living_room")
+
+    def _presence_now(self, who: str = "") -> Dict[str, Any]:
         state = self.deps.presence() or {}
         locs = state.get("locations") or {}
-        seen = {name: {"last_seen": v.get("last_seen"), "minutes_ago": v.get("minutes_ago"), "camera": v.get("camera")}
+        seen = {name: {"minutes_ago": v.get("minutes_ago"), "camera": v.get("camera"), "doing": v.get("doing")}
                 for name, v in locs.items()}
-        recent = [{"who": s.get("entity"), "when": s.get("timestamp")} for s in (state.get("recent_sightings") or [])[:5]]
-        return {"ok": True, "last_seen": seen, "recent_sightings": recent,
-                "note": "Anyone not listed has not been seen on camera recently; that does not prove they are out."}
+        who = (who or "").lower().strip()
+        if not who:
+            return {"ok": True, "last_seen": seen,
+                    "note": "Anyone not listed has not been seen on camera recently; that does not prove they are out."}
+        loc = seen.get(who)
+        out: Dict[str, Any] = {"ok": True, "who": who, "last_seen": loc or "no recent camera sighting"}
+        if loc is None or (loc.get("minutes_ago") or 0) > STALE_MINUTES:
+            cam = CAMERAS[self._camera_key(loc and loc.get("camera"))]
+            out["looked_now"] = {"camera": cam["name"],
+                                 "sees": self.deps.camera_look(cam["entity"], cam["name"]) or "camera snapshot or vision failed"}
+            out["note"] = ("The sighting was stale, so I looked just now. If they are not in this view, say where they "
+                           "were last seen and that you can't see them now.")
+        return out
 
     def _ha_get_states(self, domain: str, name_contains: str = "") -> Dict[str, Any]:
         res = self.deps.ha_states(domain) or {}

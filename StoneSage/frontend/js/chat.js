@@ -1188,13 +1188,9 @@ function formatChatContent(raw) {
         </details>
       </div>`;
     }
-    return `<div class="tool-call-card">
-      <div class="tool-call-header">
-        <span class="tool-call-badge">🔧 DISPATCHED TOOL</span>
-        <span class="tool-call-name">${name}</span>
-      </div>
-      <pre class="tool-call-payload">${payload}</pre>
-    </div>`;
+    // one-line chip: "🔧 camera_look · camera: kitchen_living_room", arguments one click away
+    const brief = payload.replace(/&quot;|[{}\n]/g, '').replace(/\s+/g, ' ').trim();
+    return `<details class="tool-chip"><summary>🔧 ${name}${brief ? ' · ' + brief.slice(0, 80) : ''}</summary><pre>${payload}</pre></details>`;
   });
 
   // 7. Render subagent & tool result cards
@@ -1214,13 +1210,8 @@ function formatChatContent(raw) {
         </details>
       </div>`;
     }
-    return `<div class="tool-result-card">
-      <div class="tool-result-header">
-        <span class="tool-result-badge">⚡ TOOL EXECUTION RESULT</span>
-        <span class="tool-result-name">${name}</span>
-      </div>
-      <pre class="tool-result-payload">${payload}</pre>
-    </div>`;
+    const failed = /&quot;ok&quot;:\s*false/.test(payload);
+    return `<details class="tool-chip ${failed ? 'fail' : 'ok'}"><summary>${failed ? '✗' : '✓'} ${name} result</summary><pre>${payload}</pre></details>`;
   });
 
   // 8. OpenClaw Invariant & Handover Tags
@@ -1236,6 +1227,8 @@ function formatChatContent(raw) {
   escaped = escaped.replace(/`([^`]+)`/g, '<code class="chat-inline-code">$1</code>');
   // Format linebreaks
   escaped = escaped.replace(/\n/g, '<br>');
+  // Tool chips sit in a tight row, not between blank lines
+  escaped = escaped.replace(/(?:<br>\s*)+(<details class="tool-chip)/g, '$1').replace(/(<\/details>)(?:\s*<br>)+/g, '$1');
   // Clean adjacent blockquotes
   escaped = escaped.replace(/<\/blockquote><br><blockquote class="chat-blockquote">/g, '<br>');
   return escaped;

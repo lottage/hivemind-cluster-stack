@@ -2734,3 +2734,11 @@ html, body {
 }
 
 
+
+/* Courage tool calls: compact one-line chips (click to expand) */
+.tool-chip { display: block; margin: 3px 0; font-family: var(--font-mono); font-size: 0.75rem; color: var(--term-text-dim, #8a94a6); }
+.tool-chip > summary { cursor: pointer; list-style: none; padding: 2px 8px; border-left: 2px solid var(--term-accent-gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-chip > summary::-webkit-details-marker { display: none; }
+.tool-chip.ok > summary { border-left-color: var(--term-accent-cyan, #00d97e); }
+.tool-chip.fail > summary { border-left-color: #e5534b; color: #e5534b; }
+.tool-chip > pre { margin: 4px 0 6px; padding: 6px 8px; background: var(--term-bg); border: 1px solid var(--term-border-dim); white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }

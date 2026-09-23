@@ -118,12 +118,25 @@ class HomePresenceHub:
                 "python3 -c \""
                 "import os, glob, json\n"
                 "files = sorted(glob.glob('/opt/cluster-bridge/wildlife/snapshots/*.jpg'), key=os.path.getmtime, reverse=True)[:" + str(limit) + "]\n"
+                # camera and what the subject was doing come from the sentry's activity log (not the filename)
+                "where = {}\n"
+                "try:\n"
+                "  fh = open('/opt/cluster-bridge/wildlife/WILDLIFE_ACTIVITY_LOG.md', 'rb'); fh.seek(0, 2); fh.seek(max(0, fh.tell() - 60000))\n"
+                "  for block in fh.read().decode('utf-8', 'replace').split('### Sighting')[1:]:\n"
+                "    info = {}\n"
+                "    for ln in block.splitlines():\n"
+                "      if ln.startswith('- **Location**: '): info['camera'] = ln[16:].split(' (')[0].strip()\n"
+                "      if ln.startswith('- **Summary**: '): info['doing'] = ln[15:].strip()[:120]\n"
+                "      if ln.startswith('- **Snapshot**: '): info['file'] = ln.split('snapshots/')[-1].strip(chr(96) + ' ')\n"
+                "    if info.get('file'): where[info['file']] = info\n"
+                "except Exception: pass\n"
                 "res = []\n"
                 "for f in files:\n"
                 "  b = os.path.basename(f)\n"
                 "  mtime = os.path.getmtime(f)\n"
                 "  size = os.path.getsize(f)\n"
-                "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size})\n"
+                "  w = where.get(b, {})\n"
+                "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size, 'camera': w.get('camera'), 'doing': w.get('doing')})\n"
                 "print(json.dumps(res))\n"
                 "\""
             )
@@ -140,6 +153,8 @@ class HomePresenceHub:
                         "entity": name_part,
                         "timestamp": dt.strftime("%Y-%m-%d %I:%M:%S %p"),
                         "mtime": it["mtime"],
+                        "camera": it.get("camera"),
+                        "doing": it.get("doing"),
                         "url": f"/api/presence/snapshot/{fn}"
                     })
         except Exception as e:
@@ -270,6 +285,8 @@ class HomePresenceHub:
                     "last_seen": s["timestamp"],
                     "mtime": s["mtime"],
                     "minutes_ago": round((time.time() - s["mtime"]) / 60.0, 1),
+                    "camera": s.get("camera"),
+                    "doing": s.get("doing"),
                     "snapshot": s["filename"]
                 }
 

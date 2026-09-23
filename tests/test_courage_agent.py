@@ -221,6 +221,33 @@ class TestCourageAgent(unittest.TestCase):
         events = run(agent, "loop forever")
         self.assertIn("round in circles", events[-1]["content"])
 
+    def test_find_stale_subject_looks_through_last_camera(self):
+        looks = []
+        llm = ScriptedLLM(tool_call("presence_now", {"who": "luna"}), reply("Luna is on the couch."))
+        agent, _ = make_agent(llm, looks=looks)
+        events = run(agent, "where is luna")
+        self.assertEqual(looks, ["camera.kitchen_living_room_hd_stream"])  # 12 min old > STALE_MINUTES
+        self.assertIn("looked_now", events[1]["result"])
+
+    def test_find_fresh_subject_does_not_look(self):
+        looks = []
+        llm = ScriptedLLM(tool_call("presence_now", {"who": "austin"}), reply("Austin was in 3 minutes ago."))
+        agent, _ = make_agent(llm, looks=looks)
+        run(agent, "where is austin")
+        self.assertEqual(looks, [])
+
+    def test_offer_to_check_is_nudged_into_a_call(self):
+        llm = ScriptedLLM(reply("Luna was last seen a while ago. Would you like me to check the cameras?"),
+                          tool_call("camera_look", {"camera": "kitchen_living_room"}), reply("She's on the couch."))
+        agent, _ = make_agent(llm)
+        events = run(agent, "where is luna")
+        self.assertEqual([e["type"] for e in events], ["tool_call", "tool_result", "final"])
+
+    def test_trailing_offer_is_trimmed(self):
+        llm = ScriptedLLM(reply("Luna is in the living room. Would you like me to check anything else?"))
+        agent, _ = make_agent(llm)
+        self.assertEqual(run(agent, "thanks")[-1]["content"], "Luna is in the living room.")
+
 
 if __name__ == "__main__":
     unittest.main()
