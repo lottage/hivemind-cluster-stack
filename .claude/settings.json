@@ -1,0 +1,37 @@
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "mcp__pve-cluster",
+      "mcp__cluster-work",
+      "Bash(ssh austin@192.168.1.105:*)",
+      "Bash(ssh -n austin@192.168.1.105:*)",
+      "Bash(ssh root@192.168.1.167:*)",
+      "Bash(ssh -n root@192.168.1.167:*)",
+      "Bash(scp:*)",
+      "Bash(curl:*)",
+      "Bash(python:*)",
+      "Bash(py:*)",
+      "Bash(pip install:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "WebFetch(domain:www.home-assistant.io)",
+      "WebFetch(domain:docs.frigate.video)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:huggingface.co)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(ssh root@192.168.1.229:*)",
+      "Bash(ssh root@192.168.1.82:*)",
+      "Bash(rm:*)"
+    ],
+    "deny": [
+      "Read(./_backups/**)"
+    ]
+  }
+}

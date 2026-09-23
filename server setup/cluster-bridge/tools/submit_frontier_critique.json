@@ -1,0 +1,30 @@
+{
+  "name": "submit_frontier_critique",
+  "description": "Submit a Tier-1 Frontier model audit and ground truth verdict for a specific exploration dossier, updating Qdrant memory and synthesis.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "exploration_id": {
+        "type": "string",
+        "description": "The exploration ID (e.g. EXP-20260905-XXXX)."
+      },
+      "verdict": {
+        "type": "string",
+        "description": "Verification verdict (e.g. 'CONFIRMED', 'REFINED', 'DEBUNKED', 'INCONCLUSIVE')."
+      },
+      "frontier_notes": {
+        "type": "string",
+        "description": "Detailed frontier analysis and ground truth dissection."
+      },
+      "refined_limits": {
+        "type": "string",
+        "description": "Refined immutable architecture invariant discovered."
+      }
+    },
+    "required": [
+      "exploration_id",
+      "verdict",
+      "frontier_notes"
+    ]
+  }
+}

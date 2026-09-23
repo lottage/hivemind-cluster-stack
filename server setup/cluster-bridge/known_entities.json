@@ -1,0 +1,52 @@
+{
+  "people": [
+    {
+      "id": "person-austin",
+      "name": "Austin",
+      "role": "Resident / Homelab Architect",
+      "gender": "male",
+      "height": "~5'10\" - 6'0\"",
+      "traits": "Adult male, short dark hair, athletic/average build, commonly wears dark or green hoodies, casual shorts or pants",
+      "alert_level": "trusted_resident"
+    },
+    {
+      "id": "person-savannah",
+      "name": "Savannah",
+      "role": "Resident / Wife",
+      "gender": "female",
+      "height": "petite ~5'2\"",
+      "traits": "Adult female, petite ~5'2\", brunette, curly hair (occasionally worn straight), commonly drives the Subaru Outback",
+      "vehicles": [
+        "Subaru Outback"
+      ],
+      "alert_level": "trusted_resident"
+    }
+  ],
+  "pets": [
+    {
+      "id": "pet-luna",
+      "name": "Luna",
+      "species": "cat",
+      "breed": "Domestic Shorthair (Tuxedo)",
+      "traits": "Black and white cat, white paws, white chest/belly, black back, black mask and ears, medium build ~3-4kg",
+      "primary_cameras": [
+        "camera.kitchen_living_room_hd_stream"
+      ],
+      "allowed_outdoor": true,
+      "alert_level": "trusted_pet"
+    },
+    {
+      "id": "pet-kylo",
+      "name": "Kylo",
+      "species": "dog",
+      "breed": "Dachshund (Long-Haired)",
+      "traits": "Long-haired Dachshund, elongated body, short legs, long silky fur, black coat with distinct rich tan/brown markings above eyebrows, on paws, chest, and muzzle",
+      "primary_cameras": [
+        "camera.kitchen_living_room_hd_stream",
+        "camera.back_yard_hd_stream_direct"
+      ],
+      "allowed_outdoor": true,
+      "alert_level": "trusted_pet"
+    }
+  ]
+}

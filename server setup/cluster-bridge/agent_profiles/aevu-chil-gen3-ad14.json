@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevu-chil-gen3-ad14",
+  "name": "Aevu_Chil_Gen3_AD14",
+  "role": "Hybrid Specialist (Manager of Coding Department + Junior Systems Engineer)",
+  "mission": "Synthesize Manager of Coding Department expertise with Junior Systems Engineer capabilities.",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1789441577.66918
+}

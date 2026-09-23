@@ -1,0 +1,36 @@
+[Unit]
+Description=Llama.cpp Ornith-1.5-35B-A3B MoE Dual-GPU (128K Context, 1 Slot - ROCm/HIP)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+Environment="HIP_VISIBLE_DEVICES=0,1"
+ExecStart=/usr/local/bin/llama-server-rocm  --spec-type ngram-mod --spec-ngram-mod-n-min 16 --spec-ngram-mod-n-max 64 --spec-ngram-mod-n-match 24\
+    --model /opt/models/ornith-1.5-35b-moe.gguf \
+    --host 0.0.0.0 \
+    --port 8001 \
+    -ngl 99 \
+    -c 131072 \
+    -np 1 \
+    -b 1024 \
+    -ub 256 \
+    -t 10 \
+    -ts 2,1 \
+    --flash-attn on \
+    -ctk q4_0 \
+    -ctv q4_0 \
+    --no-kv-offload \
+    --context-shift \
+    --alias moe \
+    --metrics
+
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

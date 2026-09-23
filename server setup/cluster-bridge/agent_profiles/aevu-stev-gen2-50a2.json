@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevu-stev-gen2-50a2",
+  "name": "Aevu_Stev_Gen2_50A2",
+  "role": "Hybrid Specialist (Manager of Coding Department + Information Hoarder)",
+  "mission": "Database integrity watcher",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1789441577.8346899
+}

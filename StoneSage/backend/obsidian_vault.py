@@ -58,6 +58,10 @@ class ObsidianVault:
             clean_path += ".md"
 
         full_path = os.path.join(self.vault_dir, clean_path)
+        obsidian_sub = os.path.join(self.vault_dir, "obsidian", clean_path)
+        if not os.path.exists(full_path) and os.path.exists(obsidian_sub):
+            full_path = obsidian_sub
+
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         is_update = os.path.exists(full_path)
@@ -66,7 +70,10 @@ class ObsidianVault:
             ts = time.strftime("%Y%m%d_%H%M%S")
             archive_filename = f"{os.path.basename(clean_path)}.{ts}.rev"
             archive_path = os.path.join(self.archive_dir, archive_filename)
-            shutil.copy2(full_path, archive_path)
+            try:
+                shutil.copy2(full_path, archive_path)
+            except Exception:
+                pass
 
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -133,7 +140,25 @@ class ObsidianVault:
         clean_path = os.path.normpath(rel_path).lstrip("\\/").replace("..", "")
         full_path = os.path.join(self.vault_dir, clean_path)
 
-        if not os.path.exists(full_path):
+        if not (os.path.exists(full_path) and os.path.isfile(full_path)):
+            obsidian_sub = os.path.join(self.vault_dir, "obsidian", clean_path)
+            if os.path.exists(obsidian_sub) and os.path.isfile(obsidian_sub):
+                full_path = obsidian_sub
+            else:
+                target_name = os.path.basename(clean_path).lower()
+                for root, _, files in os.walk(self.vault_dir):
+                    if "_archive" in root or ".git" in root:
+                        continue
+                    for f in files:
+                        if f.lower() == target_name:
+                            cand = os.path.join(root, f)
+                            if os.path.isfile(cand):
+                                full_path = cand
+                                break
+                    if os.path.exists(full_path) and os.path.isfile(full_path):
+                        break
+
+        if not (os.path.exists(full_path) and os.path.isfile(full_path)):
             return {"ok": False, "error": "Note not found"}
 
         with open(full_path, "r", encoding="utf-8", errors="replace") as f:

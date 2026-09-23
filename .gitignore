@@ -1,0 +1,125 @@
+# =====================================================================
+# Hive-Mind & StoneSage AI Stack - Git Ignore Specification (v0.03)
+# =====================================================================
+
+# Python Bytecode and Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# JavaScript / Node / Expo artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.expo/
+.next/
+
+# Local configuration files containing credentials
+StoneSage/backend/config.json
+.env
+*.env
+
+# Android binaries
+*.apk
+*.aab
+
+# Database & Runtime State
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/harness.db
+data/.cli_history
+data/autonomous_dossiers/*.md
+!data/autonomous_dossiers/.gitkeep
+
+# Operating System & IDE metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+
+# Scratch & Temporary directories
+*.tmp
+*.temp
+scratch/
+test_scratch/
+data/test_scratch/
+
+# Large binaries & experimental model files
+tinycpu_model/
+*.bin
+*.tar.gz
+*.zip
+*.gguf
+
+# Standalone development repos (skill is tracked in .agents/skills/)
+agent-nudge/
+
+# Sensitive backups & vaults
+data/couchdb_legitimate_backup.json
+vault_backup/
+StoneSage/vault_backup/
+*.crt
+*.pem
+*.key
+*.pfx
+*.p12
+
+# Local log files
+*.log
+
+# Local snapshot backups
+_backups/
+
+# Claude Code per-user settings
+.claude/settings.local.json
+vm102_report.txt
+
+# Generated audio, Blender scenes and scratch output
+*.mp3
+*.blend
+*.blend1
+scan_result.txt
+addon_inspected.py
+
+# Runtime state and personal data (profiles describe family members)
+data/garden_log.json
+data/backups/
+data/profiles/
+pipeline-gguf-trainer/data/

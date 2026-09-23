@@ -88,27 +88,34 @@ class ShortTermMemoryEngine:
             "active_plan": self.active_plan
         }
 
-    def format_for_prompt(self, max_tokens: int = 300) -> str:
+    def format_for_prompt(self, max_tokens: int = 150) -> str:
         """
-        Format active RAM context as a compact, low-context header
-        suitable for feeding to 14B or cloud models.
+        Format active RAM context as an ultra-compact atomic header (< 150 tokens total)
+        to prevent context oversaturation and eliminate model lag.
         """
         if not self.working_items and not self.pinned_context and not self.active_plan:
             return ""
 
-        lines = ["[SHORT-TERM WORKING MEMORY (RAM Cache)]:"]
+        lines = ["[WORKING MEMORY (A-MEM / RAM)]:"]
         if self.pinned_context:
-            lines.append(f"• Pinned Context: {self.pinned_context.strip()}")
+            pinned = self.pinned_context.strip()
+            if len(pinned) > 140:
+                pinned = pinned[:140] + "..."
+            lines.append(f"• Pinned: {pinned}")
         
-        for item in self.working_items[:8]:
-            lines.append(f"• [{item['category'].upper()}] {item['key']}: {item['value']}")
+        for item in self.working_items[:5]:
+            val = str(item.get('value', '')).strip()
+            # Bounded to ~35 tokens (approx 140 chars)
+            if len(val) > 140:
+                val = val[:140] + "..."
+            lines.append(f"• [{item['category'].upper()}] {item['key']}: {val}")
 
         if self.active_plan:
             title = self.active_plan.get("title", "Active Task")
             steps = self.active_plan.get("steps", [])
             current_step = next((s for s in steps if s.get("status") == "running"), None)
             step_desc = current_step.get("desc", "Executing") if current_step else "Ready"
-            lines.append(f"• [ACTIVE PLAN]: {title} -> Current Step: {step_desc}")
+            lines.append(f"• [PLAN]: {title} -> {step_desc}")
 
         out = "\n".join(lines)
         if len(out) > max_tokens * 4:

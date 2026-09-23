@@ -1,0 +1,18 @@
+[Unit]
+Description=Sovereign Cluster 24/7 Wildlife & Perimeter Sentinel Daemon
+After=network.target vision-server.service llama-coordinator.service
+
+[Service]
+EnvironmentFile=-/etc/stonesage/secrets.env
+Type=simple
+User=austin
+WorkingDirectory=/opt/cluster-bridge/wildlife
+ExecStart=/usr/bin/python3 -u /opt/cluster-bridge/wildlife_sentry_daemon.py
+Restart=always
+RestartSec=8
+StandardOutput=journal
+StandardError=journal
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

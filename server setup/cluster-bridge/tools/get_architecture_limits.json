@@ -1,0 +1,9 @@
+{
+  "name": "get_architecture_limits",
+  "description": "Retrieve the master living synthesis of discovered model architecture limits, strengths, failure modes, and heuristics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=PVE Out-of-Band Hardware Fencing Watchdog (KP125 Smart Plug Power Cycler)
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/stonesage/secrets.env
+Type=simple
+User=root
+WorkingDirectory=/opt/pve-watchdog
+ExecStart=/usr/bin/python3 /opt/pve-watchdog/pve_hardware_watchdog.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

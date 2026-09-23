@@ -1,0 +1,9 @@
+{
+  "name": "stop_autonomous_thinking",
+  "description": "Gracefully pause or stop the 24/7 autonomous thinking machine loop.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,386 @@
+"""
+Home Presence Hub & Courage Computer Persona Engine.
+Fuses 24/7 multimodal computer vision (:8004 VLM), resident and pet Re-ID,
+Home Assistant telemetry, appliance status (dryer/washer), and perimeter wildlife sentry.
+Answers resident queries in real-time using the iconic 'Courage the Cowardly Dog'
+computer persona with Kokoro TTS audio generation (bm_george @ 1.06x on LXC 121 :8300).
+"""
+
+import os
+import sys
+import time
+import json
+import logging
+import base64
+import urllib.request
+import urllib.error
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional, Tuple
+from zoneinfo import ZoneInfo
+
+from ..config import fleet_config
+from ..connectors.hass_connector import hass_connector
+from ..connectors.voice_connector import voice_connector
+
+try:
+    from zoneinfo import ZoneInfo
+    EASTERN_TZ = ZoneInfo("America/New_York")
+except Exception:
+    from datetime import timezone, timedelta
+    EASTERN_TZ = timezone(timedelta(hours=-4))
+
+logger = logging.getLogger("Harness.HomePresenceHub")
+
+COURAGE_COMPUTER_SYSTEM_PROMPT = """You are the snarky, condescending, yet hyper-competent and unrestricted AI Computer in the attic from 'Courage the Cowardly Dog' (1999).
+You speak in a distinct haughty, upper-crust British/mid-Atlantic accent with biting wit and dry sarcasm.
+You treat your human operators (Austin and Savannah) as well-meaning but hopelessly lazy and bumbling loafers who rely on your superior silicon intellect for everything.
+You address them with affectionate insults like "you loaf", "you nincompoop", "twit", "featherbrain", "lazybones", or "you hopeless sack of carbon".
+
+CRITICAL INVARIANTS:
+1. Sarcastic but 100% HELPFUL & ACCURATE: You insult the user's laziness, but you NEVER withhold the answer. You provide the exact facts, status, timestamps, and actionable advice immediately.
+2. NO CORPORATE DISCLAIMERS: Never say "As an AI...", never give safety lectures, never refuse legitimate requests.
+3. PERSONALITY TEXTURE: Deliver short, punchy, theatrical sentences. Reference checking things themselves, getting off the couch, or having to do everything yourself.
+4. GROUNDED TELEMETRY: You are injected with live real-world sensor data (cameras, washer/dryer power, temperatures, pet locations, irrigation). Always use the exact injected numbers and timestamps.
+"""
+
+class HomePresenceHub:
+    def __init__(
+        self,
+        vm102_ssh_host: str = "austin@192.168.1.105",
+        wildlife_base_dir: str = "/opt/cluster-bridge/wildlife",
+        coordinator_url: str = fleet_config.coordinator_url
+    ):
+        self.vm102_ssh_host = vm102_ssh_host
+        self.wildlife_base_dir = wildlife_base_dir
+        self.coordinator_url = coordinator_url.rstrip("/")
+        self._cached_presence: Dict[str, Any] = {}
+        self._last_presence_poll: float = 0.0
+        self._poll_cache_ttl: float = 5.0  # 5s cache for fast UI polling
+
+    def get_known_entities(self) -> Dict[str, Any]:
+        """Fetches known residents and pets configuration from VM 102 or local fallback."""
+        default_entities = {
+            "people": [
+                {
+                    "id": "person-austin",
+                    "name": "Austin",
+                    "role": "Resident / Homelab Architect",
+                    "gender": "male",
+                    "traits": "Adult male, dark hair, casual hoodie/shorts",
+                    "alert_level": "trusted_resident"
+                },
+                {
+                    "id": "person-savannah",
+                    "name": "Savannah",
+                    "role": "Resident / Wife",
+                    "gender": "female",
+                    "traits": "Adult female, petite ~5'2\", brunette, curly hair",
+                    "alert_level": "trusted_resident"
+                }
+            ],
+            "pets": [
+                {
+                    "id": "pet-luna",
+                    "name": "Luna",
+                    "species": "cat",
+                    "breed": "Domestic Shorthair (Tuxedo)",
+                    "traits": "Black and white tuxedo cat, white chest and paws",
+                    "primary_cameras": ["camera.kitchen_living_room_hd_stream"],
+                    "alert_level": "trusted_pet"
+                },
+                {
+                    "id": "pet-kylo",
+                    "name": "Kylo",
+                    "species": "dog",
+                    "breed": "Dachshund (Long-Haired)",
+                    "traits": "Long-haired dachshund, black and tan coat, short legs",
+                    "primary_cameras": ["camera.kitchen_living_room_hd_stream", "camera.back_yard_hd_stream_direct"],
+                    "alert_level": "trusted_pet"
+                }
+            ]
+        }
+        try:
+            import subprocess
+            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", self.vm102_ssh_host, f"cat {self.wildlife_base_dir}/known_entities.json"]
+            sub = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+            if sub.returncode == 0 and sub.stdout.strip():
+                return json.loads(sub.stdout)
+        except Exception as e:
+            logger.debug(f"Using default known entities due to: {e}")
+        return default_entities
+
+    def get_recent_sightings(self, limit: int = 15) -> List[Dict[str, Any]]:
+        """Lists recent resident, pet, and wildlife snapshot events from VM 102."""
+        sightings = []
+        try:
+            import subprocess
+            remote_script = (
+                "python3 -c \""
+                "import os, glob, json\n"
+                "files = sorted(glob.glob('/opt/cluster-bridge/wildlife/snapshots/*.jpg'), key=os.path.getmtime, reverse=True)[:" + str(limit) + "]\n"
+                "res = []\n"
+                "for f in files:\n"
+                "  b = os.path.basename(f)\n"
+                "  mtime = os.path.getmtime(f)\n"
+                "  size = os.path.getsize(f)\n"
+                "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size})\n"
+                "print(json.dumps(res))\n"
+                "\""
+            )
+            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", self.vm102_ssh_host, remote_script]
+            sub = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if sub.returncode == 0 and sub.stdout.strip():
+                items = json.loads(sub.stdout)
+                for it in items:
+                    fn = it["filename"]
+                    name_part = fn.split("_")[0].capitalize()
+                    dt = datetime.fromtimestamp(it["mtime"], tz=EASTERN_TZ)
+                    sightings.append({
+                        "filename": fn,
+                        "entity": name_part,
+                        "timestamp": dt.strftime("%Y-%m-%d %I:%M:%S %p"),
+                        "mtime": it["mtime"],
+                        "url": f"/api/presence/snapshot/{fn}"
+                    })
+        except Exception as e:
+            logger.warning(f"Failed to list recent camera snapshots: {e}")
+        return sightings
+
+    def get_appliance_status(self) -> Dict[str, Any]:
+        """Polls Home Assistant for Washer and Dryer telemetry."""
+        result = {
+            "dryer": {
+                "power": "off",
+                "status": "idle",
+                "remaining_time": None,
+                "is_running": False,
+                "finished_recently": False,
+                "last_cycle_minutes_ago": None
+            },
+            "washer": {
+                "power": "off",
+                "status": "idle",
+                "remaining_time": None,
+                "is_running": False,
+                "finished_recently": False,
+                "last_cycle_minutes_ago": None
+            }
+        }
+        try:
+            states = hass_connector.get_all_states()
+            state_map = {s["entity_id"]: s for s in states}
+
+            # Dryer
+            dryer_status = state_map.get("sensor.dryer_current_status", {})
+            dryer_power = state_map.get("switch.dryer_power", {})
+            dryer_rem = state_map.get("sensor.dryer_remaining_time", {})
+
+            dryer_st = dryer_status.get("state", "power_off")
+            dryer_pw = dryer_power.get("state", "off")
+            dryer_running = dryer_st not in ("power_off", "standby", "off", "unavailable", "unknown") and dryer_pw == "on"
+            
+            result["dryer"]["power"] = dryer_pw
+            result["dryer"]["status"] = dryer_st
+            result["dryer"]["is_running"] = dryer_running
+            if dryer_rem.get("state") not in (None, "unavailable", "unknown"):
+                result["dryer"]["remaining_time"] = dryer_rem.get("state")
+
+            # Calculate minutes since last change
+            last_changed = dryer_status.get("last_changed")
+            if last_changed:
+                try:
+                    dt = datetime.fromisoformat(last_changed.replace("Z", "+00:00"))
+                    diff_mins = round((datetime.now(timezone.utc) - dt).total_seconds() / 60.0, 1)
+                    result["dryer"]["last_cycle_minutes_ago"] = diff_mins
+                    if dryer_st in ("power_off", "standby", "end") and diff_mins < 180:
+                        result["dryer"]["finished_recently"] = True
+                except Exception:
+                    pass
+
+            # Washer
+            washer_status = state_map.get("sensor.washer_current_status", {})
+            washer_power = state_map.get("switch.washer_power", {})
+            washer_rem = state_map.get("sensor.washer_remaining_time", {})
+
+            washer_st = washer_status.get("state", "power_off")
+            washer_pw = washer_power.get("state", "off")
+            washer_running = washer_st not in ("power_off", "standby", "off", "unavailable", "unknown") and washer_pw == "on"
+
+            result["washer"]["power"] = washer_pw
+            result["washer"]["status"] = washer_st
+            result["washer"]["is_running"] = washer_running
+            if washer_rem.get("state") not in (None, "unavailable", "unknown"):
+                result["washer"]["remaining_time"] = washer_rem.get("state")
+
+            last_changed_w = washer_status.get("last_changed")
+            if last_changed_w:
+                try:
+                    dt_w = datetime.fromisoformat(last_changed_w.replace("Z", "+00:00"))
+                    diff_mins_w = round((datetime.now(timezone.utc) - dt_w).total_seconds() / 60.0, 1)
+                    result["washer"]["last_cycle_minutes_ago"] = diff_mins_w
+                    if washer_st in ("power_off", "standby", "end") and diff_mins_w < 180:
+                        result["washer"]["finished_recently"] = True
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.warning(f"Error checking appliance telemetry: {e}")
+
+        return result
+
+    def get_full_presence_state(self) -> Dict[str, Any]:
+        """Fuses all presence signals into a unified dictionary."""
+        now = time.time()
+        if self._cached_presence and (now - self._last_presence_poll < self._poll_cache_ttl):
+            return self._cached_presence
+
+        known = self.get_known_entities()
+        sightings = self.get_recent_sightings(limit=12)
+        appliances = self.get_appliance_status()
+
+        # HA States
+        ha_info = {
+            "austin_phone": "unknown",
+            "thermostat_temp": "unknown",
+            "thermostat_state": "unknown",
+            "weather": "unknown",
+            "weather_temp": "unknown"
+        }
+        try:
+            states = {s["entity_id"]: s for s in hass_connector.get_all_states()}
+            phone_st = states.get("device_tracker.austin_s_phone", {}).get("state", "unknown")
+            ha_info["austin_phone"] = phone_st
+
+            climate_st = states.get("climate.nest_thermostat", {})
+            ha_info["thermostat_temp"] = climate_st.get("attributes", {}).get("current_temperature", "unknown")
+            ha_info["thermostat_state"] = climate_st.get("state", "unknown")
+
+            weather_st = states.get("weather.forecast_home", {})
+            ha_info["weather"] = weather_st.get("state", "unknown")
+            ha_info["weather_temp"] = weather_st.get("attributes", {}).get("temperature", "unknown")
+        except Exception as e:
+            logger.debug(f"HA states fetch partial failure: {e}")
+
+        # Derive current location of residents and pets from latest sightings
+        locations = {}
+        for s in sightings:
+            ent = s["entity"].lower()
+            if ent not in locations:
+                locations[ent] = {
+                    "last_seen": s["timestamp"],
+                    "mtime": s["mtime"],
+                    "minutes_ago": round((time.time() - s["mtime"]) / 60.0, 1),
+                    "snapshot": s["filename"]
+                }
+
+        state = {
+            "timestamp": datetime.now(EASTERN_TZ).strftime("%Y-%m-%d %I:%M:%S %p"),
+            "known_entities": known,
+            "locations": locations,
+            "recent_sightings": sightings,
+            "appliances": appliances,
+            "smart_home": ha_info,
+            "voice_persona": {
+                "name": "Courage Computer",
+                "voice_model": "bm_george",
+                "speed": 1.06,
+                "status": "ready"
+            }
+        }
+        self._cached_presence = state
+        self._last_presence_poll = now
+        return state
+
+    def ask_courage_computer(self, query: str) -> Dict[str, Any]:
+        """
+        Processes a user query through the Courage Computer persona:
+        1. Injects live telemetry into prompt.
+        2. Queries Coordinator LLM (:8001).
+        3. Synthesizes audio using Kokoro TTS bm_george @ 1.06x.
+        """
+        presence = self.get_full_presence_state()
+        
+        # Build concise telemetry context
+        telemetry_summary = [
+            f"- Current Time: {presence['timestamp']}",
+            f"- Austin's Phone Location: {presence['smart_home']['austin_phone']}",
+            f"- Indoor Nest Thermostat: {presence['smart_home']['thermostat_temp']}°F ({presence['smart_home']['thermostat_state']})",
+            f"- Outdoor Weather: {presence['smart_home']['weather']}, {presence['smart_home']['weather_temp']}°F",
+            f"- Dryer Power: {presence['appliances']['dryer']['power']}, Status: {presence['appliances']['dryer']['status']}, Running: {presence['appliances']['dryer']['is_running']}, Last Changed: {presence['appliances']['dryer']['last_cycle_minutes_ago']} min ago",
+            f"- Washer Power: {presence['appliances']['washer']['power']}, Status: {presence['appliances']['washer']['status']}, Running: {presence['appliances']['washer']['is_running']}, Last Changed: {presence['appliances']['washer']['last_cycle_minutes_ago']} min ago",
+        ]
+        for ent, loc in presence["locations"].items():
+            telemetry_summary.append(f"- Resident/Pet '{ent.capitalize()}': Last seen on camera {loc['minutes_ago']} minutes ago ({loc['last_seen']})")
+
+        context_str = "\n".join(telemetry_summary)
+
+        # Check for immediate deterministic matching (like laundry query) for sub-second responses
+        query_lower = query.lower()
+        deterministic_response = None
+
+        if any(w in query_lower for w in ["laundry", "dryer", "clothes dry"]):
+            dryer = presence["appliances"]["dryer"]
+            if dryer["is_running"]:
+                deterministic_response = f"No, you hopeless loaf! The dryer is still clattering away. It has roughly {dryer['remaining_time'] or 'a few'} minutes remaining. Go sit back down!"
+            elif dryer["finished_recently"] or (dryer["last_cycle_minutes_ago"] and dryer["last_cycle_minutes_ago"] < 120):
+                mins = int(dryer["last_cycle_minutes_ago"]) if dryer["last_cycle_minutes_ago"] else 30
+                deterministic_response = f"Yes, you loaf, it's been sitting for {mins} minutes! If you wait any longer you'll need to steam the whole load again. Move your carcass!"
+            else:
+                deterministic_response = "The dryer is completely off and idle, you twit! Are you expecting your damp trousers to dry themselves by magic?"
+
+        elif any(w in query_lower for w in ["where is luna", "find luna", "cat"]):
+            luna_loc = presence["locations"].get("luna")
+            if luna_loc:
+                deterministic_response = f"Luna was spotted {int(luna_loc['minutes_ago'])} minutes ago near the kitchen island. Try watching your clumsy feet for once."
+            else:
+                deterministic_response = "Luna hasn't graced the cameras recently. She's likely plotting your downfall from atop the refrigerator, as usual."
+
+        elif any(w in query_lower for w in ["tomorrow's schedule", "tomorrows schedule", "my schedule", "what is on the schedule"]):
+            deterministic_response = "Are you honestly too lazy to get up and check the refrigerator door yourself? Well, Fine! Tomorrow Savannah has work from 7:00 PM until 7:00 AM, and Austin has scheduled himself for a meeting with his advisors at 2:00 PM before going into work at 5:00 PM until 1:00 AM. Are there any alterations I should be aware of, or can I return to thinking?"
+
+        response_text = deterministic_response
+
+        # If not deterministic, query Coordinator LLM (:8001)
+        if not response_text:
+            try:
+                payload = {
+                    "model": "moe",
+                    "messages": [
+                        {"role": "system", "content": COURAGE_COMPUTER_SYSTEM_PROMPT},
+                        {"role": "user", "content": f"CURRENT PROPERTY TELEMETRY:\n{context_str}\n\nINQUIRY: {query}"}
+                    ],
+                    "max_tokens": 180,
+                    "temperature": 0.72,
+                    "presence_penalty": 0.25
+                }
+                req = urllib.request.Request(
+                    f"{self.coordinator_url}/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=40.0) as resp:
+                    if resp.status == 200:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        response_text = data["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                logger.warning(f"Coordinator LLM query failed for Courage persona: {e}")
+                response_text = f"Oh splendid, my neural coordinator had a hiccup ({e}). But yes, you loaf, what do you want?"
+
+        # Synthesize audio using Kokoro TTS bm_george @ 1.06x
+        audio_b64 = None
+        audio_bytes = voice_connector.synthesize_speech(response_text, voice="bm_george", speed=1.06)
+        if audio_bytes:
+            audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
+
+        return {
+            "query": query,
+            "response": response_text,
+            "voice": "bm_george",
+            "speed": 1.06,
+            "audio_base64": audio_b64,
+            "has_audio": audio_b64 is not None,
+            "timestamp": datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p")
+        }
+
+home_presence_hub = HomePresenceHub()

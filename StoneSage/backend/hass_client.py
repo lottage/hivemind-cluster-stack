@@ -74,6 +74,28 @@ class HomeAssistantClient:
         except Exception as e:
             return {"ok": False, "error": str(e), "entities": []}
 
+    def get_state(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch state and attributes for a specific entity."""
+        if not self.token:
+            return None
+        req = urllib.request.Request(f"{self.base_url}/api/states/{entity_id}", headers=self._get_headers())
+        try:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    def get_camera_snapshot(self, entity_id: str) -> Optional[bytes]:
+        """Fetch raw JPEG frame from Home Assistant camera proxy."""
+        if not self.token:
+            return None
+        req = urllib.request.Request(f"{self.base_url}/api/camera_proxy/{entity_id}", headers={"Authorization": f"Bearer {self.token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                return resp.read()
+        except Exception:
+            return None
+
     def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> Dict[str, Any]:
         """Call a Home Assistant service (e.g. climate.set_temperature, light.turn_on)."""
         if not self.token:
@@ -88,6 +110,14 @@ class HomeAssistantClient:
                 return {"ok": True, "result": res}
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    def press_button(self, entity_id: str) -> Dict[str, Any]:
+        """Press a Home Assistant button entity (e.g. camera PTZ move buttons)."""
+        return self.call_service("button", "press", {"entity_id": entity_id})
+
+    def select_option(self, entity_id: str, option: str) -> Dict[str, Any]:
+        """Select an option on a Home Assistant select entity (e.g. camera preset)."""
+        return self.call_service("select", "select_option", {"entity_id": entity_id, "option": option})
 
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """Convenience method returning organized entities for the Sage & Stone dashboard."""

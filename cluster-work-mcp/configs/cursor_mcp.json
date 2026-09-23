@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cluster-work": {
+      "command": "python",
+      "args": [
+        "C:/Users/johna/OneDrive/Documents/.ai/cluster-work-mcp/server.py",
+        "stdio"
+      ]
+    }
+  }
+}

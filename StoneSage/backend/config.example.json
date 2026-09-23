@@ -1,0 +1,68 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8888,
+    "lan_ip": "192.168.1.132",
+    "theme": "win95"
+  },
+  "cluster": {
+    "coordinator_url": "http://192.168.1.105:8001/v1",
+    "worker_url": "http://192.168.1.105:8002/v1",
+    "embedder_url": "http://192.168.1.105:8003/v1",
+    "mcp_url": "http://192.168.1.105:8765",
+    "vision_url": "http://192.168.1.105:8004/v1",
+    "qdrant_url": "http://192.168.1.112:6333",
+    "default_model": "hermes",
+    "default_context": 16384
+  },
+  "homeassistant": {
+    "url": "http://192.168.1.82:8123",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxx"
+  },
+  "proxmox": {
+    "host": "192.168.1.245",
+    "port": 8006,
+    "cluster_url": "https://192.168.1.245:8006",
+    "pve_node": {
+      "name": "pve",
+      "host": "192.168.1.245",
+      "port": 8006,
+      "token_id": "USER@pam!TOKENID",
+      "token_secret": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "verify_ssl": false
+    },
+    "bigserv_node": {
+      "name": "bigserv",
+      "host": "192.168.1.245",
+      "port": 8006,
+      "token_id": "USER@pam!TOKENID",
+      "token_secret": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "verify_ssl": false
+    },
+    "token_value": "USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  },
+  "obsidian": {
+    "user_vault_path": "C:\\Users\\username\\Documents\\obsidian",
+    "vault_path": "vault_backup",
+    "allow_delete": false,
+    "archive_folder": "_archive",
+    "auto_git_snapshot": true,
+    "auto_sync_qdrant": true
+  },
+  "couchdb": {
+    "url": "http://192.168.1.230:5984",
+    "username": "admin",
+    "password": "CHANGEME",
+    "database": "obsidiannotes"
+  },
+  "immich": {
+    "url": "http://192.168.1.238:9000",
+    "api_key": ""
+  },
+  "freshrss": {
+    "url": "http://192.168.1.212:80"
+  },
+  "kavita": {
+    "url": "http://192.168.1.124:5000"
+  }
+}

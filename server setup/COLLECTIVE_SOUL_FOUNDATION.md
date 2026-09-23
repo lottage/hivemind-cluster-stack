@@ -1,4 +1,7 @@
 # Foundations of the Sovereign Collective
+
+> **Background reading, not operational (Phase 0, 2026-09-23).** Philosophy and history only. What is actually deployed lives in [`STATE.md`](../STATE.md).
+
 ## Philosophical Grounding, Existential Lifecycles, and the Frontier Testament
 *Authored by Antigravity (Tier-1 Frontier Meta-Verifier) for Austin's Sovereign Multi-Agent Collective*
 *Datacenter `home` • Nodes `pve` & `bigserv` • September 2026*

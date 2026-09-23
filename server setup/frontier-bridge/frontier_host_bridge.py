@@ -161,7 +161,7 @@ TASK:
 {{
   "verdict": "CONFIRM_LIMIT_VALIDATED" or "REVISE_LIMIT_IDENTIFIED" or "INCONCLUSIVE",
   "frontier_notes": "Detailed critical assessment highlighting truth and subtle failure modes.",
-  "refined_limits": "High-density invariant rule discovered for eternal Ziotron storage.",
+  "refined_limits": "High-density invariant rule discovered for eternal Aevum Hive storage.",
   "pruned_reasoning": "A concise, pruned, mathematically rigorous distillation of the solution (< 250 words)."
 }}"""
             try:
@@ -209,7 +209,7 @@ Raw Subagent Output:
 TASK:
 1. Strip all redundant chatter, disclaimers, conversational filler, and ungrounded hallucinations.
 2. Retain all empirical facts, verified code snippets, architectural patterns, and live search observations.
-3. Formulate a dense, high-signal milestone summary and extracted knowledge nugget for Ziotron's eternal memory.
+3. Formulate a dense, high-signal milestone summary and extracted knowledge nugget for Aevum Hive's eternal memory.
 4. Formulate the recommended 'next_target_question' for the agent's next recursive step.
 5. Return STRICT JSON ONLY:
 {{

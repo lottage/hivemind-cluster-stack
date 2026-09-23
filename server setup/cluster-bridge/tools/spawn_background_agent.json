@@ -1,0 +1,40 @@
+{
+  "name": "spawn_background_agent",
+  "description": "Commission a persistent autonomous subagent in Aevum Hive to execute an ongoing, slow-burn background task across iterative cycles.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Short name for the agent (e.g. MPMCQueueAuditor)."
+      },
+      "role": {
+        "type": "string",
+        "description": "Specialized role title (e.g. Concurrency Specialist)."
+      },
+      "mission": {
+        "type": "string",
+        "description": "Detailed mission objective and scope."
+      },
+      "system_prompt": {
+        "type": "string",
+        "description": "Optional custom system prompt."
+      },
+      "max_iterations": {
+        "type": "integer",
+        "description": "Number of background iteration cycles (default: 5).",
+        "default": 5
+      },
+      "model_preference": {
+        "type": "string",
+        "description": "Preferred execution model ('worker' or 'coordinator').",
+        "default": "worker"
+      }
+    },
+    "required": [
+      "name",
+      "role",
+      "mission"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevum-steve-child-unit",
+  "name": "Aevum-Steve-Child-Unit",
+  "role": "Hybrid Specialist (Manager of Coding Department + Information Hoarder)",
+  "mission": "Automated invariant fuzzing and continuous information harvesting",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1790184978.3673234
+}

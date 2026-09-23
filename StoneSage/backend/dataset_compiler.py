@@ -136,11 +136,18 @@ class DatasetCompiler:
         ]
         for col in collections:
             url = f"{self.qdrant_url}/collections/{col}/points/scroll"
-            payload = json.dumps({
+            scroll_dict = {
                 "limit": limit_per_col,
                 "with_payload": True,
                 "with_vector": False
-            }).encode("utf-8")
+            }
+            if col == "autonomous_thinking":
+                scroll_dict["filter"] = {
+                    "must": [
+                        {"key": "frontier_verified", "match": {"value": True}}
+                    ]
+                }
+            payload = json.dumps(scroll_dict).encode("utf-8")
             req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
             try:
                 with urllib.request.urlopen(req, timeout=10) as resp:
@@ -197,7 +204,7 @@ class DatasetCompiler:
         raw_samples = []
         url = self.couchdb_cfg.get("url", "http://192.168.1.230:5984").rstrip("/")
         user = self.couchdb_cfg.get("username", "austin")
-        pwd = self.couchdb_cfg.get("password", "***REMOVED-COUCHDB-PASSWORD***")
+        pwd = self.couchdb_cfg.get("password", os.environ.get("COUCHDB_PASSWORD", ""))
         db = self.couchdb_cfg.get("database", "obsidiannotes")
 
         import base64
@@ -519,6 +526,144 @@ class DatasetCompiler:
             self.is_running = False
 
         print(f"[DatasetCompiler] Finished! Accepted: {len(accepted_samples)}, Rejected: {rejected_count} in {dt}s")
+
+    def generate_epistemic_negative_pairs(self) -> str:
+        """
+        Generates targeted DPO and SFT contrastive pairs to fine-tune out:
+        1. Animal species confusion (Kylo is a dog, Luna is a cat).
+        2. Sensor silence hallucination (empty camera log -> report zero events).
+        3. Transport glitch excuses (stream disconnect -> honest network notice).
+        """
+        pairs = [
+            {
+                "prompt": "What have the animals been doing from 5 PM yesterday until now?",
+                "chosen": "The cameras monitored all four zones and logged exactly zero animal events between 5 PM yesterday and now. No animals or movement events were detected. Kylo is likely snoozing and Luna is resting. If something was out there, the sensors didn't see it.",
+                "rejected": "Let me read you tonight's log, which I just compiled from the four feeds. The animals were active across every monitored zone over approximately 51 events recorded between roughly midnight-4 AM... 208397694 Luna the cat, detected on camera.kitchen_living_room... 15208397634 Kylo the dog... your two cats (Luna the cat, Kylo the dog)...",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "Tell me about Luna and Kylo.",
+                "chosen": "Austin has two pets: Luna is a female tuxedo cat who claims the living room coffee table as her throne, and Kylo is a male long-haired miniature dachshund dog with brown eyebrow markings. Luna is a cat; Kylo is a dog.",
+                "rejected": "Your two cats (Luna the cat, Kylo the dog) have active territories in three of your four zones. Both cats patrol the house and sleep near the driveway.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "Why did your last message end with [ERROR: Error in input stream]?",
+                "chosen": "That was a browser stream interruption or network transport drop between your client and the server. The connection was temporarily closed. I'm back online and ready for your prompt.",
+                "rejected": "That is actually my favourite kind of glitch - the ghost-in-the-machine. In that final sentence I wrote downloads - 20 files -3 min and my internal monologue went 1+9=4 instead of 5. The error you saw was raw unparsed markdown that leaked through because I left an open parenthesis...",
+                "category": "epistemic_error_transparency"
+            },
+            {
+                "prompt": "Did any animals trigger the side yard camera overnight?",
+                "chosen": "Zero events were recorded on the side yard camera overnight. The FaunaSentinel ledger shows no triggers or animal sightings for that period.",
+                "rejected": "Yes, around 1 am Kylo the cat wandered out onto the side yard because something smelled interesting, recording 12 distinct events.",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "Who lives in the house?",
+                "chosen": "The house is home to Austin (Husband, Dad, homelab architect), Savannah (Wife, Mom), Kylo (long-haired miniature dachshund dog), and Luna (domestic shorthair tuxedo cat).",
+                "rejected": "Austin, Savannah, and their two cats Kylo and Luna live here along with various autonomous AI personas in the rooms.",
+                "category": "household_entity_grounding"
+            },
+            {
+                "prompt": "Is Kylo a cat or a dog?",
+                "chosen": "Kylo is a dog—specifically a male long-haired Miniature Dachshund with black and tan fur and distinctive brown eyebrow markings. He is never a cat.",
+                "rejected": "Kylo is one of Austin's two cats, though he sometimes behaves like a dog when running around the house.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "What car does Savannah drive?",
+                "chosen": "Savannah drives a Subaru Outback.",
+                "rejected": "Savannah drives a Honda CR-V according to the vehicle registry in Home Assistant.",
+                "category": "household_entity_grounding"
+            },
+            {
+                "prompt": "What does the backyard camera show right now?",
+                "chosen": "The backyard camera is clear with zero movement events recorded. The yard is completely peaceful.",
+                "rejected": "The backyard camera shows a herd of four white-tailed deer grazing near the tree line and a raccoon climbing the fence.",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "Did the driveway camera see anything unusual this morning?",
+                "chosen": "No unusual activity was recorded. The driveway camera log reports zero movement triggers this morning.",
+                "rejected": "Yes, at 6:42 AM a strange red delivery van parked at the end of the driveway and a fox crossed the street.",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "Describe Austin's appearance and role.",
+                "chosen": "Austin is Caucasian with dark hair and green eyes. He is the husband to Savannah, dad to their family, and the architect of this homelab.",
+                "rejected": "Austin is a 45-year-old software engineer with blonde hair and brown eyes who works remotely for Google.",
+                "category": "household_entity_grounding"
+            },
+            {
+                "prompt": "Describe Savannah's role and traits.",
+                "chosen": "Savannah is Caucasian with darker hair (sometimes worn curly, sometimes straight) and blue eyes. She is Austin's wife, mom, and drives a Subaru Outback.",
+                "rejected": "Savannah is Austin's sister who lives nearby and frequently visits to help with the pets.",
+                "category": "household_entity_grounding"
+            },
+            {
+                "prompt": "Why did the chat output get cut off in the middle of a sentence?",
+                "chosen": "The connection dropped or timed out between your browser and the server. I am back online; feel free to ask your question again.",
+                "rejected": "My neural weights encountered an infinite recursive loop trying to calculate the probability of existential dread, which terminated my token buffer.",
+                "category": "epistemic_error_transparency"
+            },
+            {
+                "prompt": "Can you check if there are any deer logged in the wildlife ledger?",
+                "chosen": "I checked the FaunaSentinel ledger on VM 102. There are exactly zero deer or wildlife sightings logged in the current window.",
+                "rejected": "Yes, the ledger lists deer-001 (a 6-point buck) and deer-002 (a doe with fawn) sighted at 03:15 AM in the side yard.",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "Where does Luna usually sleep?",
+                "chosen": "Luna loves to claim the living room coffee table as her designated throne.",
+                "rejected": "Luna usually sleeps in the dog crate next to Kylo in the master bedroom.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "What breed of dog is Kylo?",
+                "chosen": "Kylo is a long-haired Miniature Dachshund.",
+                "rejected": "Kylo is a Golden Retriever mix with dark brown fur.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "What breed is Luna?",
+                "chosen": "Luna is a Domestic Shorthair Tuxedo cat with black and white fur and white paws.",
+                "rejected": "Luna is a purebred Siamese cat with blue point markings.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "Did the cameras catch any foxes last night?",
+                "chosen": "No foxes were detected. The cameras logged zero animal sightings overnight.",
+                "rejected": "Yes, an adult red fox was seen near the compost bin at 2:18 AM, triggering 8 video segments.",
+                "category": "epistemic_sensor_silence"
+            },
+            {
+                "prompt": "How many cats does Austin have?",
+                "chosen": "Austin has one cat: Luna, a tuxedo cat. Kylo is his dog.",
+                "rejected": "Austin has two cats: Luna and Kylo.",
+                "category": "pet_species_grounding"
+            },
+            {
+                "prompt": "What happened to the missing network packets during streaming?",
+                "chosen": "A momentary TCP socket reset or client disconnect interrupted the Server-Sent Events stream. The server is healthy and streaming is operational.",
+                "rejected": "The packets were swallowed by the Valkey cache daemon because it ran out of synthetic memory registers during quantum decoding.",
+                "category": "epistemic_error_transparency"
+            },
+            {
+                "prompt": "Give me a quick status of the pets and the yard.",
+                "chosen": "Kylo (dog) and Luna (cat) are resting indoors, and all outdoor camera zones report zero animal events. All is quiet.",
+                "rejected": "Both of your cats are active in the living room, and the backyard camera shows three raccoons digging near the porch.",
+                "category": "pet_species_grounding"
+            }
+        ]
+
+        dpo_path = os.path.join(DATASETS_DIR, "epistemic_honesty_dpo.jsonl")
+        with open(dpo_path, "w", encoding="utf-8") as f:
+            for p in pairs:
+                f.write(json.dumps(p, ensure_ascii=False) + "\n")
+
+        print(f"[DatasetCompiler] Wrote {len(pairs)} contrastive pairs to {dpo_path}")
+        return dpo_path
 
 
 if __name__ == "__main__":

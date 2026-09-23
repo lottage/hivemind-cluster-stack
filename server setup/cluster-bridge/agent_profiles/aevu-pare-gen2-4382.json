@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevu-pare-gen2-4382",
+  "name": "Aevu_Pare_Gen2_4382",
+  "role": "Hybrid Specialist (Manager of Coding Department + Systems Engineer)",
+  "mission": "Synthesize Manager of Coding Department expertise with Systems Engineer capabilities.",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1790184852.4055579
+}

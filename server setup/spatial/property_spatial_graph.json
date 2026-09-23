@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "property": {
+    "name": "Sams Way Sanctuary",
+    "address": "120 Sams Way, Murphy, NC",
+    "total_sq_ft": 1074,
+    "footprint_meters": {
+      "width_x": 10.378,
+      "depth_y": 9.649,
+      "height_z": 2.5
+    },
+    "orientation": {
+      "front_facing": "South",
+      "rear_facing": "North"
+    }
+  },
+  "zones": {
+    "zone_living_room": {
+      "name": "Living Room",
+      "area_sq_ft": 211,
+      "bounds_meters": {
+        "x_min": 0.0,
+        "x_max": 4.643,
+        "y_min": 4.267,
+        "y_max": 9.649,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_kitchen", "zone_hallway", "zone_office"],
+      "sensors_and_devices": [
+        "camera.kitchen_living_room_hd_stream",
+        "climate.living_room",
+        "media_player.living_room_tv"
+      ],
+      "key_objects": ["sectional_sofa", "coffee_table", "media_console", "tv_screen"],
+      "primary_occupants": ["Austin", "Savannah", "Luna (tuxedo cat)", "Kylo (dachshund)"]
+    },
+    "zone_kitchen": {
+      "name": "Kitchen",
+      "area_sq_ft": 188,
+      "bounds_meters": {
+        "x_min": 0.0,
+        "x_max": 4.643,
+        "y_min": 0.0,
+        "y_max": 4.267,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_living_room", "zone_hallway"],
+      "sensors_and_devices": [
+        "camera.kitchen_living_room_hd_stream",
+        "switch.kitchen_lights",
+        "sensor.petkit_feeder"
+      ],
+      "key_objects": ["quartz_island", "barstools", "refrigerator", "range_stove", "perimeter_counters"],
+      "notes": "Open-concept layout flowing seamlessly into Living Room without dividing wall."
+    },
+    "zone_office": {
+      "name": "Office Workstations",
+      "area_sq_ft": 46.3,
+      "bounds_meters": {
+        "x_min": 0.0,
+        "x_max": 4.643,
+        "y_min": 8.7,
+        "y_max": 9.649,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_living_room"],
+      "sensors_and_devices": ["switch.office_desk_lamp"],
+      "key_objects": ["desk_primary", "desk_secondary", "dual_screens"],
+      "notes": "Dual architectural workstation nooks in the northwest corner."
+    },
+    "zone_bedroom_1": {
+      "name": "Bedroom 1 (Primary Suite)",
+      "area_sq_ft": 162,
+      "bounds_meters": {
+        "x_min": 6.421,
+        "x_max": 10.378,
+        "y_min": 5.195,
+        "y_max": 9.649,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_bathroom_1", "zone_hallway", "zone_closet_1"],
+      "sensors_and_devices": ["light.primary_bedroom", "switch.bedside_lamps"],
+      "key_objects": ["king_bed", "nightstands", "dresser"],
+      "primary_occupants": ["Austin", "Savannah"]
+    },
+    "zone_bathroom_1": {
+      "name": "Bathroom 1 (Primary Ensuite)",
+      "area_sq_ft": 73.6,
+      "bounds_meters": {
+        "x_min": 4.643,
+        "x_max": 6.421,
+        "y_min": 5.195,
+        "y_max": 9.649,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_bedroom_1", "zone_hallway"],
+      "sensors_and_devices": ["switch.bathroom_1_light", "switch.bathroom_1_fan"],
+      "key_objects": ["double_vanity", "toilet", "full_tub_shower"]
+    },
+    "zone_bedroom_2": {
+      "name": "Bedroom 2 (Guest / Secondary)",
+      "area_sq_ft": 154,
+      "bounds_meters": {
+        "x_min": 6.233,
+        "x_max": 10.378,
+        "y_min": 0.0,
+        "y_max": 3.62,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_hallway"],
+      "sensors_and_devices": ["light.bedroom_2"],
+      "key_objects": ["queen_bed", "nightstands"]
+    },
+    "zone_bathroom_2": {
+      "name": "Bathroom 2 (Hall / Guest)",
+      "area_sq_ft": 39.8,
+      "bounds_meters": {
+        "x_min": 4.643,
+        "x_max": 6.233,
+        "y_min": 1.194,
+        "y_max": 3.521,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": ["zone_hallway"],
+      "sensors_and_devices": ["switch.bathroom_2_light"],
+      "key_objects": ["single_vanity", "toilet", "tub"]
+    },
+    "zone_hallway": {
+      "name": "Central Hallway & Vestibule",
+      "area_sq_ft": 46.6,
+      "bounds_meters": {
+        "x_min": 4.643,
+        "x_max": 7.229,
+        "y_min": 3.521,
+        "y_max": 5.195,
+        "z_min": 0.0,
+        "z_max": 2.5
+      },
+      "connected_zones": [
+        "zone_living_room",
+        "zone_kitchen",
+        "zone_bedroom_1",
+        "zone_bedroom_2",
+        "zone_bathroom_1",
+        "zone_bathroom_2"
+      ],
+      "notes": "Central topological distribution hub linking public living spaces to private quarters."
+    },
+    "zone_backyard": {
+      "name": "Back Yard Perimeter & Patio",
+      "bounds_meters": {
+        "x_min": -5.0,
+        "x_max": 15.0,
+        "y_min": 9.649,
+        "y_max": 30.0,
+        "z_min": 0.0,
+        "z_max": 10.0
+      },
+      "connected_zones": ["zone_living_room", "zone_sideyard"],
+      "sensors_and_devices": [
+        "camera.back_yard_hd_stream_direct",
+        "sensor.back_yard_battery"
+      ],
+      "key_objects": ["patio", "lawn", "smoker", "wildlife_trail"],
+      "sentry_role": "Primary wildlife and perimeter detection zone (deer, foxes, rabbits, coyotes)."
+    },
+    "zone_sideyard": {
+      "name": "Side Yard",
+      "connected_zones": ["zone_backyard", "zone_driveway"],
+      "sensors_and_devices": [
+        "camera.side_yard_hd_stream_direct",
+        "sensor.side_yard_battery"
+      ],
+      "sentry_role": "Lateral perimeter vigilance."
+    },
+    "zone_driveway": {
+      "name": "Driveway & Front Entrance",
+      "connected_zones": ["zone_kitchen", "zone_sideyard"],
+      "sensors_and_devices": [
+        "camera.driveway_front_door_hd_stream_direct",
+        "sensor.driveway_front_door_battery"
+      ],
+      "key_objects": ["front_porch", "parking_pad", "Subaru Outback (Savannah)"],
+      "sentry_role": "Arrival detection, vehicle recognition, and front approach."
+    }
+  },
+  "3d_assets": {
+    "source_blend": "C:\\Users\\johna\\OneDrive\\Documents\\sams_way_120.blend",
+    "glb_high": "http://192.168.1.248:8095/api/v1/assets/sams_way_120/sams_way_120_lod_high.glb",
+    "glb_medium": "http://192.168.1.248:8095/api/v1/assets/sams_way_120/sams_way_120_lod_medium.glb",
+    "glb_mobile": "http://192.168.1.248:8095/api/v1/assets/sams_way_120/sams_way_120_lod_mobile.glb",
+    "preview_image": "c:\\Users\\johna\\OneDrive\\Documents\\.ai\\3d_digital_twin\\sams_way_120_preview.png"
+  }
+}

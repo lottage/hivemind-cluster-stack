@@ -256,20 +256,26 @@ class AMEMEngine:
             ),
             (
                 "cluster.hardware.gpu_coordinator",
-                "Coordinator on RX 6750 XT 12GB (Vulkan0, :8001) runs Ornith-1.5-9B-OBLITERATED Q8_0 for complex architectural reasoning.",
-                ["coordinator", "gpu", "rx6750xt", "6750", "vulkan0", "8001", "q8", "ornith", "12gb"],
+                "Coordinator / Courage (:8001) runs Qwen3-14B Q4_K_M with a Qwen3-0.6B draft model on the RX 6750 XT 12GB: 2 slots of 6144 tokens, about 41 tokens/sec.",
+                ["coordinator", "courage", "gpu", "rx6750xt", "6750", "8001", "qwen3", "14b", "12gb"],
                 "hardware"
             ),
             (
                 "cluster.hardware.gpu_worker",
-                "Worker on RX 6600 XT 8GB (Vulkan1, :8002) runs Ornith-1.5-9B Q4_K_M for fast ideation and testing at 80+ tokens/sec.",
-                ["worker", "gpu", "rx6600xt", "6600", "vulkan1", "8002", "q4", "8gb", "speed"],
+                "Worker (:8002) runs Qwen2.5-Coder-3B-Instruct Q5_K_M on the RX 6750 XT, shared with the coordinator: 2 slots of 4096 tokens, about 126 tokens/sec.",
+                ["worker", "gpu", "rx6750xt", "6750", "8002", "qwen2.5", "coder", "3b", "speed"],
                 "hardware"
             ),
             (
                 "cluster.hardware.embedder",
-                "Embedder (:8003) runs bge-large-en-v1.5 producing 1024-d vectors with a strict 512-token context window.",
+                "Embedder (:8003) runs bge-large-en-v1.5 on the RX 6600 8GB, producing 1024-d vectors with a strict 512-token context window.",
                 ["embedder", "bge", "embedding", "8003", "vectors", "1024"],
+                "hardware"
+            ),
+            (
+                "cluster.hardware.vision",
+                "Vision (:8004) runs Qwen2.5-VL-7B-Instruct Q4_K_M with its mmproj on the RX 6600 8GB, shared with the embedder. A 640px camera frame takes about 3 seconds.",
+                ["vision", "camera", "cameras", "vlm", "image", "qwen2.5-vl", "8004", "6600", "8gb"],
                 "hardware"
             ),
             (
@@ -286,7 +292,7 @@ class AMEMEngine:
             ),
             (
                 "cluster.services.assembly_hall",
-                "Sovereign Agent Assembly Hall server runs at http://192.168.1.105:8766 (ws://192.168.1.105:8766/ws) with multi-channel real-time agent streaming.",
+                "The Sovereign Agent Assembly Hall (:8766) is shelved: its service has been stopped and disabled since 2026-09-23.",
                 ["assembly", "hall", "assembly_hall", "8766", "channels", "agora", "streaming", "interagent"],
                 "cluster"
             ),

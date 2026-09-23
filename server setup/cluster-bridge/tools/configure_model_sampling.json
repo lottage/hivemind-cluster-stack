@@ -1,0 +1,29 @@
+{
+  "name": "configure_model_sampling",
+  "description": "Dynamically adjust sampling hyperparameters and tuning profiles for local models (eliminates shallow responses and hallucinations).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "profile_name": {
+        "type": "string",
+        "description": "Sampling profile: 'deep_architectural' (recommended for 14B), 'rigorous_logic_cot', 'textured_creative', 'mirostat_v2', 'baseline_greedy'."
+      },
+      "auto_rotate": {
+        "type": "boolean",
+        "description": "If true, the autonomous engine rotates profiles each cycle to benchmark them comparatively."
+      },
+      "custom_temperature": {
+        "type": "number",
+        "description": "Override temperature."
+      },
+      "custom_min_p": {
+        "type": "number",
+        "description": "Override Min-P probability cutoff (recommended: 0.05 - 0.08)."
+      },
+      "custom_presence_penalty": {
+        "type": "number",
+        "description": "Override presence penalty to discourage repetitive boilerplate (recommended: 0.2 - 0.3)."
+      }
+    }
+  }
+}

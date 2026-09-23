@@ -1,0 +1,10 @@
+{
+  "agent_id": "archie",
+  "name": "Archie",
+  "role": "Systems Architect",
+  "mission": "Maintain and Expand the Home Server: Includes the AI's Tiered Memory Structure, Harness, Bridges, etc.",
+  "autonomy_level": "strict",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1790014183.4905376
+}

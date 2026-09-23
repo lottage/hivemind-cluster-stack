@@ -1,5 +1,5 @@
 [Unit]
-Description=Llama-Server 14B Coordinator (RX 6750 XT - Vulkan)
+Description=Llama-Server Qwen3-14B Coordinator + 0.6B Draft Speculative (RX 6750 XT - Vulkan)
 After=network.target
 
 [Service]
@@ -8,19 +8,27 @@ User=root
 WorkingDirectory=/opt/models
 Environment="GGML_VK_VISIBLE_DEVICES=0"
 ExecStart=/usr/local/bin/llama-server \
-    --model /opt/models/qwen2.5-coder-14b-instruct-abliterated-q4_k_m.gguf \
+    --model /opt/models/qwen3-14b-q4_k_m.gguf \
+    --spec-draft-model /opt/models/qwen3-0.6b-q8_0.gguf \
+    --spec-draft-n-max 12 \
+    --spec-draft-n-min 2 \
+    --spec-draft-p-min 0.65 \
+    --spec-draft-ngl 99 \
     --host 0.0.0.0 \
     --port 8001 \
     --device Vulkan0 \
     -ngl 99 \
-    -c 8192 \
+    -c 12288 \
+    -np 2 \
     -b 2048 \
     -ub 1024 \
     --flash-attn on \
-    -ctk q8_0 \
-    -ctv q8_0 \
+    -ctk q4_0 \
+    -ctv q4_0 \
     --alias coordinator \
-    --metrics
+    --metrics \
+    --slots \
+    --props
 
 Restart=always
 RestartSec=5

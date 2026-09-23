@@ -1,0 +1,3 @@
+﻿[submodule "server setup/obsidian-vault-cli"]
+	path = server setup/obsidian-vault-cli
+	url = https://github.com/fanselau/obsidian-vault-cli.git

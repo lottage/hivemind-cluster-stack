@@ -1,0 +1,18 @@
+{
+  "name": "start_autonomous_thinking",
+  "description": "Launch or resume the 24/7 autonomous thinking machine loop on the local GPU cluster.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "interval_seconds": {
+        "type": "integer",
+        "description": "Rest delay in seconds between exploration cycles (default: 60).",
+        "default": 60
+      },
+      "focus_domain": {
+        "type": "string",
+        "description": "Optional domain focus (algorithmic_reasoning, software_architecture, context_stress, adversarial_probing, philosophical_epistemology, code_refactoring_critique)."
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "run_thinking_cycle",
+  "description": "Immediately trigger an on-demand exploration cycle across the 3 local models and return comparative telemetry, divergence analysis, and discovered architecture limits.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "seed_prompt": {
+        "type": "string",
+        "description": "Optional specific challenge prompt to explore. If omitted, the models autonomously dream up a novel prompt."
+      },
+      "domain": {
+        "type": "string",
+        "description": "Optional cognitive domain override."
+      },
+      "hypothesis": {
+        "type": "string",
+        "description": "Optional underlying hypothesis to test."
+      }
+    }
+  }
+}

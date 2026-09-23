@@ -16,8 +16,8 @@ Static DHCP reservations, hardware MAC addresses, service endpoints, and device 
 ## 2. Virtual Machines & Containers (AI Stack & Media)
 | Name | Type | IP Address | MAC Address | Port / Web URL | Role |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `ubu` | VM 102 | `192.168.1.105` | `BC-24-11-94-EA-3C` | `:8001`, `:8002`, `:8003`, `:8765` | Dual GPU Compute (14B, 3B, BGE, MCP) |
-| `qdrant` | LXC 117 | `192.168.1.112` | `BC-24-11-66-B7-44` | `:6333/dashboard` | 5-Collection Persistent Vector Brain |
+| `ubu` | VM 102 | `192.168.1.105` | `BC-24-11-94-EA-3C` | `:8001`, `:8002`, `:8003`, `:8004`, `:6379`, `:8765`, `:8766` | Dual GPU Compute & Vision Host (Ornith 9B Q8, Ornith 9B Q4, BGE-Large, Gemma-4-E4B Vision, Valkey A-MEM, FaunaSentinel Wildlife Daemon, Cluster MCP, Assembly Hall) |
+| `qdrant` | LXC 117 | `192.168.1.112` | `BC-24-11-66-B7-44` | `:6333/dashboard` | 6-Collection Persistent Vector Brain (autonomous_thinking, agent_memories, companion_profile, codebase_knowledge, home_automation_registry, session_transcripts) |
 | `homeassistant` | VM 103 | `192.168.1.82` | `02-0E-76-0D-65-4A` | `:8123` | Home Assistant OS (HAOS 17.3) |
 | `kavita` | LXC 100 | `192.168.1.124` | `BC-24-11-53-B7-8F` | `:5000` | Digital Manga, Comics & Book Library |
 | `jellyfin` | LXC 104 | `192.168.1.180` | `BC-24-11-0D-74-EC` | `:8096` | Media Streaming Server |
@@ -32,8 +32,9 @@ Static DHCP reservations, hardware MAC addresses, service endpoints, and device 
 | `flaresolverr` | LXC | `192.168.1.159` | `BC-24-11-80-89-BC` | `:8191` | Cloudflare Challenge Solver Proxy |
 | `docker` | LXC 105 | `192.168.1.204` | `BC-24-11-85-2C-F2` | `:9443` | Docker & Portainer Container Host |
 | `obsidian-live-sync` | LXC 116 | `192.168.1.230` | `BC-24-11-4C-50-5E` | `:5984` | CouchDB Self-Hosted Obsidian LiveSync Server |
-| `stonesage` | LXC 120 | `192.168.1.167` | `BC-24-11-40-F0-69` | `:8080` | StoneSage 24/7 Command Cockpit & Automation Server |
+| `stonesage` | LXC 120 | `192.168.1.167` | `BC-24-11-40-F0-69` | `:8080`, `:8086` | StoneSage 24/7 Command Cockpit, Citadel 3D Micro-Worlds (:8080/citadel3d/), WebSocket Broker & PVE Hardware Watchdog (`pve-watchdog.service`) |
 | `voice-services` | LXC 121 | `192.168.1.121` | `BC-24-11-32-6E-DB` | `:8200` (STT), `:8300` (TTS), `:10300` (Wyoming STT), `:10200` (Wyoming TTS) | Local Voice Stack: Faster Whisper + Kokoro ONNX + Wyoming Protocol |
+| `blender-compute` | LXC 127 | `192.168.1.248` | `BC-24-11-AF-32-BE` | `:8095` | Headless Blender 4.0.2 3D Compute Engine, Mesh Decimation & Digital Twin API (16 vCPUs, 16GB RAM, Shared Quadro M2000 GPU) |
 | `bhyve-bh1g2` | VM | `192.168.1.87` | `44-67-55-2F-0A-22` | — | FreeBSD / TrueNAS Storage Subsystem |
 
 ---

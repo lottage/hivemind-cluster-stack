@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevu-ally-gen2-619e",
+  "name": "Aevu_Ally_Gen2_619E",
+  "role": "Hybrid Specialist (Manager of Coding Department + Edge Agent)",
+  "mission": "Synthesize Manager of Coding Department expertise with Edge Agent capabilities.",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1789799542.7959383
+}

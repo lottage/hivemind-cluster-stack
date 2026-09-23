@@ -1,0 +1,47 @@
+"""
+Voice Services Connector (LXC 121).
+Bridges Faster Whisper STT (:8200) and Kokoro TTS (:8300) for ambient audio streaming.
+"""
+
+import json
+import logging
+import urllib.request
+import urllib.error
+from typing import Dict, Any, Optional
+from ..config import fleet_config
+
+logger = logging.getLogger("Harness.VoiceConnector")
+
+class VoiceConnector:
+    def __init__(
+        self,
+        whisper_url: str = fleet_config.voice_whisper_url,
+        kokoro_url: str = fleet_config.voice_kokoro_url
+    ):
+        self.whisper_url = whisper_url.rstrip("/")
+        self.kokoro_url = kokoro_url.rstrip("/")
+
+    def synthesize_speech(self, text: str, voice: str = "am_adam", speed: float = 1.0) -> Optional[bytes]:
+        """Generates audio WAV stream from Kokoro TTS endpoint."""
+        url = f"{self.kokoro_url}/v1/audio/speech"
+        payload = {
+            "model": "kokoro",
+            "input": text[:800],
+            "voice": voice,
+            "speed": speed,
+            "response_format": "wav"
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "User-Agent": "Harness-Voice"},
+            method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return resp.read()
+        except Exception as e:
+            logger.warning(f"Speech synthesis error on {url}: {e}")
+            return None
+
+voice_connector = VoiceConnector()

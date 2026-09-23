@@ -22,11 +22,11 @@ from datetime import datetime
 # Default configuration paths & endpoints
 DEFAULT_VAULT_DIR = r"C:\Users\johna\OneDrive\Documents\obsidian"
 PVE_VIP_URL = "https://192.168.1.245:8006"
-PVE_TOKEN = "root@pam!StoneSage=***REMOVED-PVE-TOKEN***"
+PVE_TOKEN = os.environ.get("PVE_TOKEN", "USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 VM102_HOST = "192.168.1.105"
 QDRANT_URL = "http://192.168.1.112:6333"
 HASS_URL = "http://192.168.1.82:8123"
-HASS_TOKEN = "***REMOVED-HASS-TOKEN***"
+HASS_TOKEN = os.environ.get("HASS_TOKEN", "YOUR_HASS_LONG_LIVED_TOKEN")
 STONESAGE_URL = "http://localhost:8080"
 
 def probe_http(url: str, headers: dict = None, timeout: float = 2.0, verify_ssl: bool = True):

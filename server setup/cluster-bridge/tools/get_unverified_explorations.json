@@ -1,0 +1,14 @@
+{
+  "name": "get_unverified_explorations",
+  "description": "Retrieve recent thinking cycles awaiting Tier-1 Frontier (Antigravity) meta-verification and audit.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of unverified explorations to return (default: 5).",
+        "default": 5
+      }
+    }
+  }
+}

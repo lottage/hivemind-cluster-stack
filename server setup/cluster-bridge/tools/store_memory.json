@@ -1,0 +1,25 @@
+{
+  "name": "store_memory",
+  "description": "Store code architecture decisions, guidelines, or snippets into persistent Qdrant memory.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "string",
+        "description": "The text content or code snippet to embed and save."
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional metadata dictionary."
+      },
+      "collection_name": {
+        "type": "string",
+        "description": "Collection name (default: codebase_knowledge).",
+        "default": "codebase_knowledge"
+      }
+    },
+    "required": [
+      "content"
+    ]
+  }
+}

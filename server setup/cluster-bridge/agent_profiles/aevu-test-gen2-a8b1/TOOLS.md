@@ -1,0 +1,9 @@
+# PERMITTED TOOLS & ACL: Aevu_Test_Gen2_A8B1
+
+The following tools are authorized under autonomy level `tiered`:
+
+- `read_file`
+- `write_to_file`
+- `run_command`
+- `search_memory`
+- `nudge_agent`

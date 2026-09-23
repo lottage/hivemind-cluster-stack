@@ -261,6 +261,8 @@ function initNavigation() {
       if (viewId === 'view-proxmox') { fetchProxmoxData(); startProxmoxPolling(); }
       if (viewId === 'view-canvas') initLiveCanvas();
       if (viewId === 'view-harness') {
+        loadHarnessInstances();
+        updateCapacityCalculation();
         if (!state.harnessLoaded) {
           switchHarnessStudio(currentHarnessId);
         }
@@ -1917,9 +1919,9 @@ async function loadHarnessCapabilities() {
       aiModelSel.innerHTML = `
         <option value="coordinator" selected>${cLabel}</option>
         <option value="worker">${wLabel}</option>
-        <option value="openai">[FRONTIER: GPT-4o]</option>
-        <option value="anthropic">[FRONTIER: Claude 3.7 Sonnet]</option>
-        <option value="gemini">[FRONTIER: Gemini 2.5 Pro]</option>
+        <option value="frontier_agy">[FRONTIER: Antigravity (AGY / gemini-3.8-flash)]</option>
+        <option value="openai">[FALLBACK: GPT-4o (Free Tier)]</option>
+        <option value="anthropic">[FALLBACK: Claude 3.7 Sonnet (Free Tier)]</option>
       `;
     }
 
@@ -1948,7 +1950,290 @@ async function loadHarnessCapabilities() {
   } catch (err) {
     console.warn('Could not load harness capabilities:', err);
   }
+/* ==========================================================================
+   MULTI-WORKSTATION HARNESS CONTINUUM & CAPACITY CALCULATION
+   ========================================================================== */
+async function loadHarnessInstances() {
+  try {
+    const res = await fetch('/api/harness/instances');
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const select = document.getElementById('harness-instance-select');
+    const badge = document.getElementById('harness-instance-active-badge');
+    const urlCode = document.getElementById('harness-instance-url');
+    const latencyEl = document.getElementById('harness-instance-latency');
+
+    if (select) {
+      select.innerHTML = data.instances.map(inst => {
+        const pingStr = inst.is_online ? `🟢 ${inst.ping_ms}ms` : '🔴 Offline';
+        const activeStar = inst.is_active ? ' ★' : '';
+        return `<option value="${inst.id}" ${inst.is_active ? 'selected' : ''}>${inst.name} [${pingStr}]${activeStar}</option>`;
+      }).join('');
+    }
+
+    if (data.active_instance) {
+      if (badge) {
+        badge.textContent = `[ACTIVE: ${data.active_instance.name.toUpperCase()}]`;
+        badge.style.background = data.active_instance.is_online !== false ? '#008000' : '#800000';
+      }
+      if (urlCode) urlCode.textContent = data.active_instance.url;
+      if (latencyEl) {
+        latencyEl.textContent = data.active_instance.ping_ms ? `${data.active_instance.ping_ms} ms` : '-- ms';
+        latencyEl.style.color = data.active_instance.is_online !== false ? '#008000' : '#cc0000';
+      }
+    }
+  } catch (err) {
+    console.warn('Error loading harness instances:', err);
+  }
 }
+
+async function switchActiveHarnessInstance(instId) {
+  try {
+    const badge = document.getElementById('harness-instance-active-badge');
+    if (badge) badge.textContent = '[SWITCHING INSTANCE...]';
+    const res = await fetch('/api/harness/instances/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instance_id: instId })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await loadHarnessInstances();
+      await loadHarnessCapabilities();
+      updateCapacityCalculation();
+      if (typeof logToTerminal === 'function') {
+        logToTerminal(`[HARNESS] Switched active workstation continuum to: ${data.active_instance?.name || instId}`, 'bright');
+      }
+    } else {
+      alert('Failed to switch instance: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Instance switch error: ' + err.message);
+  }
+}
+
+function refreshHarnessInstances() {
+  loadHarnessInstances();
+}
+
+function openAddHarnessModal() {
+  const dlg = document.getElementById('modal-add-harness-instance');
+  if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+}
+
+function closeAddHarnessModal() {
+  const dlg = document.getElementById('modal-add-harness-instance');
+  if (dlg && typeof dlg.close === 'function') dlg.close();
+}
+
+async function saveNewHarnessInstance() {
+  const id = document.getElementById('add-harness-id')?.value.trim();
+  const name = document.getElementById('add-harness-name')?.value.trim();
+  const url = document.getElementById('add-harness-url')?.value.trim();
+
+  if (!url) {
+    alert('Harness Base URL is required.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/harness/instances/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, name, url })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      closeAddHarnessModal();
+      await switchActiveHarnessInstance(data.added_id);
+    } else {
+      alert('Error saving instance: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Save instance error: ' + err.message);
+  }
+}
+
+async function updateCapacityCalculation() {
+  const ctxSlider = document.getElementById('capacity-ctx-slider');
+  const ctxInput = document.getElementById('capacity-ctx-input');
+  const slotsSlider = document.getElementById('capacity-slots-slider');
+  const archSel = document.getElementById('capacity-arch-select');
+  const quantSel = document.getElementById('capacity-quant-select');
+  const vramSel = document.getElementById('capacity-vram-select');
+
+  if (!ctxSlider && !ctxInput) return;
+
+  // Strict agent context floor check: >= 4096 tokens, completely unbounded above
+  let ctx = 8192;
+  if (ctxInput && ctxInput.value) {
+    ctx = parseInt(ctxInput.value, 10);
+  } else if (ctxSlider) {
+    ctx = parseInt(ctxSlider.value, 10);
+  }
+
+  if (isNaN(ctx) || ctx < 4096) {
+    ctx = 4096;
+    if (ctxInput) ctxInput.value = 4096;
+    if (ctxSlider) ctxSlider.value = 4096;
+  }
+
+  const slots = parseInt(slotsSlider?.value || '1', 10);
+  const arch = archSel?.value || '9b';
+  const quant = quantSel?.value || 'q4_k_m';
+  const targetVram = parseFloat(vramSel?.value || '12.0');
+
+  // Update UI labels with human-readable format
+  const ctxValEl = document.getElementById('capacity-ctx-val');
+  if (ctxValEl) {
+    if (ctx >= 1048576) {
+      ctxValEl.textContent = `(${(ctx / 1048576).toFixed(2)}M tokens)`;
+    } else if (ctx >= 1024) {
+      ctxValEl.textContent = `(${(ctx / 1024).toFixed(0)}k tokens)`;
+    } else {
+      ctxValEl.textContent = `(${ctx.toLocaleString()} tokens)`;
+    }
+  }
+  const slotsValEl = document.getElementById('capacity-slots-val');
+  if (slotsValEl) slotsValEl.textContent = `${slots} ${slots === 1 ? 'slot' : 'slots'}`;
+
+  try {
+    const res = await fetch('/api/harness/capacity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        arch_type: arch,
+        quant: quant,
+        context_length: ctx,
+        parallel_slots: slots,
+        target_vram_gb: targetVram
+      })
+    });
+    const data = await res.json();
+    if (!data.ok || !data.estimate) return;
+
+    const est = data.estimate;
+    const wEl = document.getElementById('cap-weights-gb');
+    const kvEl = document.getElementById('cap-kv-gb');
+    const actEl = document.getElementById('cap-act-gb');
+    const totEl = document.getElementById('cap-total-gb');
+    const headEl = document.getElementById('cap-headroom-gb');
+    const badgeEl = document.getElementById('cap-verdict-badge');
+
+    if (wEl) wEl.textContent = `${est.base_weights_gb.toFixed(2)} GB`;
+    if (kvEl) kvEl.textContent = `${est.kv_cache_gb.toFixed(2)} GB`;
+    if (actEl) actEl.textContent = `${est.activation_gb.toFixed(2)} GB`;
+    if (totEl) totEl.textContent = `${est.total_required_gb.toFixed(2)} GB`;
+    if (headEl) {
+      headEl.textContent = `${est.vram_headroom_gb.toFixed(2)} GB`;
+      headEl.style.color = est.vram_headroom_gb >= 0 ? '#008000' : '#cc0000';
+    }
+    if (badgeEl) {
+      if (est.fits_in_vram) {
+        badgeEl.textContent = `[FITS 100% IN VRAM (${est.gpu_layers_offload}/${est.total_layers} LAYERS)]`;
+        badgeEl.style.background = '#008000';
+      } else {
+        badgeEl.textContent = `[PARTIAL OFFLOAD: ${est.gpu_layers_offload}/${est.total_layers} LAYERS (${est.cpu_ram_spillover_gb.toFixed(1)}GB RAM)]`;
+        badgeEl.style.background = '#cc6600';
+      }
+    }
+  } catch (err) {
+    console.warn('Capacity calculation error:', err);
+  }
+}
+
+window.syncContextSliderToInput = function() {
+  const slider = document.getElementById('capacity-ctx-slider');
+  const input = document.getElementById('capacity-ctx-input');
+  if (slider && input) {
+    let val = parseInt(slider.value, 10);
+    if (val < 4096) val = 4096;
+    input.value = val;
+  }
+  updateCapacityCalculation();
+};
+
+window.syncContextInputToSlider = function(rawVal) {
+  const slider = document.getElementById('capacity-ctx-slider');
+  const input = document.getElementById('capacity-ctx-input');
+  let val = parseInt(rawVal, 10);
+  if (isNaN(val) || val < 4096) {
+    val = 4096;
+  }
+  if (slider) {
+    if (val > parseInt(slider.max, 10)) {
+      slider.max = Math.max(val, 1048576);
+    }
+    slider.value = val;
+  }
+  updateCapacityCalculation();
+};
+
+function applyCapacityPreset(presetName) {
+  const ctxSlider = document.getElementById('capacity-ctx-slider');
+  const ctxInput = document.getElementById('capacity-ctx-input');
+  const slotsSlider = document.getElementById('capacity-slots-slider');
+  const archSel = document.getElementById('capacity-arch-select');
+  const quantSel = document.getElementById('capacity-quant-select');
+  const vramSel = document.getElementById('capacity-vram-select');
+
+  const setCtx = (val) => {
+    if (ctxSlider) {
+      if (val > parseInt(ctxSlider.max, 10)) ctxSlider.max = Math.max(val, 1048576);
+      ctxSlider.value = val;
+    }
+    if (ctxInput) ctxInput.value = val;
+  };
+
+  if (presetName === 'ally_matrix') {
+    setCtx(8192);
+    if (slotsSlider) slotsSlider.value = 4;
+    if (archSel) archSel.value = '9b';
+    if (quantSel) quantSel.value = 'q4_k_m';
+    if (vramSel) vramSel.value = '16.0';
+  } else if (presetName === 'speculative_daily') {
+    setCtx(12288);
+    if (slotsSlider) slotsSlider.value = 2;
+    if (archSel) archSel.value = '9b';
+    if (quantSel) quantSel.value = 'q4_k_m';
+    if (vramSel) vramSel.value = '12.0';
+  } else if (presetName === 'deep_monolith') {
+    setCtx(32768);
+    if (slotsSlider) slotsSlider.value = 1;
+    if (archSel) archSel.value = '35b_moe';
+    if (quantSel) quantSel.value = 'q8_0';
+    if (vramSel) vramSel.value = '24.0';
+  } else if (presetName === 'frontier_128k') {
+    setCtx(131072);
+    if (slotsSlider) slotsSlider.value = 1;
+    if (archSel) archSel.value = '14b';
+    if (quantSel) quantSel.value = 'q4_k_m';
+    if (vramSel) vramSel.value = '24.0';
+  } else if (presetName === 'ultra_256k') {
+    setCtx(262144);
+    if (slotsSlider) slotsSlider.value = 1;
+    if (archSel) archSel.value = '9b';
+    if (quantSel) quantSel.value = 'q4_0';
+    if (vramSel) vramSel.value = '24.0';
+  } else if (presetName === 'needle_1m') {
+    setCtx(1048576);
+    if (slotsSlider) slotsSlider.value = 1;
+    if (archSel) archSel.value = '3b';
+    if (quantSel) quantSel.value = 'q4_0';
+    if (vramSel) vramSel.value = '24.0';
+  }
+  updateCapacityCalculation();
+}
+
+window.loadHarnessInstances = loadHarnessInstances;
+window.switchActiveHarnessInstance = switchActiveHarnessInstance;
+window.refreshHarnessInstances = refreshHarnessInstances;
+window.openAddHarnessModal = openAddHarnessModal;
+window.closeAddHarnessModal = closeAddHarnessModal;
+window.saveNewHarnessInstance = saveNewHarnessInstance;
+window.updateCapacityCalculation = updateCapacityCalculation;
+window.applyCapacityPreset = applyCapacityPreset;
 
 /* ==========================================================================
    6. AI Cognitive Cockpit (3-Tier Hardware Hierarchy & Frontier)
@@ -1965,6 +2250,8 @@ function initAiHarness() {
 
   // Dynamically poll cluster capabilities from llama.cpp (:8001, :8002) and /opt/models/
   loadHarnessCapabilities();
+  loadHarnessInstances();
+  updateCapacityCalculation();
 
   if (modelSelect) {
     const savedModel = localStorage.getItem('stonesage_ai_active_model');
@@ -2139,16 +2426,29 @@ async function submitChatPrompt() {
 
   const apiMessages = [
     { role: 'system', content: 'You are the StoneSage AI Cognitive Assistant. Respond with precision, clarity, and terminal-usable formatting.' },
-    ...state.ai.messages.slice(0, -1),
+    ...state.ai.messages.slice(0, -1).map(m => ({
+      role: m.role,
+      content: (m.content || '')
+        .replace(/\[ERROR:\s*[^\]]+\]/g, '')
+        .replace(/>\s*\[!CAUTION\]\s*\n>\s*\*\*\[BACKEND ERROR\]\*\*:[^\n]*\n*/g, '')
+        .replace(/\[STREAM INTERRUPTED BY OPERATOR\]/g, '')
+        .replace(/^>\s*🧠\s*\*\*Tiered Memory Active\*\*:[^\n]*\n*/gm, '')
+        .trim()
+    })).filter(m => m.content.length > 0),
     { role: 'user', content: contextPrefix + prompt }
   ];
 
   try {
+    const agentSelect = document.getElementById('chat-agent-select');
+    const selectedAgentId = agentSelect ? agentSelect.value : (state.ai.activeAgent || 'coder-agent');
+    const targetModel = state.ai.activeModel || 'coordinator';
+
     const res = await fetch('/api/cluster/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        target: state.ai.activeModel,
+        target: targetModel,
+        agent_id: selectedAgentId,
         messages: apiMessages,
         params: { max_tokens: 4096 }
       }),
@@ -2731,7 +3031,7 @@ window.moveCameraPreset = async function(presetName) {
         domain: 'select',
         service: 'select_option',
         service_data: {
-          entity_id: 'select.kitchen_kitchen_living_room_hd_direct_move_to_preset',
+          entity_id: 'select.kitchen_living_room_move_to_preset',
           option: presetName
         }
       })
@@ -2752,7 +3052,7 @@ window.moveDrivewayPreset = async function(presetName) {
         domain: 'select',
         service: 'select_option',
         service_data: {
-          entity_id: 'select.driveway_front_door_hd_stream_direct_move_to_preset',
+          entity_id: 'select.driveway_front_door_move_to_preset',
           option: presetName
         }
       })
@@ -6057,8 +6357,8 @@ function renderHarnessForm(harnessId, data) {
               </div>
             </div>
             <div class="harness-slider-combo">
-              <input type="range" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" oninput="syncParam('n_ctx', this.value)">
-              <input type="number" min="2048" max="65536" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control harness-num-input" oninput="syncParam('n_ctx', this.value, true)">
+              <input type="range" min="4096" max="1048576" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx-range" class="form-control" oninput="syncParam('n_ctx', this.value)">
+              <input type="number" min="4096" step="1024" value="${sp.n_ctx || 8192}" id="param-n_ctx" class="form-control harness-num-input" oninput="syncParam('n_ctx', this.value, true)" title="Arbitrary token context (Enforces floor >= 4096)">
             </div>
             <div style="display: flex; gap: 0.25rem; margin-top: 0.25rem; flex-wrap: wrap;">
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 4096)">4k</button>
@@ -6067,6 +6367,10 @@ function renderHarnessForm(harnessId, data) {
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 16384)">16k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 32768)">32k</button>
               <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 65536)">64k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 131072)">128k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 262144)">256k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 524288)">512k</button>
+              <button type="button" class="theme-opt-btn" onclick="syncParam('n_ctx', 1048576)">1M</button>
             </div>
           </div>
 
@@ -6958,6 +7262,10 @@ window.syncParam = function(key, val, fromInput = false) {
   if (lbl) lbl.textContent = val;
   const rng = document.getElementById(`param-${key}-range`);
   const num = document.getElementById(`param-${key}`);
+  const numericVal = parseFloat(val);
+  if (!isNaN(numericVal) && rng && numericVal > parseFloat(rng.max)) {
+    rng.max = numericVal;
+  }
   if (rng && !fromInput) rng.value = val;
   if (num && fromInput) num.value = val;
   if (rng && fromInput) rng.value = val;

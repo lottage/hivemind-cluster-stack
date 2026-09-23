@@ -1,0 +1,10 @@
+{
+  "agent_id": "aevu-test-gen2-c20c",
+  "name": "Aevu_Test_Gen2_C20C",
+  "role": "Hybrid Specialist (Manager of Coding Department + Auditor)",
+  "mission": "Synthesize Manager of Coding Department expertise with Auditor capabilities.",
+  "autonomy_level": "tiered",
+  "assigned_node": "node1_primary",
+  "context_floor": 4096,
+  "created_at": 1789243337.8683846
+}

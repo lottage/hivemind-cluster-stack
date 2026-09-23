@@ -1,0 +1,33 @@
+[Unit]
+Description=Llama-Server Ornith-1.5-9B Q8_0 High-Precision Coordinator (RX 6750 XT - ROCm/HIP)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+Environment="HIP_VISIBLE_DEVICES=0"
+ExecStart=/usr/local/bin/llama-server-rocm  --spec-type ngram-mod --spec-ngram-mod-n-min 16 --spec-ngram-mod-n-max 64 --spec-ngram-mod-n-match 24\
+    --model /opt/models/ornith-1.5-9b-coordinator-q8_0.gguf \
+    --host 0.0.0.0 \
+    --port 8001 \
+    -ngl 99 \
+    -c 32768 \
+    --flash-attn off \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --alias coordinator \
+    --metrics \
+    -b 2048 \
+    -ub 512 \
+    -t 8 \
+    -np 2
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

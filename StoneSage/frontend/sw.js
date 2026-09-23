@@ -3,12 +3,43 @@
  * Enables PWA offline shell and background Web Push notification alerts.
  */
 
-const CACHE_NAME = 'stonesage-v2.0';
+const CACHE_NAME = 'stonesage-v4.0.6-realtime';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
-  '/app.js',
+  '/style.css?v=4.0.4',
+  '/vendor/xterm/xterm.css',
+  '/vendor/xterm/xterm.css?v=4.0.4',
+  '/vendor/xterm/xterm.js',
+  '/vendor/xterm/xterm.js?v=4.0.4',
+  '/vendor/xterm/xterm-addon-fit.js',
+  '/vendor/xterm/xterm-addon-fit.js?v=4.0.4',
+  '/vendor/ace/ace.js',
+  '/vendor/ace/ext-language_tools.js',
+  '/vendor/ace/ext-searchbox.js',
+  '/js/app.js',
+  '/js/app.js?v=4.0.4',
+  '/js/state.js',
+  '/js/state.js?v=4.0.4',
+  '/js/chat.js',
+  '/js/chat.js?v=4.0.4',
+  '/js/terminal.js',
+  '/js/terminal.js?v=4.0.4',
+  '/js/harness.js',
+  '/js/harness.js?v=4.0.4',
+  '/js/fleet.js',
+  '/js/fleet.js?v=4.0.4',
+  '/js/agent_dna.js',
+  '/js/agent_dna.js?v=4.0.4',
+  '/js/presence_garden.js',
+  '/js/presence_garden.js?v=4.0.4',
+  '/js/studio3d.js',
+  '/js/studio3d.js?v=4.0.4',
+  '/js/workstation_ace.js',
+  '/js/workstation_ace.js?v=4.0.4',
+  '/js/engine_studio.js',
+  '/js/engine_studio.js?v=4.0.4',
   '/manifest.webmanifest',
   '/icon.svg'
 ];
@@ -34,28 +65,29 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Never cache API requests
-  if (event.request.url.includes('/api/')) {
+  // Never cache API or websocket requests
+  if (event.request.url.includes('/api/') || event.request.url.includes('/ws')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
+  // Network-first strategy with cache fallback (ignoring query search if needed)
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return (
-        cachedResponse ||
-        fetch(event.request).then((response) => {
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
           });
-          return response;
-        })
-      );
-    })
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((matched) => {
+          return matched || caches.match(event.request, { ignoreSearch: true });
+        });
+      })
   );
 });
 
