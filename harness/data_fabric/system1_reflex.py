@@ -4,7 +4,7 @@ Implements a fast cascading fallback pipeline:
   - Pass 0: In-RAM Valkey Reflex Hash/Tag Cache (< 1 ms)
   - Pass 1: BGE-Large + Qdrant Semantic Vector Prototype Matching (15 - 25 ms)
   - Pass 2: 1-Pass Prefill Logprob Head on local llama-server worker :8002 (35 - 55 ms)
-  - Pass 3: Escalate to System 2 Full Reasoning (14B Coordinator :8001 / Cloud)
+  - Pass 3: Escalate to System 2 Full Reasoning (coordinator engine / cloud)
 
 Provides sub-50ms decision reflexes, eliminating LLM token latency and JSON formatting errors.
 """

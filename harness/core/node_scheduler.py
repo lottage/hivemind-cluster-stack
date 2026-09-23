@@ -1,6 +1,6 @@
 """
 Dynamic Multi-Node Slot Scheduler & Work-Stealing Dispatcher.
-Manages concurrent execution slots across VM 102 Dual GPUs and Asus ROG Ally X 4 parallel slots.
+Manages concurrent execution slots across the configured compute engines and edge nodes (slot counts are read live).
 Supports automatic work-stealing and roaming node failover.
 """
 
@@ -45,17 +45,17 @@ class NodeScheduler:
     ) -> Optional[SlotLease]:
         """
         Acquires an execution slot on the most suitable available node.
-        Prioritizes Asus ROG Ally X 4-slot pool for parallel subagents,
+        Prioritizes the edge node pool for parallel subagents,
         and VM 102 Primary Accelerator for coordinator architecture tasks.
         """
         async with self._lock:
             # 1. Evaluate candidate nodes matching preferred role
             candidate_node_ids = []
             if preferred_role == "coordinator":
-                candidate_node_ids = ["node1_primary", "node2_ally_x", "node1_secondary"]
+                candidate_node_ids = ["node1_primary", "node2_edge", "node1_secondary"]
             else:
-                # For worker / subagent tasks, prioritize ROG Ally X (4 parallel slots) to keep primary GPU free
-                candidate_node_ids = ["node2_ally_x", "node1_secondary", "node1_primary"]
+                # For worker / subagent tasks, prefer the edge node to keep the coordinator free
+                candidate_node_ids = ["node2_edge", "node1_secondary", "node1_primary"]
 
             for nid in candidate_node_ids:
                 node = self.config.nodes.get(nid)

@@ -255,9 +255,9 @@ def interactive_stream_wizard(prompt_arg: Optional[str] = None) -> Optional[Dict
     
     # Ensure default built-in archetypes exist in choices
     if "coordinator" not in agent_id_map:
-        agent_id_map["coordinator"] = {"agent_id": "coordinator", "name": "Coordinator 14B", "role": "Architectural Logic & Deep Reasoning"}
+        agent_id_map["coordinator"] = {"agent_id": "coordinator", "name": f"Coordinator ({fleet_config.model('coordinator')})", "role": "Architectural Logic & Deep Reasoning"}
     if "worker" not in agent_id_map:
-        agent_id_map["worker"] = {"agent_id": "worker", "name": "Worker 3B", "role": "Rapid Speed Ideation & Invariant Tester"}
+        agent_id_map["worker"] = {"agent_id": "worker", "name": f"Worker ({fleet_config.model('worker')})", "role": "Rapid Speed Ideation & Invariant Tester"}
     if "sentinel" not in agent_id_map:
         agent_id_map["sentinel"] = {"agent_id": "sentinel", "name": "Nexus Sentinel", "role": "Security & Concurrency Auditor"}
 
@@ -265,7 +265,7 @@ def interactive_stream_wizard(prompt_arg: Optional[str] = None) -> Optional[Dict
 
     # Build stream configs
     configs: List[AgentStreamConfig] = []
-    default_nodes = ["node1_primary", "node2_ally_x", "node1_secondary"]
+    default_nodes = ["node1_primary", "node2_edge", "node1_secondary"]
     
     for i in range(1, num_streams + 1):
         console.print(f"\n[bold cyan]── Stream #{i} Configuration ──────────────────────────────[/bold cyan]")
@@ -287,7 +287,7 @@ def interactive_stream_wizard(prompt_arg: Optional[str] = None) -> Optional[Dict
 
         # Node selection with dynamic slot capacity check & retry loop
         def_node = "node1_primary"
-        for candidate in ["node1_primary", "node1_secondary", "node2_ally_x"]:
+        for candidate in ["node1_primary", "node1_secondary", "node2_edge"]:
             if candidate in fleet_config.nodes:
                 c_node = fleet_config.nodes[candidate]
                 c_assigned = sum(1 for c in configs if c.node_id == candidate)

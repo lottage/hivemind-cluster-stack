@@ -1,8 +1,7 @@
 """
-Dual-GPU Speculative Decoding Engine (General Daily Driver Preset).
-Leverages RX 6600 XT (Vulkan1 :8002) as the fast draft generator (80-110 tok/s)
-and RX 6750 XT (Vulkan0 :8001) as the high-precision uncompressed verifier.
-Delivers 1.8x to 2.4x generation speedup with zero mathematical precision loss.
+Client-side speculative decoding: the worker engine drafts tokens, the coordinator engine verifies them.
+Which models and GPUs those are comes from the live system profile (fleet_config.label/gpu), never from code.
+Real speedup depends on the draft/target pair sharing a vocabulary; measure it with '/speculative bench'.
 """
 
 import time
@@ -13,6 +12,7 @@ import urllib.request
 from typing import Dict, Any, List, Optional, AsyncIterator
 from dataclasses import dataclass
 from .llama_client import LlamaClient, StreamChunk
+from ..config import fleet_config
 
 logger = logging.getLogger("Harness.Speculative")
 
@@ -29,8 +29,8 @@ class SpeculativeMetrics:
 
 class SpeculativeEngine:
     """
-    Coordinates speculative decoding between the fast draft worker (RX 6600 XT)
-    and the high-precision coordinator target (RX 6750 XT).
+    Coordinates speculative decoding between the fast draft worker engine
+    and the coordinator engine that verifies.
     Supports native llama-server speculative flags (--model-draft) and harness-side coordination.
     """
 
@@ -111,12 +111,12 @@ class SpeculativeEngine:
             "target_online": t_ok,
             "target_model": t_model,
             "target_latency_ms": t_lat,
-            "target_device": "RX 6750 XT (12GB Vulkan0)",
+            "target_device": fleet_config.gpu("coordinator") or "unknown",
             "draft_endpoint": self.draft_url,
             "draft_online": d_ok,
             "draft_model": d_model,
             "draft_latency_ms": d_lat,
-            "draft_device": "RX 6600 XT (8GB Vulkan1)",
+            "draft_device": fleet_config.gpu("worker") or "unknown",
             "alignment": alignment,
             "gamma": self.gamma,
             "metrics": self.last_metrics
@@ -158,7 +158,7 @@ class SpeculativeEngine:
         yield StreamChunk(
             chunk_type="start",
             content="",
-            model_name="speculative-qwen (RX 6750 XT + RX 6600 XT)"
+            model_name=f"speculative ({fleet_config.model('coordinator')} + {fleet_config.model('worker')})"
         )
 
         try:
@@ -227,18 +227,18 @@ class SpeculativeEngine:
         draft_elapsed = max(time.time() - d0, 0.001)
         draft_tps = round(draft_tokens / draft_elapsed, 1) if draft_tokens else 0.0
 
-        # Theoretical acceptance rate for same-family model (e.g. Qwen2.5 14B + 3B) is ~70-80%
+        # Assumed acceptance rate for a same-family draft/target pair (not measured): the speculative figure is a projection
         acceptance_rate = 0.74
         # Speedup formula: S = gamma / (1 + (gamma - 1) * (1 - alpha))
         theoretical_speedup = round(self.gamma / (1 + (self.gamma - 1) * (1 - acceptance_rate)), 2)
-        speculative_projected_tps = round(target_tps * theoretical_speedup, 1) if target_tps else 68.0
+        speculative_projected_tps = round(target_tps * theoretical_speedup, 1) if target_tps else None
 
         return {
             "prompt": test_prompt,
-            "target_model": "Qwen2.5-Coder-14B (RX 6750 XT)",
+            "target_model": fleet_config.label("coordinator"),
             "target_tokens": target_tokens,
             "target_tps": target_tps,
-            "draft_model": "Qwen2.5-Coder-3B (RX 6600 XT)",
+            "draft_model": fleet_config.label("worker"),
             "draft_tokens": draft_tokens,
             "draft_tps": draft_tps,
             "lookahead_gamma": self.gamma,

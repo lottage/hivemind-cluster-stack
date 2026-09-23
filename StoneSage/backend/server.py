@@ -1780,37 +1780,18 @@ def parse_llama_flags(exec_start: str) -> Dict[str, Any]:
     return flags
 
 def get_available_models() -> List[Dict[str, Any]]:
-    """Scan compute host for all available GGUF models."""
-    remote_cmd = """
-python3 -c "
-import os, glob, json
-models = []
-paths = glob.glob('/opt/models/**/*.gguf', recursive=True) + glob.glob('/home/austin/.lmstudio/models/**/*.gguf', recursive=True)
-for p in sorted(set(paths)):
-    try:
-        st = os.stat(p)
-        fn = os.path.basename(p)
-        size_gb = round(st.st_size / (1024**3), 2)
-        q = 'Unknown'
-        fn_upper = fn.upper()
-        for candidate in ['Q4_K_M', 'Q8_0', 'Q5_K_M', 'Q4_0', 'Q6_K', 'BF16', 'F16', 'IQ4_NL', 'IQ3_M']:
-            if candidate in fn_upper:
-                q = candidate
-                break
-        models.append({'filename': fn, 'path': p, 'size_gb': size_gb, 'size_bytes': st.st_size, 'modified_time': st.st_mtime, 'quant': q})
-    except Exception:
-        pass
-print(json.dumps(models))
-"
-"""
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", remote_cmd.strip()]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        if res.returncode == 0:
-            return json.loads(res.stdout.strip())
-    except Exception as e:
-        print("Error discovering models:", e)
-    return []  # host unreachable: show nothing rather than models that may not exist
+    """GGUF models on the inference host, with metadata read from each file's header (system_profile)."""
+    out = []
+    for m in system_profile.get_models(load_config()):
+        if m.get("is_projector"):
+            continue
+        out.append({"filename": m["file"], "path": m["path"], "name": m.get("name"),
+                    "size_gb": round((m.get("size_bytes") or 0) / 1024**3, 2), "size_bytes": m.get("size_bytes"),
+                    "modified_time": m.get("modified_time"), "quant": m.get("quant") or "Unknown",
+                    "params": m.get("params"), "architecture": m.get("architecture"),
+                    "max_context": m.get("context_length"), "layers": m.get("layers"), "kv_heads": m.get("kv_heads"),
+                    "is_loaded": m.get("is_loaded", False)})
+    return out  # host unreachable: empty, never invented
 
 def get_hardware_capabilities() -> Dict[str, Any]:
     """Real GPUs, CPU and RAM of the inference host, from system_profile's hardware probe (no invented defaults)."""
@@ -2586,6 +2567,16 @@ def _courage_presence() -> Dict[str, Any]:
     return _courage_presence_cache["state"] or {}
 
 
+def _courage_runs_on() -> Optional[str]:
+    """Courage's own model and GPU from the live profile, e.g. 'Qwen3 14B on an AMD Radeon RX 6750 XT'."""
+    prof = system_profile.get_profile(load_config())
+    e = (prof.get("engines") or {}).get("coordinator") or {}
+    if not e.get("model"):
+        return None
+    gpu = (e.get("gpu") or {}).get("name")
+    return e["model"] + (f" on an {gpu}" if gpu else "")
+
+
 def _courage_memory_search(query: str) -> List[Dict[str, Any]]:
     global _courage_amem
     if _courage_amem is None:
@@ -2625,7 +2616,8 @@ def get_courage_agent():
                 speak=_courage_speak,
             )
             url = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1")
-            _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence)
+            _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence,
+                                          runs_on_fn=_courage_runs_on)
         return _courage_agent
 
 
@@ -5404,6 +5396,27 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         except (ValueError, TypeError):
                             custom_params_b = None
                     enforce_floor = body.get("enforce_floor", True)
+                    # real geometry and VRAM when the UI names the model file / target engine
+                    geo = {}
+                    meta = next((m for m in system_profile.get_models(load_config())
+                                 if body.get("model_file") and m.get("file") == body.get("model_file")), None)
+                    if meta and isinstance(meta.get("layers"), int):
+                        geo["custom_layers"] = meta["layers"]
+                        if isinstance(meta.get("kv_heads"), int):
+                            geo["custom_kv_heads"] = meta["kv_heads"]
+                        if isinstance(meta.get("embedding"), int) and isinstance(meta.get("heads"), int) and meta["heads"]:
+                            geo["custom_head_dim"] = meta["embedding"] // meta["heads"]
+                        if custom_params_b is None and meta.get("params"):
+                            try:
+                                custom_params_b = float(str(meta["params"]).split("-")[0].rstrip("Bb"))
+                            except ValueError:
+                                pass
+                    if "target_vram_gb" not in body:
+                        eng = (system_profile.get_profile(load_config()).get("engines") or {}).get(body.get("engine", "coordinator")) or {}
+                        gpu = next((g for g in system_profile.get_profile(load_config()).get("gpus") or []
+                                    if eng.get("gpu") and g["index"] == eng["gpu"]["index"]), None)
+                        if gpu:
+                            vram = gpu["vram_total_gb"]
                     res = offload_engine.estimate(
                         arch_type=arch,
                         quant=quant,
@@ -5413,6 +5426,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         target_vram_gb=vram,
                         custom_params_b=custom_params_b,
                         enforce_floor=enforce_floor,
+                        **geo,
                     )
                     from dataclasses import asdict
                     self.send_json({"ok": True, "estimate": asdict(res)})
@@ -8374,7 +8388,7 @@ if __name__ == "__main__":
     print(f"  LAN Cockpit (LXC): http://192.168.1.167:{port}")
     print(f"{https_banner}")
     print(f"  LAN Workstation:   http://{lan_ip}:{port}")
-    print(f"  Cluster Nodes:     pve (192.168.1.229) & bigserv (192.168.1.82)")
+    print(f"  Proxmox API:       {load_config().get('proxmox', {}).get('cluster_url', 'not configured')}")
     print(f"  Dual-GPU Cluster:  coder-agent 16k (:8001) & home-agent (:8002)")
     print(f"  RAG Proxy (HA):    http://{lan_ip}:{port}/api/ai/coordinator/v1")
     print(f"  Qdrant Memory:     192.168.1.112:6333 (User Obsidian Ingested)")

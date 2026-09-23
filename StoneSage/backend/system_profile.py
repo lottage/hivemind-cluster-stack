@@ -202,3 +202,34 @@ def loaded_model_files(profile: Dict[str, Any]) -> set:
         if e.get("draft_model_file"):
             files.add(e["draft_model_file"])
     return files
+
+
+_models_cache: Dict[str, Any] = {"at": 0.0, "models": None}
+MODELS_CACHE_S = 300
+
+
+def get_models(cfg: Dict[str, Any], fresh: bool = False) -> list:
+    """Every GGUF on the inference host with metadata read from its header (architecture, trained context,
+    layers, KV heads, size label). Marks files loaded by a running engine. Empty list when unreachable."""
+    with _lock:
+        if not fresh and _models_cache["models"] is not None and time.time() - _models_cache["at"] < MODELS_CACHE_S:
+            return _models_cache["models"]
+    cl = cfg.get("cluster", {})
+    host = urlparse(_base(cl.get("coordinator_url", ""))).hostname
+    if not host or os.environ.get("STONESAGE_OFFLINE"):
+        return []
+    try:
+        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4", f"{cl.get('ssh_user', 'austin')}@{host}",
+                              PROBE_CMD + " --models"], capture_output=True, text=True, timeout=60)
+        items = json.loads(out.stdout).get("models", []) if out.returncode == 0 else []
+    except Exception:
+        items = []
+    loaded = loaded_model_files(get_profile(cfg))
+    for m in items:
+        m.update(model_names(m.get("path")))  # name, quant, params from the filename
+        m["params"] = m.get("size_label") or m.get("params")
+        m["is_loaded"] = m.get("file") in loaded
+        m["is_projector"] = m.get("architecture") == "clip"
+    with _lock:
+        _models_cache.update(at=time.time(), models=items)
+    return items

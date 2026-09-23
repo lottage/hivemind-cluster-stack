@@ -84,6 +84,7 @@ def _http_post_json(url: str, body: Dict[str, Any], timeout: float) -> Dict[str,
 
 class CourageAgent:
     def __init__(self, tools: CourageTools, llm_url: str, presence_fn: Optional[Callable[[], Dict[str, Any]]] = None,
+                 runs_on_fn: Optional[Callable[[], Optional[str]]] = None,
                  pending: Optional[PendingActions] = None, max_steps: int = 5, timeout: float = 90.0,
                  post: Callable[[str, Dict[str, Any], float], Dict[str, Any]] = _http_post_json):
         base = llm_url.rstrip("/")
@@ -92,6 +93,7 @@ class CourageAgent:
         self.url = base
         self.tools = tools
         self.presence_fn = presence_fn
+        self.runs_on_fn = runs_on_fn
         self.pending = pending or PendingActions()
         self.max_steps = max_steps
         self.timeout = timeout
@@ -121,7 +123,13 @@ class CourageAgent:
                 presence = self.presence_fn()
             except Exception:
                 presence = None
-        msgs: List[Dict[str, Any]] = [{"role": "system", "content": build_system_prompt(presence)}]
+        runs_on = None
+        if self.runs_on_fn:
+            try:
+                runs_on = self.runs_on_fn()
+            except Exception:
+                runs_on = None
+        msgs: List[Dict[str, Any]] = [{"role": "system", "content": build_system_prompt(presence, runs_on=runs_on)}]
         turns = [m for m in history if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
         for m in turns[-HISTORY_TURNS:]:
             text = THINK.sub("", TOOL_MARKUP.sub("", m["content"])).strip()

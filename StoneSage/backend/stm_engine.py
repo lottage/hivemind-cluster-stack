@@ -22,7 +22,7 @@ class ShortTermMemoryEngine:
         self.last_updated = time.time()
         
         # Seed initial system context
-        self.add_item("system", "Topology", "Node pve (192.168.1.245) Dual AMD GPU, Node bigserv (HA, CouchDB 192.168.1.230)")
+        self.add_item("system", "Topology", "Engines and GPUs: see /api/system/profile (live); Proxmox nodes pve and bigserv")
 
     def add_item(self, category: str, key: str, value: str) -> Dict[str, Any]:
         """Add or update an item in short-term RAM memory."""

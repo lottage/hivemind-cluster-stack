@@ -81,9 +81,21 @@ VM 102: `/etc/stonesage/secrets.env` (root, 600) holds `HASS_URL`/`HASS_TOKEN`; 
 **Rotate** the HA long-lived token, the Proxmox `StoneSage` API token and the CouchDB/config password:
 they appear in local git history (commits 67fe717..fb5e327).
 
+## Live system profile (2026-09-23)
+Hardware, model and engine labels are no longer written in code. Sources, in order:
+- `server setup/cluster-bridge/hw_probe.py` on VM 102 (`/opt/cluster-bridge/hw_probe.py`, run as `sudo -n python3` over SSH):
+  GPU names (vulkaninfo), VRAM (sysfs), engine per GPU (fdinfo), engine flags and systemd unit (cmdline/cgroup);
+  `--models` reads every GGUF header (architecture, trained context, layers, KV heads, size label).
+- `StoneSage/backend/system_profile.py` + `GET /api/system/profile` (30 s cache, `?fresh=1`): labels like "Qwen3 14B · RX 6750 XT".
+- Web UI `js/profile.js` (page load, every minute, 3/15/45 s after any engine change), harness `fleet_config.label()/gpu()`,
+  Courage's prompt ("You run on ..."), A-MEM `core_topology`/`core_hierarchy` cards, Ollama `/api/tags`, telemetry, engine settings.
+- The user's own devices (edge nodes like the ROG Ally, workstation) and their specs live in `config.json` `harness_instances`
+  (`"hardware": {...}`, `"engine": true`). ROG Ally = original Ally, Ryzen Z1 Extreme, 16 GB (not an Ally X).
+- Preset "cluster mode" switching (`switch_cluster_mode.py`) is retired (HTTP 410): it rewrote units unreviewed and its presets
+  named models that are no longer loaded. Still hardcoded (shelved, not extended): Citadel 3D, trainer/HF browser, thinking-loop topics.
+
 ## Known issues
-- `/api/cluster/telemetry` in `server.py` and the `ws_broker.py` banner text hardcode old topology (16k ctx, "RX 6600 XT",
-  Ornith models). The top-bar badge now uses `/api/health/all` instead.
+- `ws_broker.py` banner text still describes the old topology.
 - `thinking_state.json` on VM 102 still says `is_running: true` (written before the old process was killed); the live
   `autonomous_thinking_status` tool correctly reports false.
 - `cluster-mcp` takes ~90 s to stop (hits systemd's stop timeout, then SIGKILL).

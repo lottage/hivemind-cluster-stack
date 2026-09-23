@@ -113,7 +113,7 @@ class HuggingFaceBrowser:
 
                     # Determine hardware fit dynamically from fleet_config
                     from ..config import fleet_config
-                    ally_node = fleet_config.nodes.get("node2_ally_extreme") or fleet_config.nodes.get("node2_ally_x")
+                    ally_node = fleet_config.nodes.get("node2_edge") or fleet_config.nodes.get("node2_edge")
                     ally_ram_gb = (ally_node.total_memory_mb / 1024.0) if ally_node else 16.0
                     fits_ally = size_gb <= max(ally_ram_gb - 3.5, 4.0)
                     fits_vm_p = size_gb <= 11.5

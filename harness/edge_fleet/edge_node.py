@@ -1,7 +1,7 @@
 """
 Edge Node Registry & Capability Tracker
 Tracks distributed edge devices across the homelab and roaming continuum.
-Supports Asus ROG Ally X, Raspberry Pis, mini-PCs, and mobile endpoints.
+Supports handhelds, Raspberry Pis, mini-PCs and other edge endpoints listed in config.json.
 """
 
 import time
@@ -50,23 +50,21 @@ class EdgeNodeRegistry:
         self._nodes: Dict[str, EdgeNodeCapability] = {}
         self._load()
 
-        # Seed known default edge devices if empty
+        # Seed from the edge devices configured in StoneSage's config.json (harness_instances); nothing hardcoded.
+        # Model, context and online state stay unknown until the node is actually probed.
         if not self._nodes:
-            self.register(EdgeNodeCapability(
-                device_id="rog-ally-x",
-                hostname="rog-ally-x",
-                ip="192.168.1.213",
-                port=1234,
-                device_type="edge_handheld",
-                compute_backend="vulkan",
-                total_ram_gb=24.0,
-                vram_allocated_gb=8.0,
-                runtime_type="lm-studio",
-                loaded_model="Ornith-1.5-9B",
-                context_window=8192,
-                parallel_slots=4,
-                is_online=True
-            ))
+            from urllib.parse import urlparse
+            from ..config import fleet_config
+            for nid, node in fleet_config.nodes.items():
+                if not node.is_roaming:
+                    continue
+                u = urlparse(node.base_url)
+                self.register(EdgeNodeCapability(
+                    device_id=nid, hostname=node.name, ip=u.hostname or "", port=u.port or 80,
+                    device_type="edge", compute_backend="unknown",
+                    total_ram_gb=round(node.total_memory_mb / 1024, 1) if node.total_memory_mb else 0.0,
+                    vram_allocated_gb=0.0, runtime_type=node.api_type, loaded_model="unknown",
+                    context_window=0, parallel_slots=node.slots, is_online=False))
 
     def register(self, capability: EdgeNodeCapability) -> None:
         capability.last_seen = time.time()

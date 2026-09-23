@@ -148,9 +148,19 @@ class TestAllyModelManager(unittest.TestCase):
         CommandRegistry.handle_node(["models"])
         CommandRegistry.handle_node(["status"])
 
-    def test_dynamic_memory_derivation_24gb(self):
-        # Test that EdgeFleetModelManager derives 24GB from fleet_config for node2_ally_x
-        audit = self.mgr.audit_node_resources()
+    def test_dynamic_memory_derivation_from_config(self):
+        # memory comes from the node's configured hardware (config.json), not a constant in code
+        from harness.config import NodeEndpoint, fleet_config
+        saved = fleet_config.nodes.get("node2_edge")
+        fleet_config.nodes["node2_edge"] = NodeEndpoint(node_id="node2_edge", name="edge", base_url="http://127.0.0.1:1234/v1",
+                                                        total_memory_mb=24576)
+        try:
+            audit = self.mgr.audit_node_resources()
+        finally:
+            if saved is not None:
+                fleet_config.nodes["node2_edge"] = saved
+            else:
+                fleet_config.nodes.pop("node2_edge", None)
         self.assertEqual(audit["total_hardware_ram_gb"], 24.0)
         self.assertLessEqual(audit["net_available_replace_gb"], 21.0)
 

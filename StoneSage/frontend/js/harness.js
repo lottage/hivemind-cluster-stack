@@ -589,7 +589,9 @@ export async function updateCapacityCalculation() {
   const model = currentModels.find(m => m.key === selectedModelKey);
   let arch = '9b';
   let totalLayers = 42;
-  if (model) {
+  if (model && Number.isInteger(model.layers)) {
+    totalLayers = model.layers;  // real layer count from the GGUF header
+  } else if (model) {
     const fn = (model.name || model.key || '').toLowerCase();
     if (fn.includes('27b')) { arch = '27b'; totalLayers = 64; }
     else if (fn.includes('35b')) { arch = '35b_moe'; totalLayers = 40; }
@@ -620,6 +622,7 @@ export async function updateCapacityCalculation() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         arch_type: arch,
+        model_file: model ? (model.filename || model.key) : undefined,
         quant: quant,
         context_length: ctx,
         parallel_slots: slots,

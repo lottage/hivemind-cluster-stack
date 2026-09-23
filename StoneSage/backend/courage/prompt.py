@@ -45,5 +45,8 @@ def build_presence_card(state: Optional[Dict[str, Any]], now: Optional[datetime]
     return "\n".join(lines)
 
 
-def build_system_prompt(presence_state: Optional[Dict[str, Any]], now: Optional[datetime] = None) -> str:
-    return PERSONA + "\n\n" + build_presence_card(presence_state, now)
+def build_system_prompt(presence_state: Optional[Dict[str, Any]], now: Optional[datetime] = None,
+                        runs_on: Optional[str] = None) -> str:
+    """runs_on: live one-liner about Courage's own model and GPU (system_profile), so it never guesses."""
+    me = f"\nYou run on {runs_on}, in the attic." if runs_on else ""
+    return PERSONA + me + "\n\n" + build_presence_card(presence_state, now)

@@ -105,6 +105,8 @@ class HardwareCapacityEngine:
         custom_params_b: Optional[float] = None,
         custom_layers: Optional[int] = None,
         enforce_floor: bool = True,
+        custom_kv_heads: Optional[int] = None,
+        custom_head_dim: Optional[int] = None,
     ) -> MemoryEstimate:
         """
         Computes accurate memory footprint across VRAM and system RAM.
@@ -127,10 +129,10 @@ class HardwareCapacityEngine:
         spec = self.MODEL_ARCH_PRESETS.get(arch_type.lower(), self.MODEL_ARCH_PRESETS.get("9b", {}))
         params_b = custom_params_b if custom_params_b is not None else spec.get("params", 9.2)
 
-        if custom_layers:
+        if custom_layers:  # real geometry from the GGUF header when the caller has it
             layers = custom_layers
-            kv_heads = spec.get("kv_heads", 8)
-            head_dim = spec.get("head_dim", 128)
+            kv_heads = custom_kv_heads or spec.get("kv_heads", 8)
+            head_dim = custom_head_dim or spec.get("head_dim", 128)
         elif "layers" in spec and (custom_params_b is None or abs(params_b - spec.get("params", 0)) < 0.1):
             layers = spec["layers"]
             kv_heads = spec.get("kv_heads", 8)

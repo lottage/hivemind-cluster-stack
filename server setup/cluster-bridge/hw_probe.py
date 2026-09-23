@@ -115,6 +115,73 @@ def engines():
     return sorted(out, key=lambda e: e["port"])
 
 
+MODEL_GLOBS = ["/opt/models/**/*.gguf", os.path.expanduser("~austin/.lmstudio/models/**/*.gguf")]
+GGUF_KEEP = ("general.architecture", "general.name", "general.size_label", "general.file_type", "general.basename")
+GGUF_ARCH_KEEP = ("context_length", "block_count", "embedding_length", "attention.head_count", "attention.head_count_kv",
+                  "expert_count", "expert_used_count")
+
+
+def gguf_meta(path):
+    """Read a GGUF file's key/value header (not the tensors): architecture, trained context, layers, heads."""
+    import struct
+    scalar = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 7: "<?", 10: "<Q", 11: "<q", 12: "<d"}
+    out = {}
+    with open(path, "rb") as f:
+        if f.read(4) != b"GGUF":
+            return {}
+        version, _n_tensors, n_kv = struct.unpack("<IQQ", f.read(20))
+        if version < 2:
+            return {}
+
+        def rstr():
+            (n,) = struct.unpack("<Q", f.read(8))
+            return f.read(n).decode("utf-8", "replace")
+
+        def rval(t):
+            if t in scalar:
+                fmt = scalar[t]
+                return struct.unpack(fmt, f.read(struct.calcsize(fmt)))[0]
+            if t == 8:
+                return rstr()
+            if t == 9:  # array: skip contents (tokenizer vocab etc.), keep the length
+                (et,) = struct.unpack("<I", f.read(4))
+                (n,) = struct.unpack("<Q", f.read(8))
+                if et in scalar:
+                    f.seek(struct.calcsize(scalar[et]) * n, 1)
+                else:
+                    for _ in range(n):
+                        rval(et)
+                return f"[{n}]"
+            raise ValueError(f"unknown gguf type {t}")
+
+        for _ in range(n_kv):
+            key = rstr()
+            (t,) = struct.unpack("<I", f.read(4))
+            val = rval(t)
+            if key in GGUF_KEEP or any(key.endswith("." + k) for k in GGUF_ARCH_KEEP):
+                out[key] = val
+    arch = out.get("general.architecture", "")
+    pick = lambda k: out.get(f"{arch}.{k}")  # noqa: E731
+    return {"architecture": arch, "name": out.get("general.name"), "size_label": out.get("general.size_label"),
+            "context_length": pick("context_length"), "layers": pick("block_count"), "embedding": pick("embedding_length"),
+            "heads": pick("attention.head_count"), "kv_heads": pick("attention.head_count_kv"),
+            "experts": pick("expert_count"), "experts_used": pick("expert_used_count")}
+
+
+def models():
+    out = []
+    for path in sorted({p for g in MODEL_GLOBS for p in glob.glob(g, recursive=True)}):
+        try:
+            st = os.stat(path)
+            meta = gguf_meta(path)
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            meta = {"error": str(e)[:120]}
+            st = None
+        out.append(dict(meta, path=path, file=os.path.basename(path),
+                        size_bytes=st.st_size if st else None, modified_time=st.st_mtime if st else None))
+    return out
+
+
 def host():
     cpu = re.search(r"model name\s*:\s*(.+)", _read("/proc/cpuinfo"))
     mem = re.search(r"MemTotal:\s*(\d+)", _read("/proc/meminfo"))
@@ -123,4 +190,8 @@ def host():
 
 
 if __name__ == "__main__":
-    print(json.dumps({"host": host(), "gpus": gpus(), "engines": engines()}))
+    import sys
+    if "--models" in sys.argv:  # model files with their GGUF metadata (slower: reads every header)
+        print(json.dumps({"models": models()}))
+    else:
+        print(json.dumps({"host": host(), "gpus": gpus(), "engines": engines()}))

@@ -20,7 +20,7 @@ console = Console()
 def print_banner():
     console.print(Panel(
         "[bold cyan]⚡ AEVUM UNIFIED LLM HARNESS & AGENT FLEET[/bold cyan]\n"
-        "[dim]llama.cpp Orchestrator • 5-Tier Memory • OpenClaw • Distributed Edge Fleet • Dual AMD Vulkan[/dim]\n\n"
+        "[dim]llama.cpp Orchestrator • 5-Tier Memory • OpenClaw • Distributed Edge Fleet[/dim]\n\n"
         "[bold green]Available Slash Commands:[/bold green]\n"
         "  [cyan]/project[/cyan] - Cross-endpoint project workspaces (list, enter, create, leave, status)\n"
         "  [cyan]/agent[/cyan]   - OpenClaw agent sub-shell (list, build, select, detach, bind, task)\n"
@@ -33,7 +33,7 @@ def print_banner():
         "  [cyan]/presence[/cyan]  - Dynamic multi-signal presence governor (status, override, clear)\n"
         "  [cyan]/models[/cyan]    - Inspect fleet models ('/models switch' to swap models)\n"
         "  [cyan]/runtime[/cyan]   - Switch or benchmark compute runtime (v.03 Vulkan vs v.03-rocm HIP)\n"
-        "  [cyan]/spec[/cyan]      - Dual-GPU speculative decoding [green][ON by default for user prompts][/green]\n"
+        "  [cyan]/spec[/cyan]      - Client-side speculative decoding (worker drafts, coordinator verifies)\n"
         "  [cyan]/hf[/cyan]        - Search HuggingFace GGUF models\n"
         "  [cyan]/train[/cyan]     - Trigger QLoRA fine-tuning run\n"
         "  [cyan]/mem[/cyan]       - Search Valkey A-MEM atomic fact cards (< 35 tokens)\n"
@@ -58,11 +58,11 @@ async def async_chat_turn(primary_client: LlamaClient, user_query: str):
 
     use_speculative = speculative_engine.should_use_speculative(
         is_interactive=True, task_type="user_turn"
-    ) and (target_node in ("node1_primary", "vm102_dual"))
+    ) and target_node == "node1_primary"
 
     if use_speculative:
         client = primary_client
-        node_badge = "VM 102 • Speculative (RX 6750 + RX 6600)"
+        node_badge = f"Speculative ({fleet_config.gpu('coordinator') or 'coordinator'} + {fleet_config.gpu('worker') or 'worker'})"
     else:
         node_info = fleet_config.nodes.get(target_node, fleet_config.get_active_node())
         client = LlamaClient(base_url=node_info.base_url)
@@ -168,19 +168,9 @@ def get_prompt_badge() -> tuple[str, str]:
     if len(model) > 22:
         model = model[:20] + "…"
 
-    node_name = node.name
-    if "Primary" in node_name:
-        short_node = "VM 102 (6750)"
-    elif "Secondary" in node_name:
-        short_node = "VM 102 (6600)"
-    elif "Dual" in node_name:
-        short_node = "VM 102 (Dual)"
-    elif "Ally" in node_name:
-        short_node = "ROG Ally X"
-    elif "Workstation" in node_name:
-        short_node = "Workstation"
-    else:
-        short_node = node_name[:16]
+    # short badge from live data: the GPU for engine nodes, the configured name for everything else
+    role = {"node1_primary": "coordinator", "node1_secondary": "worker"}.get(node.node_id)
+    short_node = (fleet_config.gpu(role) if role else "") or node.name.split(" (")[0][:16]
     return model, short_node
 
 def main():

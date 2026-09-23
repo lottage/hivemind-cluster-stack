@@ -10,7 +10,8 @@ import re
 import logging
 from typing import Dict, Any, List, Optional
 
-from ..data_fabric.valkey_amem import valkey_amem
+from ..config import fleet_config
+from ..data_fabric.valkey_amem import valkey_amem, live_topology_text, live_hierarchy_text
 from .openclaw_engine import openclaw_engine
 
 logger = logging.getLogger("Harness.ContextFabric")
@@ -99,16 +100,16 @@ class HiveContextFabric:
         dossier = [
             lean,
             "\n[CLUSTER SILICON & TOPOLOGY]",
-            "• Proxmox Datacenter 'home' VIP: https://192.168.1.245:8006",
-            "• Node 1 ('pve' - 192.168.1.229): VM 102 (RX 6750 XT 12GB Vulkan0 :8001 Coordinator; RX 6600 XT 8GB Vulkan1 :8002 Worker, :8003 BGE-Large Embedder; Valkey :6379; Cluster MCP :8765). LXC 117 (Qdrant :6333).",
-            "• Node 2 ('bigserv' - 192.168.1.82): VM 103 Home Assistant OS (:8123), VM 115 NAS, LXC 116 CouchDB Obsidian Sync (:5984), LXC 120 StoneSage (:8080), LXC 119 OpenWebUI (:8080 on .108).",
+            f"• Proxmox API: {fleet_config.proxmox_vip}",
+            f"• {live_topology_text()}",  # real GPUs and engines from the live system profile
+            f"• Home Assistant: {fleet_config.hass_url}",
             "\n[DATA FABRIC & MEMORY]",
             "• Qdrant Vector DB (192.168.1.112:6333, 6 collections: companion_profile, home_automation_registry, codebase_knowledge, agent_memories, session_transcripts, autonomous_thinking).",
             "• Valkey in-RAM A-MEM (:6379): Sub-millisecond atomic fact cards (< 35 tokens).",
             "• CouchDB LiveSync (192.168.1.230:5984): Obsidian vault bidirectional sync.",
             "• SQLite Relational DB (data/harness.db): Chat sessions, messages, slot metrics.",
             "\n[COGNITIVE HIERARCHY & PHILOSOPHICAL FOUNDATION]",
-            "• 4-Tier Hierarchy: Tier 1 Frontier (Antigravity), Tier 2 Coordinator (14B), Tier 3 Worker (3B), Tier 4 Memory (Qdrant/Valkey).",
+            f"• {live_hierarchy_text()}",
             "• Sovereign Collective: Grounded in Austin's real physical home; empirical truth over hierarchy; no agent dies—all insights persist permanently in Qdrant and Obsidian."
         ]
         return "\n".join(dossier)

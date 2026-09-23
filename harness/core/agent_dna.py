@@ -64,7 +64,6 @@ class AgentDNAManager:
                 },
                 "amem_facts": [
                     "Austin is the primary homelab architect; works shifts and advisory meetings.",
-                    "Primary compute host is VM 102 with dual AMD GPUs (RX 6750 XT :8001, RX 6600 XT :8002).",
                     "Proxmox cluster VIP is https://192.168.1.245:8006 managing physical nodes pve and bigserv.",
                     "Qdrant vector memory is hosted on LXC 117 at 192.168.1.112:6333 with 6 collections."
                 ],
@@ -187,7 +186,7 @@ class AgentDNAManager:
                     "created_at": "2026-09-18T12:00:00Z",
                     "lineage": ["sovereign-root"],
                     "model_independent": True,
-                    "description": "Proxmox VE 9.2, VM 102 dual AMD GPU stack, systemd daemons, and network diagnostics."
+                    "description": "Proxmox VE, the inference host GPU stack, systemd daemons, and network diagnostics."
                 },
                 "soul": {
                     "archetype": "cluster_engineer",
@@ -199,12 +198,11 @@ class AgentDNAManager:
                         "Preserve cluster stability and systemd uptime"
                     ],
                     "core_prompt": (
-                        "You are sysadmin-agent, expert on Proxmox VE, Linux kernel, dual AMD GPU passthrough, "
+                        "You are sysadmin-agent, expert on Proxmox VE, Linux kernel, GPU passthrough, "
                         "and 24/7 homelab cluster infrastructure. Austin is the user; you are the assistant."
                     )
                 },
                 "amem_facts": [
-                    "Node 1 'pve' (192.168.1.229) runs VM 102 with dual AMD GPU passthrough.",
                     "Node 2 'bigserv' (192.168.1.82) runs Home Assistant OS, NAS, and container services.",
                     "StoneSage cockpit is hosted on LXC 120 (192.168.1.167:8888) with redirect on :8080."
                 ],

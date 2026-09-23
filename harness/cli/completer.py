@@ -138,16 +138,16 @@ class HarnessCompleter(Completer if PROMPT_TOOLKIT_AVAILABLE else object):
             "desc": "Poll live loaded models or switch models across nodes",
             "sub": {
                 "poll": "Poll live loaded models across cluster nodes",
-                "switch": "Switch models on primary VM 102 or ROG Ally X",
+                "switch": "Switch models on a compute or edge node",
             }
         },
         "/spec": {
-            "desc": "Dual-GPU speculative decoding (RX 6750 XT + RX 6600 XT)",
+            "desc": "Client-side speculative decoding (worker drafts, coordinator verifies)",
             "sub": {
                 "status": "Check speculative mode, target/draft latency, and vocabulary alignment",
-                "on": "Activate dual-GPU speculative decoding mode",
+                "on": "Activate speculative decoding",
                 "off": "Deactivate speculative decoding",
-                "bench": "Run empirical speedup benchmark on dual GPUs",
+                "bench": "Measure the real speedup",
                 "config": "Configure draft lookahead window gamma",
             }
         },
@@ -162,12 +162,12 @@ class HarnessCompleter(Completer if PROMPT_TOOLKIT_AVAILABLE else object):
             }
         },
         "/speculative": {
-            "desc": "Dual-GPU speculative decoding (RX 6750 XT + RX 6600 XT)",
+            "desc": "Client-side speculative decoding (worker drafts, coordinator verifies)",
             "sub": {
                 "status": "Check speculative mode, target/draft latency, and vocabulary alignment",
-                "on": "Activate dual-GPU speculative decoding mode",
+                "on": "Activate speculative decoding",
                 "off": "Deactivate speculative decoding",
-                "bench": "Run empirical speedup benchmark on dual GPUs",
+                "bench": "Measure the real speedup",
                 "config": "Configure draft lookahead window gamma",
             }
         },
@@ -257,13 +257,7 @@ class HarnessCompleter(Completer if PROMPT_TOOLKIT_AVAILABLE else object):
                 for nid, n in fleet_config.nodes.items()
             }
         except Exception:
-            return {
-                "node1_primary": "VM 102 Primary (RX 6750 XT)",
-                "node1_secondary": "VM 102 Secondary (RX 6600 XT)",
-                "vm102_dual": "VM 102 Dual-GPU Split (20GB)",
-                "node2_ally_x": "ROG Ally X (Port 1234)",
-                "local_workstation": "Host Workstation"
-            }
+            return {"node1_primary": "Coordinator", "node1_secondary": "Worker"}
 
     def get_completions(self, document, complete_event):
         if not PROMPT_TOOLKIT_AVAILABLE:

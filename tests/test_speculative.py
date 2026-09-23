@@ -103,7 +103,7 @@ class TestDynamicResourceScaling(unittest.TestCase):
                 "instances": [{"id": "inst_1", "config": {"context_length": 16384}}]
             }
         ]
-        audit = self.mgr.audit_node_resources()
+        audit = self.mgr.audit_node_resources(total_ram_gb=12.0)
         self.assertEqual(audit["total_hardware_ram_gb"], 12.0)
         self.assertEqual(audit["active_count"], 1)
         self.assertGreater(audit["total_loaded_gb"], 6.8)

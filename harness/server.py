@@ -127,7 +127,7 @@ class HarnessServer:
                         role=data.get("role", "Specialist"),
                         mission=data.get("mission", "Assist user"),
                         autonomy_level=data.get("autonomy", "tiered"),
-                        assigned_node=data.get("node", "node2_ally_x")
+                        assigned_node=data.get("node", "node2_edge")
                     )
                     await websocket.send(json.dumps({"type": "agent_built", "agent_id": contract.agent_id}))
                 elif action == "get_capacity":
@@ -158,7 +158,7 @@ class HarnessServer:
         role = data.get("role", "worker")
         messages = data.get("messages", [{"role": "user", "content": data.get("prompt", "")}])
 
-        # Acquire an execution slot across VM 102 or Asus ROG Ally X
+        # Acquire an execution slot on a compute engine or edge node
         lease = await node_scheduler.acquire_slot(agent_id=agent_id, preferred_role=role)
         if not lease:
             await websocket.send(json.dumps({

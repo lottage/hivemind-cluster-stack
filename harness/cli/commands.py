@@ -371,21 +371,21 @@ class CommandRegistry:
         if sub in ("status", "info"):
             st = speculative_engine.get_status()
             state_color = "bold green" if st["is_enabled"] else "bold yellow"
-            state_str = "ENABLED (Dual-GPU Stream Active)" if st["is_enabled"] else "DISABLED (Single Target Model)"
+            state_str = "ENABLED (draft + verify)" if st["is_enabled"] else "DISABLED (Single Target Model)"
             t_status = f"[green]ONLINE[/green] ({st['target_latency_ms']}ms)" if st["target_online"] else "[red]OFFLINE[/red]"
             d_status = f"[green]ONLINE[/green] ({st['draft_latency_ms']}ms)" if st["draft_online"] else "[red]OFFLINE[/red]"
 
             console.print(Panel(
-                f"[bold cyan]⚡ DUAL-AMD-GPU SPECULATIVE DECODING ENGINE[/bold cyan]\n"
-                f"[dim]High-Speed Speculative Pairing: RX 6750 XT Target + RX 6600 XT Draft[/dim]\n\n"
+                f"[bold cyan]⚡ CLIENT-SIDE SPECULATIVE DECODING[/bold cyan]\n"
+                f"[dim]Target {fleet_config.label('coordinator')} + draft {fleet_config.label('worker')}[/dim]\n\n"
                 f"[{state_color}]• Speculative Mode:[/ {state_color}] [{state_color}]{state_str}[/{state_color}]\n"
-                f"[white]• Interactive Prompts Default:[/white] [bold green]ON[/bold green] (Dual-GPU acceleration for operator prompts)\n"
+                f"[white]• Interactive Prompts Default:[/white] [bold green]ON[/bold green] (draft + verify for operator prompts)\n"
                 f"[white]• Background Automation Default:[/white] [yellow]OFF (Single-Model)[/yellow] (Keeps secondary GPU free during mesh play & dossiers)\n"
                 f"[white]• Target Model (Verifier):[/white] [bold white]{st['target_model']}[/bold white] on [magenta]{st['target_device']}[/magenta] [{t_status}]\n"
                 f"[white]• Draft Model (Proposer):[/white] [bold white]{st['draft_model']}[/bold white] on [cyan]{st['draft_device']}[/cyan] [{d_status}]\n"
                 f"[white]• Vocabulary Alignment:[/white] [green]{st['alignment']}[/green]\n"
                 f"[white]• Lookahead Window (γ):[/white] [bold yellow]{st['gamma']}[/bold yellow] tokens\n"
-                f"[white]• Projected Speedup:[/white] [bold green]1.8x to 2.4x[/bold green] (60-75 tok/s on 14B with zero precision loss)\n\n"
+                f"[white]• Speedup:[/white] measure it with '/speculative bench' (depends on draft/target vocabulary match)\n\n"
                 f"[dim]Commands: '/speculative on', '/speculative off', '/speculative bench', '/speculative config'[/dim]",
                 title="Speculative Decoding Architecture",
                 border_style="cyan"
@@ -396,10 +396,10 @@ class CommandRegistry:
             speculative_engine.enable(gamma=gamma)
             console.print(Panel(
                 f"[bold green][OK] Speculative Decoding Mode Activated![/bold green]\n\n"
-                f"[white]• Target Verifier:[/white] [magenta]RX 6750 XT (VM 102 :8001 - Qwen2.5-Coder-14B)[/magenta]\n"
-                f"[white]• Draft Accelerator:[/white] [cyan]RX 6600 XT (VM 102 :8002 - Qwen2.5-Coder-3B)[/cyan]\n"
+                f"[white]• Target Verifier:[/white] [magenta]{fleet_config.label('coordinator')}[/magenta]\n"
+                f"[white]• Draft Accelerator:[/white] [cyan]{fleet_config.label('worker')}[/cyan]\n"
                 f"[white]• Draft Lookahead (γ):[/white] [yellow]{gamma} tokens[/yellow]\n\n"
-                "[dim]Subsequent CLI turns will execute with dual-GPU speculative streaming acceleration.[/dim]",
+                "[dim]Subsequent CLI turns will use speculative streaming.[/dim]",
                 title="Speculative Decoding Active",
                 border_style="green"
             ))
@@ -410,33 +410,26 @@ class CommandRegistry:
 
         elif sub == "bench":
             prompt = " ".join(args[1:]) if len(args) > 1 else "Implement an asynchronous thread-safe priority queue in Python."
-            console.print(f"[bold cyan][*] Running empirical speculative benchmark on dual GPUs...[/bold cyan]\n[dim]Prompt: '{prompt}'[/dim]")
+            console.print(f"[bold cyan][*] Running empirical speculative benchmark...[/bold cyan]\n[dim]Prompt: '{prompt}'[/dim]")
             res = asyncio.run(speculative_engine.run_benchmark(prompt=prompt))
 
-            table = Table(title="⚡ Dual-GPU Speculative Decoding Benchmark Results", border_style="cyan")
+            table = Table(title="⚡ Speculative Decoding Benchmark Results", border_style="cyan")
             table.add_column("Configuration", style="bold white")
             table.add_column("Hardware Device", style="magenta")
             table.add_column("Throughput (tok/s)", justify="right", style="bold green")
             table.add_column("Latency / Speedup", justify="right", style="bold yellow")
 
-            table.add_row(
-                "Target Alone (14B Verifier)",
-                "RX 6750 XT (12GB Vulkan0)",
-                f"{res.get('target_tps', 32.0)} tok/s",
-                "1.0x (Baseline)"
-            )
-            table.add_row(
-                "Draft Alone (3B Generator)",
-                "RX 6600 XT (8GB Vulkan1)",
-                f"{res.get('draft_tps', 94.0)} tok/s",
-                "3.0x (Draft only)"
-            )
-            table.add_row(
-                "[bold green]Speculative Dual-GPU[/bold green]",
-                "[cyan]RX 6750 XT + RX 6600 XT[/cyan]",
-                f"[bold green]{res.get('speculative_tps', 68.0)} tok/s[/bold green]",
-                f"[bold green]{res.get('speedup_ratio', 2.1)}x Speedup[/bold green]"
-            )
+            def measured(key, unit=" tok/s"):
+                return f"{res[key]}{unit}" if res.get(key) is not None else "n/a"
+
+            table.add_row(f"Target alone ({fleet_config.model('coordinator')})", fleet_config.gpu("coordinator") or "?",
+                          measured("target_tps"), "1.0x (baseline)")
+            table.add_row(f"Draft alone ({fleet_config.model('worker')})", fleet_config.gpu("worker") or "?",
+                          measured("draft_tps"), "draft only")
+            table.add_row("[bold green]Speculative[/bold green]",
+                          f"[cyan]{fleet_config.gpu('coordinator')} + {fleet_config.gpu('worker')}[/cyan]",
+                          f"[bold green]{measured('speculative_tps')}[/bold green]",
+                          f"[bold green]{measured('speedup_ratio', 'x')}[/bold green]")
             console.print(table)
             console.print(f"[dim]• Lookahead γ: {res.get('lookahead_gamma')} tokens | Est. Acceptance Rate: {res.get('estimated_acceptance_rate')} | Math loss: 0%[/dim]\n")
 
@@ -716,7 +709,7 @@ class CommandRegistry:
             child = res.get("child_agent", {})
             lineage = res.get("lineage", {})
             gen = lineage.get("generation", 2)
-            bridge_badge = "[bold green]Cluster Dual-GPU Bridge (:8765)[/bold green]" if res.get("cluster_bridge") else "[cyan]Local Neural Genesis Engine[/cyan]"
+            bridge_badge = "[bold green]Cluster Bridge (:8765)[/bold green]" if res.get("cluster_bridge") else "[cyan]Local Neural Genesis Engine[/cyan]"
 
             traits_str = ", ".join(lineage.get("traits", []))
             ratios = lineage.get("blend_ratio", {})
@@ -999,7 +992,7 @@ class CommandRegistry:
                 new_aid = Prompt.ask("[bold green]New Standalone Agent ID[/bold green]", default=f"{base_agent}-evolved")
                 new_name = Prompt.ask("[bold green]New Agent Display Name[/bold green]", default=f"{proj.get('name')} Architect")
                 node_id = Prompt.ask(
-                    "[bold green]Assigned Compute Node[/bold green] (node1_primary / node2_ally_extreme / node1_secondary)",
+                    "[bold green]Assigned Compute Node[/bold green] (" + " / ".join(fleet_config.nodes) + ")",
                     default="node1_primary"
                 )
                 res = project_manager.promote_project_agent(
@@ -1049,8 +1042,8 @@ class CommandRegistry:
 
         if sub in ("status", "info"):
             console.print(Panel(
-                f"[bold cyan]⚡ PROXMOX DUAL-GPU COMPUTE RUNTIME STATUS[/bold cyan]\n"
-                f"[dim]Host: {vm_user}@{vm_host} (VM 102 ubu) • AMD RX 6750 XT (gfx1031) & RX 6600 XT (gfx1032)[/dim]",
+                f"[bold cyan]⚡ INFERENCE HOST RUNTIME STATUS[/bold cyan]\n"
+                f"[dim]Host: {vm_user}@{vm_host} • {' & '.join(g['name'] for g in (fleet_config.stonesage_profile().get('gpus') or [])) or 'GPUs unknown'}[/dim]",
                 border_style="cyan"
             ))
             res = run_remote_ssh("ps aux | grep llama-server | grep -v grep")
@@ -1148,7 +1141,7 @@ class CommandRegistry:
 
         console.print(Panel(
             "[bold cyan]⚡ AEVUM CLUSTER & AGENT ACTIVITY DASHBOARD[/bold cyan]\n"
-            "[dim]Live telemetry across Dual GPUs, Autonomous Thinking Loop, FaunaSentinel, and Slot Occupancy[/dim]",
+            "[dim]Live telemetry across the engines, Autonomous Thinking Loop, FaunaSentinel, and Slot Occupancy[/dim]",
             border_style="cyan"
         ))
 
@@ -1191,7 +1184,7 @@ class CommandRegistry:
                     console.print(Panel(
                         f"[white]• State:[/white] {status_badge}\n"
                         f"[white]• Total Cycles:[/white] [cyan]{cycles:,}[/cyan] cycles executed\n"
-                        f"[white]• Total Tokens:[/white] [yellow]{tokens:,}[/yellow] tokens generated across dual GPUs\n"
+                        f"[white]• Total Tokens:[/white] [yellow]{tokens:,}[/yellow] tokens generated across the cluster\n"
                         f"[white]• Current Focus:[/white] [magenta]{domain}[/magenta]\n"
                         f"[white]• Last Domain:[/white] [dim]{last_domain}[/dim]\n"
                         f"[dim]Background loop explores architecture limits & adversarial edge-cases every 120s on VM 102.[/dim]",

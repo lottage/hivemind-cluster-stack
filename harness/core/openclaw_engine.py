@@ -45,7 +45,7 @@ class OpenClawEngine:
         tone: str = "concise, technically rigorous, empirical",
         autonomy_level: str = "tiered",
         allowed_tools: Optional[List[str]] = None,
-        assigned_node: str = "node2_ally_x",
+        assigned_node: str = "node2_edge",
     ) -> OpenClawContract:
         """
         Compiles the 4 OpenClaw markdown contracts from Socratic interview parameters.

@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt
+from ..config import fleet_config
 from ..core.node_scheduler import node_scheduler
 from ..core.openclaw_engine import openclaw_engine
 from ..core.aevum_mesh import aevum_mesh
@@ -84,7 +85,7 @@ class AgentShell:
             "[bold green]/agent list[/bold green]                  - List all registered agents, assigned nodes, tasks & status\n"
             "[bold green]/agent select <id>[/bold green]             - Attach to a specific agent's stream\n"
             "[bold green]/agent detach[/bold green]                  - Detach from active agent & revert to blank direct model\n"
-            "[bold green]/agent bind <id> [node][/bold green]       - Bind agent to node (node2_ally_x / node1_primary)\n"
+            "[bold green]/agent bind <id> [node][/bold green]       - Bind agent to a node (see /models poll for ids)\n"
             "[bold green]/agent task <id> <desc>[/bold green]        - Assign an operator task to an agent\n"
             "[bold green]/agent clear <id>[/bold green]              - Clear user task and return agent to idle status\n"
             "[bold green]/agent play [id] [mode][/bold green]        - Dispatch agent to autonomous play (The Agora / Dossier)\n"
@@ -114,7 +115,7 @@ class AgentShell:
             return
         aid = args[0].strip().lower()
         target_node = args[1].strip().lower() if len(args) > 1 else "node2_edge"
-        if target_node in ("edge", "ally", "ally_x", "ally-x", "node2_edge", "node2_ally_extreme"):
+        if target_node in ("edge", "ally", "ally_x", "ally-x", "node2_edge", "node2_edge"):
             target_node = "node2_edge"
         elif target_node in ("primary", "vm102", "coordinator"):
             target_node = "node1_primary"
@@ -389,7 +390,7 @@ class AgentShell:
         role = Prompt.ask("[bold green]Specialized Role[/bold green]", default="Concurrency & Invariant Auditor")
         mission = Prompt.ask("[bold green]Primary Mission[/bold green]", default="Inspect code for race conditions and mathematical soundness.")
         node = Prompt.ask(
-            "[bold green]Assigned Compute Node[/bold green] (node1_primary / node1_secondary / node2_ally_x)",
+            "[bold green]Assigned Compute Node[/bold green] (" + " / ".join(fleet_config.nodes) + ")",
             default="node1_primary"
         )
         autonomy = Prompt.ask("[bold green]Autonomy Level[/bold green] (tiered / strict / autonomous)", default="tiered")

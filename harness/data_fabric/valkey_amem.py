@@ -26,6 +26,32 @@ STOPWORDS = {
     "of", "and", "or", "not", "my", "your", "his", "her", "their", "our"
 }
 
+def live_topology_text(profile: Optional[Dict[str, Any]] = None) -> str:
+    """core_topology card from the live system profile: real GPUs and which engine runs where (no hardcoding)."""
+    prof = profile if profile is not None else fleet_config.stonesage_profile()
+    gpus = prof.get("gpus") or []
+    engines = prof.get("engines") or {}
+    if not gpus and not any(e.get("online") for e in engines.values()):
+        return "Engine and GPU layout unknown right now; StoneSage /api/system/profile reports it live."
+    host = (prof.get("host") or {}).get("hostname") or "inference host"
+    parts = []
+    for g in gpus:
+        on = [f"{r} :{engines[r]['port']} ({engines[r].get('model') or r})" for r in g.get("engines", []) if r in engines]
+        parts.append(f"{g.get('short') or g.get('name')} {round(g.get('vram_total_gb') or 0)}GB runs " + (" + ".join(on) or "nothing"))
+    cpu_side = [f"{r} :{e['port']}" for r, e in engines.items() if e.get("offloaded")]
+    if cpu_side:
+        parts.append("CPU runs " + " + ".join(cpu_side))
+    return f"Inference host {host}: " + "; ".join(parts) + "."
+
+
+def live_hierarchy_text(profile: Optional[Dict[str, Any]] = None) -> str:
+    prof = profile if profile is not None else fleet_config.stonesage_profile()
+    e = prof.get("engines") or {}
+    name = lambda r: (e.get(r) or {}).get("model") or r  # noqa: E731
+    return (f"Cognitive hierarchy: frontier cloud model (Antigravity) on top, then Coordinator :8001 ({name('coordinator')}), "
+            f"Worker :8002 ({name('worker')}), then memory (Qdrant/Valkey).")
+
+
 class ValkeyAMEM:
     def __init__(self, host: str = fleet_config.valkey_host, port: int = fleet_config.valkey_port):
         self.host = host
@@ -116,7 +142,7 @@ class ValkeyAMEM:
             ),
             (
                 "core_topology",
-                "Proxmox 'home' VIP https://192.168.1.245:8006. Node 1 'pve' (192.168.1.229) hosts VM 102: RX 6750 XT 12GB runs Coordinator :8001 + Worker :8002; RX 6600 8GB runs Vision :8004 + Embedder :8003. Node 2 'bigserv' (192.168.1.82) hosts app services.",
+                live_topology_text(),
                 ["cluster", "topology", "node", "nodes", "pve", "bigserv", "hardware", "gpu", "gpus", "vulkan", "ip", "ips", "proxmox", "server", "servers", "coordinator", "worker", "embedder", "vision"],
                 "hardware"
             ),
@@ -134,7 +160,7 @@ class ValkeyAMEM:
             ),
             (
                 "core_hierarchy",
-                "4-Tier Cognitive Hierarchy: Tier 1 Frontier Meta-Verifier Antigravity (cloud), Tier 2 14B Coordinator (:8001), Tier 3 3B Worker (:8002), Tier 4 Memory (Qdrant/Valkey).",
+                live_hierarchy_text(),
                 ["hierarchy", "frontier", "antigravity", "coordinator", "worker", "tier", "tiers", "models", "orchestration"],
                 "governance"
             ),

@@ -40,8 +40,19 @@ class TestContextFabric(unittest.TestCase):
         recalled_topo = valkey_amem.recall("cluster gpu hardware", max_atoms=5)
         self.assertTrue(any(c["id"] == "core_topology" for c in recalled_topo))
         topo_card = next(c for c in recalled_topo if c["id"] == "core_topology")
-        self.assertIn("pve", topo_card["atom"])
-        self.assertIn("RX 6750 XT", topo_card["atom"])
+        # offline (unit tests) the card says the layout is unknown instead of inventing hardware
+        self.assertIn("/api/system/profile", topo_card["atom"])
+
+    def test_topology_card_from_live_profile(self):
+        """The topology card names the real GPUs and engines from the system profile."""
+        from harness.data_fabric.valkey_amem import live_topology_text
+        prof = {"host": {"hostname": "box"},
+                "gpus": [{"short": "RTX 4090", "vram_total_gb": 24, "engines": ["coordinator"]}],
+                "engines": {"coordinator": {"port": 8001, "model": "Llama 3 70B"},
+                            "worker": {"port": 8002, "model": "Tiny 1B", "offloaded": True}}}
+        text = live_topology_text(prof)
+        self.assertIn("RTX 4090 24GB runs coordinator :8001 (Llama 3 70B)", text)
+        self.assertIn("CPU runs worker :8002", text)
 
     def test_routine_query_token_efficiency(self):
         """Routine queries should receive neutral direct response (< 55 tokens, 0 atoms, no persona)."""
@@ -70,9 +81,7 @@ class TestContextFabric(unittest.TestCase):
         """Queries mentioning cluster hardware or GPUs must inject topology atom."""
         prompt = context_fabric.compile_dynamic_turn("which GPU does coordinator use on node1?")
         self.assertIn("KNOWLEDGE ATOM", prompt)
-        self.assertIn("pve", prompt)
-        self.assertIn("RX 6750 XT", prompt)
-        self.assertIn("Coordinator :8001", prompt)
+        self.assertIn("Coordinator :8001", prompt)  # hierarchy card; GPU names come from the live profile
 
     def test_smarthome_query_accuracy(self):
         """Queries mentioning smart home or Nest thermostat must inject smarthome atom."""

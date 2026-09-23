@@ -1,6 +1,6 @@
 """
 Asynchronous Roaming Handover Protocol (HANDOVER.md).
-Enables edge devices (Asus ROG Ally X) to execute long-running coding and exploration tasks offline,
+Enables edge devices (handhelds, laptops) to execute long-running coding and exploration tasks offline,
 compiling a structured handover package for reconciliation upon reconnecting to LAN.
 """
 

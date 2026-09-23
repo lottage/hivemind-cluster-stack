@@ -1,5 +1,5 @@
 """
-ROG Ally X & Edge Fleet Model Manager.
+Edge fleet model manager (compute and edge nodes from config.json).
 Provides dynamic polling of local models, one-click best-fit hardware parameter calculation,
 custom parameter load wizards, and agent binding to edge nodes (LM Studio v0.3+ / llama-server).
 """
@@ -11,6 +11,7 @@ import os
 import socket
 import subprocess
 import urllib.request
+import urllib.parse
 import urllib.error
 from typing import Dict, List, Optional, Any
 from rich.console import Console
@@ -18,12 +19,16 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from ..config import fleet_config
+from ..config import fleet_config, _live_profile
 from ..data_fabric.pg_storage import relational_storage
 from ..core.aevum_mesh import aevum_mesh
 
 logger = logging.getLogger("Harness.AllyModelManager")
 console = Console()
+
+
+def _live_profile_for_cli():
+    return _live_profile(fleet_config.stonesage_cfg)
 
 
 class EdgeFleetModelManager:
@@ -47,103 +52,33 @@ class EdgeFleetModelManager:
         return node.name if node else f"Node {self.node_id}"
 
     def _scan_vm102_models(self) -> List[Dict[str, Any]]:
-        """Scans GGUF models on VM 102 via SSH or local path, matching against active /props."""
-        models_out = []
-        active_paths = set()
-        active_ctx = None
-        port = 8002 if self.node_id == "node1_secondary" else 8001
-        try:
-            req = urllib.request.Request(f"http://192.168.1.105:{port}/props")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                if resp.status == 200:
-                    p = json.loads(resp.read().decode("utf-8"))
-                    active_paths.add(p.get("model_path", ""))
-                    if p.get("model_alias"):
-                        active_paths.add(p.get("model_alias"))
-                    active_ctx = p.get("default_generation_settings", {}).get("n_ctx")
-        except Exception:
-            pass
-
-        remote_cmd = (
-            "python3 -c \""
-            "import os, glob, json\n"
-            "paths = sorted(set(glob.glob('/opt/models/**/*.gguf', recursive=True) + glob.glob('/home/austin/.lmstudio/models/**/*.gguf', recursive=True)))\n"
-            "res = []\n"
-            "for p in paths:\n"
-            "  try:\n"
-            "    st = os.stat(p)\n"
-            "    res.append({'path': p, 'name': os.path.basename(p), 'size_bytes': st.st_size, 'modified_time': st.st_mtime})\n"
-            "  except Exception:\n"
-            "    pass\n"
-            "print(json.dumps(res))\n"
-            "\""
-        )
-        try:
-            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", remote_cmd]
-            sub = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-            if sub.returncode == 0:
-                raw_list = json.loads(sub.stdout.strip())
-                for m in raw_list:
-                    fn = m["name"]
-                    p = m["path"]
-                    size_gb = round(m["size_bytes"] / (1024 ** 3), 2)
-                    fn_lower = fn.lower()
-                    
-                    q = "GGUF"
-                    for candidate in ["Q4_K_M", "Q8_0", "Q5_K_M", "Q4_0", "Q6_K", "IQ4_NL", "IQ3_M", "BF16", "F16"]:
-                        if candidate.lower() in fn_lower:
-                            q = candidate
-                            break
-                    params = "Unknown"
-                    for cand_p in ["27b", "35b", "14b", "12b", "9b", "7b", "3b", "70b"]:
-                        if cand_p in fn_lower:
-                            params = cand_p.upper()
-                            break
-
-                    max_ctx = 32768
-                    if any(x in fn_lower for x in ["qwen3.8", "qwen3.5", "qwen3", "ornith", "gemma-4", "gemma4"]):
-                        max_ctx = 262144
-                    elif "granite" in fn_lower:
-                        max_ctx = 1048576
-                    elif "hermes" in fn_lower:
-                        max_ctx = 40960
-                    elif "home-3b" in fn_lower:
-                        max_ctx = 32768
-
-                    is_loaded = (p in active_paths or fn in [os.path.basename(x) for x in active_paths])
-                    models_out.append({
-                        "key": fn,
-                        "name": fn,
-                        "path": p,
-                        "architecture": "qwen3" if "qwen" in fn_lower else ("gemma4" if "gemma" in fn_lower else "llama"),
-                        "params": params,
-                        "size_gb": size_gb,
-                        "size_bytes": m.get("size_bytes", 0),
-                        "modified_time": m.get("modified_time", 0),
-                        "quant": q,
-                        "is_loaded": is_loaded,
-                        "instances": [{"id": fn, "config": {"context_length": 16384 if port == 8001 else 4096, "parallel": 1 if port == 8001 else 2}}] if is_loaded else [],
-                        "max_context": max_ctx,
-                        "format": "gguf"
-                    })
-                return models_out
-        except Exception as e:
-            logger.warning(f"Failed to scan VM 102 models via SSH: {e}")
-
-        # Fallback to known cluster models
-        return [
-            {"key": "ornith-1.5-9b-coordinator-q8_0.gguf", "name": "Ornith 1.5 9B Coordinator (Q8_0)", "path": "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf", "params": "9B", "size_gb": 9.11, "quant": "Q8_0", "is_loaded": True, "max_context": 262144},
-            {"key": "qwen3.8-27b-turbo.gguf", "name": "Qwen 3.8 27B Turbo (IQ4_NL)", "path": "/opt/models/qwen3.8-27b-turbo.gguf", "params": "27B", "size_gb": 18.23, "quant": "IQ4_NL", "is_loaded": False, "max_context": 262144},
-            {"key": "home-3b-v3-q5_k_m.gguf", "name": "Home 3B v3 (Q5_K_M)", "path": "/opt/models/home-3b-v3-q5_k_m.gguf", "params": "3B", "size_gb": 1.99, "quant": "Q5_K_M", "is_loaded": True, "max_context": 32768},
-            {"key": "ornith-1.5-35b-moe.gguf", "name": "Ornith 1.5 35B MoE (IQ4_NL)", "path": "/opt/models/ornith-1.5-35b-moe.gguf", "params": "35B", "size_gb": 21.87, "quant": "IQ4_NL", "is_loaded": False, "max_context": 262144},
-        ]
+        """GGUF models on the inference host, with metadata from each file's header (StoneSage system_profile)."""
+        from ..config import _live_models
+        role = "worker" if self.node_id == "node1_secondary" else "coordinator"
+        engine = ((_live_profile_for_cli() or {}).get("engines") or {}).get(role) or {}
+        out = []
+        for m in _live_models():
+            if m.get("is_projector"):
+                continue
+            is_loaded = m.get("file") == engine.get("model_file")
+            out.append({
+                "key": m["file"], "name": m.get("name") or m["file"], "path": m["path"],
+                "architecture": m.get("architecture") or "gguf", "params": m.get("params") or "Unknown",
+                "size_gb": round((m.get("size_bytes") or 0) / 1024 ** 3, 2), "size_bytes": m.get("size_bytes") or 0,
+                "modified_time": m.get("modified_time") or 0, "quant": m.get("quant") or "GGUF",
+                "is_loaded": is_loaded,
+                "instances": [{"id": m["file"], "config": {"context_length": engine.get("ctx_per_slot"),
+                                                          "parallel": engine.get("slots")}}] if is_loaded else [],
+                "max_context": m.get("context_length"), "layers": m.get("layers"), "format": "gguf",
+            })
+        return out  # empty when the host is unreachable; never a made-up list
 
     def list_local_models(self) -> List[Dict[str, Any]]:
         """
         Polls the native node endpoint (LM Studio v0.3+ /api/v1/models or VM 102 local models)
         to retrieve all local models, architectures, quantizations, byte sizes, and active instances.
         """
-        if self.node_id in ("node1_primary", "node1_secondary", "vm102_dual") or "192.168.1.105" in self.node_url:
+        if self.node_id in ("node1_primary", "node1_secondary", "vm102_dual") or fleet_config.inference_host in self.node_url:
             return self._scan_vm102_models()
 
         api_url = f"{self.node_url}/api/v1/models"
@@ -225,7 +160,7 @@ class EdgeFleetModelManager:
         Dynamically extracts total hardware RAM from fleet_config if not explicitly provided.
         """
         if total_ram_gb is None:
-            node = fleet_config.nodes.get(self.node_id) or fleet_config.nodes.get("node2_ally_extreme") or fleet_config.nodes.get("node2_ally_x")
+            node = fleet_config.nodes.get(self.node_id) or fleet_config.nodes.get("node2_edge") or fleet_config.nodes.get("node2_edge")
             total_ram_gb = (node.total_memory_mb / 1024.0) if node and node.total_memory_mb > 0 else 16.0
 
         models = self.list_local_models()
@@ -342,12 +277,12 @@ class EdgeFleetModelManager:
     def unload_model(self, target_node: Optional[str] = None) -> Dict[str, Any]:
         """Unloads active model to free GPU VRAM on the target compute node."""
         node_id = target_node or self.node_id
-        if node_id in ("node1_primary", "node1_secondary", "vm102_dual") or "192.168.1.105" in self.node_url:
+        if node_id in ("node1_primary", "node1_secondary", "vm102_dual") or fleet_config.inference_host in self.node_url:
             svc = "llama-worker.service" if node_id == "node1_secondary" else "llama-coordinator.service"
             if node_id == "vm102_dual":
                 svc = "llama-coordinator.service llama-worker.service"
             try:
-                cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", "sudo", "systemctl", "stop"] + svc.split()
+                cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", fleet_config.inference_ssh, "sudo", "systemctl", "stop"] + svc.split()
                 sub = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                 return {"ok": sub.returncode == 0, "message": f"Successfully stopped {svc} on VM 102."}
             except Exception as e:
@@ -599,7 +534,7 @@ print("SUCCESSFULLY_RELOADED")
 """
         clean_py = remote_py.replace("\r\n", "\n").replace("\r", "\n").strip() + "\n"
         try:
-            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", "sudo", "python3", "-"]
+            cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", fleet_config.inference_ssh, "sudo", "python3", "-"]
             res = subprocess.run(cmd, input=clean_py.encode("utf-8"), capture_output=True, timeout=30)
             if res.returncode != 0:
                 err_msg = res.stderr.decode("utf-8", errors="replace").strip()
@@ -610,7 +545,7 @@ print("SUCCESSFULLY_RELOADED")
             while time.time() - t_start < 100:
                 time.sleep(2.0)
                 try:
-                    p_req = urllib.request.Request(f"http://192.168.1.105:{port}/props")
+                    p_req = urllib.request.Request(f"http://{fleet_config.inference_host}:{port}/props")
                     with urllib.request.urlopen(p_req, timeout=2.0) as resp:
                         if resp.status == 200:
                             return {
@@ -626,7 +561,7 @@ print("SUCCESSFULLY_RELOADED")
                     pass
             # Inspect service status and journal if timeout reached
             check_sub = subprocess.run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", f"systemctl is-active {service_name}; journalctl -u {service_name} -n 15 --no-pager"],
+                ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", fleet_config.inference_ssh, f"systemctl is-active {service_name}; journalctl -u {service_name} -n 15 --no-pager"],
                 capture_output=True, text=True, timeout=10
             )
             return {"ok": False, "error": f"Service restart succeeded, but :{port}/props timed out after 100s. Diagnostic logs:\n{check_sub.stdout}"}
@@ -657,13 +592,13 @@ print("SUCCESSFULLY_RELOADED")
         """
         if len(args) == 1:
             val = args[0]
-            if val in fleet_config.nodes or val in ("node1_primary", "node1_secondary", "vm102_dual", "node2_ally_x", "local_workstation"):
+            if val in fleet_config.nodes or val in ("node1_primary", "node1_secondary", "vm102_dual", "node2_edge", "local_workstation"):
                 target_node = val
             else:
                 model_key = val
         elif len(args) >= 2:
             arg0, arg1 = args[0], args[1]
-            if arg0 in fleet_config.nodes or arg0 in ("node1_primary", "node1_secondary", "vm102_dual", "node2_ally_x", "local_workstation"):
+            if arg0 in fleet_config.nodes or arg0 in ("node1_primary", "node1_secondary", "vm102_dual", "node2_edge", "local_workstation"):
                 target_node = arg0
                 model_key = arg1
             else:
@@ -704,7 +639,7 @@ print("SUCCESSFULLY_RELOADED")
         if not model_key:
             return {"ok": False, "error": "No model_key specified for load_model"}
 
-        if self.node_id in ("node1_primary", "node1_secondary", "vm102_dual") or "192.168.1.105" in self.node_url:
+        if self.node_id in ("node1_primary", "node1_secondary", "vm102_dual") or fleet_config.inference_host in self.node_url:
             return self._load_vm102_model(model_key, p)
 
         if unload_prior:
@@ -860,10 +795,10 @@ print("SUCCESSFULLY_RELOADED")
         # 7. Update fleet configuration slot count
         if self.node_id in fleet_config.nodes:
             fleet_config.nodes[self.node_id].slots = num_slots
-        if "node2_ally_extreme" in fleet_config.nodes:
-            fleet_config.nodes["node2_ally_extreme"].slots = num_slots
-        if "node2_ally_x" in fleet_config.nodes:
-            fleet_config.nodes["node2_ally_x"].slots = num_slots
+        if "node2_edge" in fleet_config.nodes:
+            fleet_config.nodes["node2_edge"].slots = num_slots
+        if "node2_edge" in fleet_config.nodes:
+            fleet_config.nodes["node2_edge"].slots = num_slots
 
         return {
             "ok": True,
@@ -886,11 +821,7 @@ print("SUCCESSFULLY_RELOADED")
         if not target_node_id:
             nodes = [(nid, n.name) for nid, n in fleet_config.nodes.items()]
             if not nodes:
-                nodes = [
-                    ("node1_primary", "Compute Node 1 Primary (:8001)"),
-                    ("node1_secondary", "Compute Node 1 Secondary (:8002)"),
-                    ("vm102_dual", "Compute Node 1 Spanned Array (:8001+:8002)"),
-                ]
+                nodes = [("node1_primary", "Coordinator"), ("node1_secondary", "Worker")]
             console.print(Panel(
                 "[bold cyan]⚡ SELECT TARGET COMPUTE NODE[/bold cyan]\n"
                 "Select which physical compute device or GPU partition to configure:\n\n" +
@@ -905,16 +836,18 @@ print("SUCCESSFULLY_RELOADED")
                 return mgr.interactive_model_wizard(default_key=default_key, target_node_id=sel_nid)
 
         # Probe connectivity if targeting edge node
-        if self.node_id == "node2_ally_x":
+        edge = fleet_config.nodes.get(self.node_id)
+        if edge is not None and edge.is_roaming:
+            eu = urllib.parse.urlparse(edge.base_url)
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.8)
-            res = sock.connect_ex(("192.168.1.213", 1234))
+            res = sock.connect_ex((eu.hostname, eu.port or 80))
             sock.close()
             if res != 0:
                 console.print(Panel(
-                    "[bold red]❌ ROG ALLY X IS CURRENTLY OFFLINE[/bold red]\n\n"
-                    "[white]Could not connect to [bold yellow]192.168.1.213:1234[/bold yellow].[/white]\n"
-                    "[dim]Ensure the device is powered on and LM Studio local server is started on port 1234.[/dim]",
+                    f"[bold red]❌ {edge.name.upper()} IS CURRENTLY OFFLINE[/bold red]\n\n"
+                    f"[white]Could not connect to [bold yellow]{eu.hostname}:{eu.port}[/bold yellow].[/white]\n"
+                    "[dim]Ensure the device is powered on and its local model server is running.[/dim]",
                     title="Device Offline",
                     border_style="red"
                 ))

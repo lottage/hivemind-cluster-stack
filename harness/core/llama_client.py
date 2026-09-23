@@ -136,7 +136,7 @@ class LlamaClient:
                     if not ttft_recorded:
                         ttft_recorded = True
 
-                    # Direct reasoning_content streaming (native DeepSeek / Ornith-1.5-9B thinking)
+                    # Direct reasoning_content streaming (models that emit a separate thinking stream)
                     if reasoning:
                         yield StreamChunk(
                             chunk_type="thought",

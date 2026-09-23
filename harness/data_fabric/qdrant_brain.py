@@ -1,6 +1,6 @@
 """
 Tier 3: Long-Term Semantic Vector Memory (Qdrant Vector Brain on LXC 117 :6333).
-Uses BGE-Large dense embeddings (< 950 char chunks) on RX 6600 XT :8003.
+Uses the embedder engine (config cluster.embedder_url; BGE inputs < 950 chars).
 Enforces semantic novelty gatekeeping (< 0.85 cosine similarity).
 """
 
