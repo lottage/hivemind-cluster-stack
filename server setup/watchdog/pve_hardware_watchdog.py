@@ -3,7 +3,7 @@
 PVE Hardware Watchdog & Out-of-Band Power Cycler (Fencing Daemon)
 Runs 24/7 on Node 2 (LXC 120 'stonesage' @ 192.168.1.167 on bigserv).
 
-Monitors Node 1 ('pve' @ 192.168.1.229) and compute VM 102 ('ubu' @ 192.168.1.105)
+Monitors Node 1 ('pve' @ 192.168.1.222) and compute VM 102 ('ubu' @ 192.168.1.105)
 using a triangulated multi-vector probing matrix. When 100% frozen/unresponsive
 for >= 120 continuous seconds, power-cycles the TP-Link Kasa KP125 smart plug ('Server' @ 192.168.1.109)
 via local TCP :9999 (8-second off duration to discharge motherboard/PSU capacitors).
@@ -25,7 +25,7 @@ import urllib.error
 from datetime import datetime
 
 # Default Network Topology Configuration
-PVE_HOST_IP = "192.168.1.229"        # Physical Node 1 (pve)
+PVE_HOST_IP = "192.168.1.222"        # Physical Node 1 (pve)
 PVE_SSH_PORT = 22
 VM102_IP = "192.168.1.105"           # Dual AMD GPU compute host VM (ubu)
 VM102_SSH_PORT = 22
@@ -36,13 +36,10 @@ KASA_PLUG_IP = "192.168.1.109"       # KP125(US) 'Server' plug
 KASA_PORT = 9999
 
 PROXMOX_API_URL = "https://192.168.1.245:8006"
-PROXMOX_TOKEN = os.environ.get("PVE_TOKEN", "")  # "PVEAPIToken=USER@pam!TOKENID=SECRET" via /etc/stonesage/secrets.env
+PROXMOX_TOKEN = os.environ.get("PVE_TOKEN", "")  # "PVEAPIToken=USER@pam!TOKENID=SECRET" from /etc/stonesage/secrets.env
 
 HASS_URL = "http://192.168.1.82:8123"
-HASS_TOKEN = os.environ.get("HASS_TOKEN", "")
-if not HASS_TOKEN:
-    import sys as _sys
-    print("WARNING: HASS_TOKEN is not set (expected in /etc/stonesage/secrets.env); Home Assistant calls will fail.", file=_sys.stderr)
+HASS_TOKEN = os.environ.get("HASS_TOKEN", "")  # from /etc/stonesage/secrets.env
 
 # Watchdog Invariants & Timings
 PROBE_INTERVAL_SEC = 10              # Probe every 10 seconds
@@ -62,6 +59,13 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("pve_watchdog")
+
+# Tokens come only from the environment (systemd EnvironmentFile=/etc/stonesage/secrets.env).
+# Without PVE_TOKEN the API vector always reads offline, so the ping/SSH vectors alone keep pve "alive".
+if not PROXMOX_TOKEN:
+    logger.warning("PVE_TOKEN is not set (expected in /etc/stonesage/secrets.env); the Proxmox API probe will always fail.")
+if not HASS_TOKEN:
+    logger.warning("HASS_TOKEN is not set (expected in /etc/stonesage/secrets.env); Home Assistant notifications will fail.")
 
 
 # ==============================================================================
