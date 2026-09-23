@@ -1383,7 +1383,7 @@ def get_home_and_ai_activity_log(limit: int = 150, filter_type: str = "all") -> 
     ts_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S EST")
     diag_lines = [
         "=== 🔍 HOME ASSISTANT AI & VOICE INTEGRATIONS DIAGNOSTIC MATRIX ===",
-        f"Audited: {ts_now} | Node: bigserv (192.168.1.82:8123) & voice-services (192.168.1.121)\n",
+        f"Audited: {ts_now} | Node: HA OS VM 103 on bigserv (192.168.1.82:8123) & voice-services (192.168.1.121)\n",
         "## [HOME ASSISTANT CONVERSATION & ASSIST PIPELINE ENTITIES]"
     ]
     if ai_entities:

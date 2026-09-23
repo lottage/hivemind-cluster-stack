@@ -5,11 +5,11 @@
 ## 1. System Topology & Active Infrastructure
 The local infrastructure is hosted across Proxmox Datacenter `home` on two 24/7 physical nodes (Full registry: `server setup/NETWORK_DEVICE_REGISTRY.md`):
 
-### Proxmox Cluster `home` Management API: `https://192.168.1.245:8006`
+### Proxmox Cluster `home` Management API: `https://192.168.1.245:8006` (served by bigserv)
 - Unified Proxmox VE 9.2 API daemon managing physical nodes `pve` and `bigserv`.
 - Central entrypoint for cluster-wide node telemetry, resource allocations, and VM/LXC control.
 
-### Node 1: `pve` (`192.168.1.229` - Intel i7-12700K, 32GB RAM)
+### Node 1: `pve` (`192.168.1.222` - Intel i7-12700K, 32GB RAM)
 - **VM 102 (`ubu` - `192.168.1.105`)**: Dual AMD GPU passthrough compute & vision host
   - `coordinator` (`:8001`): `coder-agent` (High-performance abliterated coding assistant, 16k-32k context, N-gram lookup cache / draft speculative decoding) on AMD Radeon RX 6750 XT 12GB (`Vulkan0`).
   - `worker` (`:8002`): `home-agent` (Domestic Concierge & Courage-the-Cowardly-Dog persona) on AMD Radeon RX 6600 XT 8GB (`Vulkan1`) with 2 parallel slots (`-c 8192 -np 2`).
@@ -24,7 +24,7 @@ The local infrastructure is hosted across Proxmox Datacenter `home` on two 24/7 
   - Vectors: 1024-dimensional, Cosine distance metric.
   - `autonomous_thinking`: Stores autonomous exploration dossiers, 14B evaluation metrics, divergence limits, and Tier-1 Frontier audit verdicts. Enforces semantic novelty threshold (< 0.85 cosine similarity).
 
-### Node 2: `bigserv` (`192.168.1.82` - Application, Media & Home Automation Node)
+### Node 2: `bigserv` (`192.168.1.245` - Application, Media & Home Automation Node)
 - **VM 103 (`haos-17.3` - `192.168.1.82:8123`)**: Home Assistant OS
   - Controls local smart home devices, lights, switches, and Google Nest Thermostat (via local Matter pairing or Google SDM OAuth API).
   - Guide reference: `server setup/NEST_THERMOSTAT_GUIDE.md`.
@@ -149,7 +149,7 @@ See full charter in `server setup/COMPANION_MANIFESTO.md`.
 - **Frontier Verification Leniency Bias**: 14B evaluators frequently suffer from syntactic leniency bias (scoring flawed code highly due to clean style). Tier-1 Frontier audit or unit-test execution is strictly required for mathematical invariants.
 - **Scope Division**: Cluster infrastructure scripts and systemd units live in `server setup/`. EasyDash lives in `EasyDash/`. Keep both synchronized with Qdrant vector memory.
 - **Proxmox VE API Token Format & Privilege Separation**: Header format is strictly `Authorization: PVEAPIToken=USER@REALM!TOKENID=SECRET`. In Proxmox, the token secret **is** a Version-4 UUID (e.g. `USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). **Privilege Separation Invariant**: Proxmox tokens created with "Privilege Separation" enabled start with 0 permissions (causing HTTP 403 `Permission check failed (..., Sys.Audit)`). The token must either have an explicit ACL permission added under *Datacenter -> Permissions* (Path `/`, Role `Administrator` or `PVEAuditor`, Propagate enabled) OR be re-created with "Privilege Separation" unchecked.
-- **Proxmox Cluster API Host Binding**: Direct management calls to `192.168.1.229:8006` or `192.168.1.82:8006` time out. All cluster API operations, node telemetry, and guest inventories must target the cluster VIP `https://192.168.1.245:8006`.
+- **Proxmox Cluster API Host Binding**: Use `https://192.168.1.245:8006` (bigserv) for all cluster API operations, node telemetry and guest inventories. `192.168.1.82` is the Home Assistant OS VM, not a Proxmox node; pve is `192.168.1.222` (both per the Proxmox `/cluster/status` API, 2026-09-23).
 - **BGE Embedder Context Limit (< 512 Tokens)**: Port 8003 (`bge-large-en-v1.5` on RX 6600 XT) has a strict 512-token context window. Prompts or chunks exceeding ~1000 characters crash `llama-server` with HTTP 500. All document ingestion and vectorization pipelines (Obsidian, codebase, files) must strictly bound text chunks to < 1000 characters.
 - **Host LAN IP Binding Reality**: The Windows development and harness host machine is assigned local IP `192.168.1.132` (not `.226` or `.110`). StoneSage listens on `0.0.0.0:8888` on LXC 120 (`http://192.168.1.167:8888`) and host (`http://localhost:8888`, `http://192.168.1.132:8888`), with an automatic HTTP 302 redirect on `:8080` to cleanly transition legacy browser bookmarks without password clearing.
 - **UI & Dashboard Design Invariant: 90s Retro Pre-Bloat HTML & Windows 95/98 Aesthetic**: Explicit ban on "liquid glass", modern material UI blur, pastel pills, or floating gradient fluff. Primary aesthetic is authentic 90s pre-bloat internet (Windows 95/98 teal desktop `#008080`, 3D beveled silver frames `#c0c0c0`, blue gradient titlebars, classic Netscape/IE Location toolbar, crisp white content viewports, `Times New Roman` serif headings, blue underlined links `#0000ee`, and 3D push buttons), with instant toggle support for retro monochrome CRT palettes (`crt-green`, `crt-amber`). Scanlines are strictly disabled on the `win95` theme.

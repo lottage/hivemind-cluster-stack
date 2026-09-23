@@ -327,7 +327,7 @@ Open in any modern browser:
 
 ## 12. Deploying the PVE Out-of-Band Hardware Fencing Watchdog
 
-The watchdog runs on Node 2 (`bigserv` / LXC 120) to monitor Node 1 (`pve` `192.168.1.229`) and power-cycle its TP-Link KP125 smart plug upon unrecoverable kernel freezes:
+The watchdog runs on Node 2 (`bigserv` / LXC 120) to monitor Node 1 (`pve` `192.168.1.222`) and power-cycle its TP-Link KP125 smart plug upon unrecoverable kernel freezes:
 
 ```bash
 # SSH into LXC 120

@@ -8,6 +8,9 @@ import unittest
 from harness.core.context_fabric import context_fabric
 from harness.data_fabric.valkey_amem import valkey_amem
 
+PVE_IP = "192.168.1.222"  # Node 1 'pve' (Proxmox /cluster/status, 2026-09-23)
+STALE_PVE_IP = "192.168.1.229"
+
 class TestContextFabric(unittest.TestCase):
     def setUp(self):
         valkey_amem.seed_homelab_core_cards()
@@ -63,7 +66,7 @@ class TestContextFabric(unittest.TestCase):
         self.assertNotIn("StoneSage", prompt)
         self.assertNotIn("Austin", prompt)
         self.assertNotIn("KNOWLEDGE ATOM", prompt)
-        self.assertNotIn("192.168.1.229", prompt)
+        self.assertNotIn(PVE_IP, prompt)
 
     def test_database_query_accuracy_and_token_count(self):
         """Queries mentioning databases must inject targeted atom (< 85 words)."""
@@ -97,7 +100,7 @@ class TestContextFabric(unittest.TestCase):
         self.assertIn("Manager of Coding Department", prompt)
         self.assertIn("Direct Answer Mode", prompt)
         # Routine query should still not leak hardware IPs
-        self.assertNotIn("192.168.1.229", prompt)
+        self.assertNotIn(PVE_IP, prompt)
 
     def test_agent_with_database_query(self):
         """Agent 'aevum' asking about databases gets its persona + the database atom."""
@@ -135,6 +138,7 @@ class TestContextFabric(unittest.TestCase):
         self.assertIn("CLUSTER SILICON & TOPOLOGY", dossier)
         self.assertIn("DATA FABRIC & MEMORY", dossier)
         self.assertIn("COGNITIVE HIERARCHY & PHILOSOPHICAL FOUNDATION", dossier)
+        self.assertNotIn(STALE_PVE_IP, dossier)
 
 if __name__ == "__main__":
     unittest.main()

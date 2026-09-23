@@ -1,6 +1,6 @@
 # PVE Out-of-Band Hardware Fencing Watchdog Guide
 
-Automated hardware watchdog and smart-plug power cycler running 24/7 on **Node 2 (`bigserv` / LXC 120 `stonesage` @ `192.168.1.167`)** to monitor **Node 1 (`pve` @ `192.168.1.229`)** and resolve kernel/PCIe driver freeze conditions without manual intervention.
+Automated hardware watchdog and smart-plug power cycler running 24/7 on **Node 2 (`bigserv` / LXC 120 `stonesage` @ `192.168.1.167`)** to monitor **Node 1 (`pve` @ `192.168.1.222`)** and resolve kernel/PCIe driver freeze conditions without manual intervention.
 
 ---
 
@@ -15,7 +15,7 @@ Automated hardware watchdog and smart-plug power cycler running 24/7 on **Node 2
 │   • Script:  /opt/pve-watchdog/pve_hardware_watchdog.py                     │
 │   • Probing Matrix (Every 10s):                                             │
 │       [1] Self-Sanity Check (Gateway 192.168.1.217 / DNS 1.1.1.1)          │
-│       [2] pve Physical Host Ping (192.168.1.229)                            │
+│       [2] pve Physical Host Ping (192.168.1.222)                            │
 │       [3] pve Physical Host SSH Port 22 (:22 TCP)                           │
 │       [4] VM 102 Compute Host Ping (192.168.1.105)                          │
 │       [5] VM 102 Compute Host SSH Port 22 (:22 TCP)                         │

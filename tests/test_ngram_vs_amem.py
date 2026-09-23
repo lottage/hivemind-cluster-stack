@@ -136,11 +136,11 @@ class TestNGramVsAMEM(unittest.TestCase):
 
         # Legacy Un-Atomic RAG Context (700+ tokens of raw manuals, hardware topology, and defensive disclaimers)
         self.legacy_rag_context = (
-            "System: You are an AI assistant hosted in Proxmox Datacenter home. Node 1 is pve (192.168.1.229) with dual AMD GPUs. "
+            "System: You are an AI assistant hosted in Proxmox Datacenter home. Node 1 is pve (192.168.1.222) with dual AMD GPUs. "
             "VM 102 ubu compute host has coordinator on 8001 (Qwen2.5-Coder-14B on RX 6750 XT 12GB Vulkan0), worker on 8002 "
             "(Qwen2.5-Coder-3B on RX 6600 XT 8GB Vulkan1), embedder on 8003 (bge-large-en-v1.5 on RX 6600 XT Vulkan1). "
             "LXC 117 qdrant is vector database with 6 active collections. LXC 120 stonesage is orchestrator on port 8080. "
-            "Node 2 is bigserv (192.168.1.82) running Home Assistant OS on VM 103, NAS on VM 115, kavita on 100, adguard on 101, "
+            "Node 2 is bigserv (192.168.1.245) running Home Assistant OS on VM 103, NAS on VM 115, kavita on 100, adguard on 101, "
             "jellyfin on 104, docker on 105, immich on 107, freshrss on 108, qbittorrent on 114, flaresolverr on 118, "
             "openwebui on 119, voice-services on 121. "
             "You are NOT a physical car or vehicle. You do NOT have an engine, wheels, pistons, or transmission. Do NOT claim you have car parts. "

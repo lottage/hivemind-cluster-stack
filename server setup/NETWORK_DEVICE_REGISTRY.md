@@ -7,9 +7,9 @@ Static DHCP reservations, hardware MAC addresses, service endpoints, and device 
 ## 1. Physical Compute Nodes & Hypervisors
 | Hostname | Node | IP Address | MAC Address | Hardware / Role |
 | :--- | :--- | :--- | :--- | :--- |
-| `proxmox-cluster` | Cluster VIP | `192.168.1.245:8006` | `70-20-84-09-7F-91` | Proxmox VE 9.2 Unified Cluster API & GUI |
-| `pve` | Node 1 | `192.168.1.229` | — | Intel Core i7-12700K, 32GB RAM, Dual AMD GPUs |
-| `bigserv` | Node 2 | `192.168.1.82` | — | Application, Storage & Home Automation Node |
+| `proxmox-cluster` | Cluster API | `192.168.1.245:8006` | `70-20-84-09-7F-91` | Proxmox VE 9.2 Cluster API & GUI (served by bigserv) |
+| `pve` | Node 1 | `192.168.1.222` | — | Intel Core i7-12700K, 32GB RAM, Dual AMD GPUs |
+| `bigserv` | Node 2 | `192.168.1.245` | `70-20-84-09-7F-91` | Application, Storage & Home Automation Node |
 
 ---
 
