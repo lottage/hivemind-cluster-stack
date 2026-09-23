@@ -2742,3 +2742,7 @@ html, body {
 .tool-chip.ok > summary { border-left-color: var(--term-accent-cyan, #00d97e); }
 .tool-chip.fail > summary { border-left-color: #e5534b; color: #e5534b; }
 .tool-chip > pre { margin: 4px 0 6px; padding: 6px 8px; background: var(--term-bg); border: 1px solid var(--term-border-dim); white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; }
+.approval-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--term-accent-gold); background: var(--term-surface-sunken); font-size: 0.85rem; }
+.approval-chip > span { flex: 1 1 200px; }
+.approval-chip > button { padding: 6px 14px; min-height: 36px; cursor: pointer; font-weight: 700; }
+.approval-chip > button:disabled { opacity: 0.4; cursor: default; }

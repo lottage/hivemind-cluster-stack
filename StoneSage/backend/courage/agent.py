@@ -18,12 +18,13 @@ import urllib.request
 import uuid
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from . import reflex
 from .prompt import build_system_prompt
 from .tools import CourageTools
 
 AFFIRM = re.compile(r"^\s*(yes|yeah|yep|yup|y|ok|okay|sure|do it|go ahead|go for it|approved?|confirm(ed)?|please do)\b", re.I)
 DENY = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|do not|stop|never ?mind|leave it)\b", re.I)
-TOOL_MARKUP = re.compile(r":::TOOL_(CALL|RESULT):::.*?:::END_TOOL_(CALL|RESULT):::", re.S)
+TOOL_MARKUP = re.compile(r":::(TOOL_CALL|TOOL_RESULT|APPROVAL):::.*?:::END_(TOOL_CALL|TOOL_RESULT|APPROVAL):::", re.S)
 THINK = re.compile(r"<think>.*?</think>", re.S)
 # "I'll check the cameras", "let me look", "one moment": a promise to use a tool without calling it
 PROMISE = re.compile(r"\b(i'?ll|i will|let me|going to|one moment|checking|(would you like|do you want|want) me to)\b.{0,40}"
@@ -37,6 +38,13 @@ NUDGE = "You described a tool call instead of making it. Call the right tool now
 HISTORY_TURNS = 4  # 2 exchanges: enough for follow-ups; longer history made the 14B skip tools (live eval)
 FRESH_FACTS = ("For the next message: device states, temperatures, who is where, camera views and household notes "
                "(cars, preferences, past events) must come from a tool call you make now, not from earlier replies or guesses.")
+
+
+def spoken(text: str) -> str:
+    """Text for a speaker (HA voice, Echo): no markdown, no 'say yes to approve' UI wording."""
+    text = re.sub(r"[*`#>]+", "", text or "").replace("_", " ")
+    text = text.replace("Say yes to approve.", "Just say yes.")
+    return re.sub(r"\s+", " ", text).strip()
 
 
 class PendingActions:
@@ -134,6 +142,29 @@ class CourageAgent:
         except (TypeError, ValueError):
             return {}
 
+    # ---- reflex: bare on/off orders without the LLM ------------------------------------
+    def _reflex(self, text: str):
+        """Generator; returns True when it handled the message (events already yielded)."""
+        order = reflex.parse(text)
+        if not order:
+            return False
+        ent = reflex.match(order, reflex.candidates(self.tools.deps.ha_states))
+        if not ent:
+            return False
+        name = ent.get("friendly_name") or ent["entity_id"]
+        args = {"domain": ent["domain"], "service": f"turn_{order['state']}", "entity_id": ent["entity_id"]}
+        if self.tools.validate("ha_call", args):
+            return False  # refused (e.g. server plug): let the loop explain
+        if ent.get("state") == order["state"]:
+            yield {"type": "final", "content": f"The {name} {'is' if not name.lower().endswith('s') else 'are'} already {order['state']}."}
+            return True
+        yield {"type": "tool_call", "name": "ha_call", "arguments": args, "status": f"Switching {order['state']} {name}…"}
+        result = self.tools.execute("ha_call", args)
+        yield {"type": "tool_result", "name": "ha_call", "result": result}
+        ok = json.loads(result).get("ok", False) if result.startswith("{") else False
+        yield {"type": "final", "content": f"{name} {order['state']}." if ok else f"Home Assistant refused to switch {order['state']} the {name}."}
+        return True
+
     # ---- the loop ------------------------------------------------------------
     def run(self, history: List[Dict[str, Any]], session_id: str = "default") -> Iterator[Dict[str, Any]]:
         """Events: tool_call, tool_result, approval_required, then usage (tokens generated, tok/s) and final."""
@@ -166,6 +197,11 @@ class CourageAgent:
                      "function": {"name": pending["name"], "arguments": json.dumps(pending["args"])}}]})
                 messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
             # anything else: a new request, the old action quietly expires on its own
+
+        if not (pending and AFFIRM.match(last_user)):
+            handled = yield from self._reflex(last_user)
+            if handled:
+                return
 
         nudged = False
         for _ in range(self.max_steps):

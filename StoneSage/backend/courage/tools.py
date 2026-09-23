@@ -34,6 +34,8 @@ ALLOWED_SERVICES: Dict[str, List[str]] = {
     "lock": ["lock", "unlock"],
 }
 
+# smart plugs feeding the homelab: never switched off (same list as server.py /api/hass/call)
+INFRA_WORDS = ("server", "kp125", "nas", "pve", "bigserv", "router", "unsloth", "ubu")
 # Direct commands run at once; these still ask even when ordered outright (security)
 ALWAYS_CONFIRM = {("lock", "unlock"), ("cover", "open_cover")}
 # words in the user's message that make an action a direct order, per HA service / tool
@@ -171,6 +173,8 @@ class CourageTools:
                 return f"{domain}.{service} is not on Courage's allowlist"
             if not eid.startswith(f"{domain}."):
                 return f"entity '{eid}' is not a {domain} entity"
+            if domain == "switch" and service in ("turn_off", "toggle") and any(w in eid.lower() for w in INFRA_WORDS):
+                return f"refused: {eid} powers server infrastructure (would take me down with it)"
             entity, candidates = self.resolve_entity(domain, eid)
             if entity is None and candidates is not None:
                 hint = f" Closest: {', '.join(candidates)}." if candidates else f" Call ha_get_states for {domain} to find it."

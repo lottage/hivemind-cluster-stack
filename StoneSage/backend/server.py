@@ -3210,6 +3210,38 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 except Exception as ex:
                     logger.debug(f"Courage: could not save assistant turn: {ex}")
 
+    def _handle_courage_ollama(self, body: Dict[str, Any]):
+        """Courage for Home Assistant's Ollama conversation agent (model "courage"): HA voice satellites, the HA app
+        and the Echos reach the same tool loop as the web chat. HA's own prompt and tools are ignored; Courage uses
+        hers. One approval slot per calling host, so "yes" works across turns of a voice conversation."""
+        from courage.agent import spoken
+        history = [{"role": m.get("role"), "content": m.get("content") if isinstance(m.get("content"), str) else ""}
+                   for m in body.get("messages", []) if m.get("role") in ("user", "assistant")]
+        model = body.get("model", "courage:latest")
+        answer = "My brain on :8001 isn't answering. Try again in a moment."
+        try:
+            for ev in get_courage_agent().run(history, f"ha:{self.client_address[0]}"):
+                if ev["type"] == "final":
+                    answer = ev["content"]
+                elif ev["type"] == "tool_call":
+                    logger.info(f"Courage (HA) tool: {ev.get('name')} {ev.get('arguments')}")
+        except Exception as e:
+            logger.warning(f"Courage (HA) loop failed: {e}")
+        message = {"role": "assistant", "content": spoken(answer)}
+        now = datetime.now(timezone.utc).isoformat()
+        if body.get("stream", True):  # Ollama streams unless told otherwise
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            for out in ({"model": model, "created_at": now, "message": message, "done": False},
+                        {"model": model, "created_at": now, "message": {"role": "assistant", "content": ""},
+                         "done": True, "done_reason": "stop"}):
+                self.wfile.write((json.dumps(out) + "\n").encode("utf-8"))
+            self.wfile.flush()
+        else:
+            self.send_json({"model": model, "created_at": now, "message": message, "done": True, "done_reason": "stop"})
+
     def send_json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
@@ -5078,6 +5110,15 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             # Official Ollama-compatible Tags endpoint for Home Assistant
             self.send_json({
                 "models": [
+                    {
+                        "name": "courage:latest",  # Courage's tool loop (runs on the coordinator)
+                        "model": "courage:latest",
+                        "modified_at": "2026-09-23T00:00:00Z",
+                        "size": 9775091712,
+                        "digest": "sha256:courage",
+                        "details": {"parent_model": "", "format": "gguf", "family": "qwen3", "families": ["qwen3"],
+                                    "parameter_size": "14B", "quantization_level": "Q4_K_M"}
+                    },
                     {
                         "name": "worker:latest",
                         "model": "worker:latest",
@@ -7979,6 +8020,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
                 res = hass.call_service(domain, service, service_data)
                 self.send_json(res)
+                return
+
+            elif path in ("/api/chat", "/api/ai/chat_ollama") and "courage" in str(body.get("model", "")).lower():
+                self._handle_courage_ollama(body)
                 return
 
             elif path in ("/api/chat", "/api/ai/chat_ollama"):

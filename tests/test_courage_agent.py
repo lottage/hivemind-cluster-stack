@@ -151,7 +151,7 @@ class TestCourageAgent(unittest.TestCase):
         llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen_light"}),
                           reply("There's no such light."))
         agent, _ = make_agent(llm, ha=ha)
-        events = run(agent, "turn off the kitchen light")
+        events = run(agent, "turn off the kitchen light, it is late")
         self.assertEqual(events[0]["type"], "tool_result")
         self.assertIn("no entity 'light.kitchen_light'", events[0]["result"])
         self.assertIn("light.kitchen", events[0]["result"])
@@ -226,7 +226,7 @@ class TestCourageAgent(unittest.TestCase):
         llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}),
                           {"choices": [{"message": {"content": "Done."}}], "timings": {"predicted_n": 40, "predicted_ms": 1000}})
         agent, _ = make_agent(llm, ha=ha)
-        events = run(agent, "turn off the kitchen light")
+        events = run(agent, "turn off the kitchen light, it is late")
         self.assertEqual(ha.calls, [("light", "turn_off", {"entity_id": "light.kitchen"})])
         self.assertEqual([e["type"] for e in events], ["tool_call", "tool_result", "usage", "final"])
         self.assertEqual((events[2]["completion_tokens"], events[2]["tps"]), (40, 40.0))
@@ -280,3 +280,53 @@ class TestCourageAgent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCourageReflex(unittest.TestCase):
+    """Bare on/off orders skip the LLM; everything else must fall through to it."""
+
+    def setUp(self):
+        from courage import reflex
+        self.reflex = reflex
+        self.ents = [
+            {"entity_id": "light.living_room_tv_lights", "friendly_name": "Living Room TV Lights", "state": "on", "domain": "light"},
+            {"entity_id": "light.driveway_floodlight", "friendly_name": "Driveway/Front Door Floodlight (Timed)", "state": "off", "domain": "light"},
+            {"entity_id": "switch.string_lights", "friendly_name": "String Lights", "state": "off", "domain": "switch"},
+        ]
+
+    def test_parse(self):
+        p = self.reflex.parse
+        self.assertEqual(p("Turn off the TV lights"), {"state": "off", "name": "the tv lights"})
+        self.assertEqual(p("string lights on please"), {"state": "on", "name": "string lights"})
+        self.assertEqual(p("could you switch the floodlight off?"), {"state": "off", "name": "the floodlight"})
+        for text in ("is the tv light on?", "it's dark in here", "turn off the lights in ten minutes and lock up", ""):
+            self.assertIsNone(p(text), text)
+
+    def test_match_needs_exactly_one(self):
+        m = lambda name: self.reflex.match({"state": "off", "name": name}, self.ents)  # noqa: E731
+        self.assertEqual(m("tv light")["entity_id"], "light.living_room_tv_lights")
+        self.assertEqual(m("driveway floodlight")["entity_id"], "light.driveway_floodlight")
+        self.assertIsNone(m("lights"))  # ambiguous
+        self.assertIsNone(m("bedroom lamp"))  # unknown
+
+    def test_camera_and_server_switches_are_not_candidates(self):
+        states = {"switch": {"ok": True, "entities": [
+            {"entity_id": "switch.kitchen_living_room_privacy", "friendly_name": "Kitchen/Living Room Privacy", "state": "off"},
+            {"entity_id": "switch.plug_led", "friendly_name": "Plug LED", "state": "on"},
+            {"entity_id": "switch.string_lights", "friendly_name": "String Lights", "state": "off"}]}}
+        names = [e["friendly_name"] for e in self.reflex.candidates(lambda d: states.get(d, {"ok": True, "entities": []}))]
+        self.assertEqual(names, ["String Lights"])
+
+    def test_agent_runs_reflex_without_llm(self):
+        ha = FakeHA()
+        agent, _ = make_agent(ScriptedLLM(), ha=ha)  # any LLM call would raise
+        events = run(agent, "turn off the kitchen light")
+        self.assertEqual(ha.calls, [("light", "turn_off", {"entity_id": "light.kitchen"})])
+        self.assertEqual(events[-1]["content"], "Kitchen Light off.")
+
+    def test_reflex_already_in_state(self):
+        ha = FakeHA()
+        agent, _ = make_agent(ScriptedLLM(), ha=ha)
+        events = run(agent, "bedroom lamp off")
+        self.assertEqual(ha.calls, [])
+        self.assertEqual(events[-1]["content"], "The Bedroom Lamp is already off.")

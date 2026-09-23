@@ -90,8 +90,13 @@ they appear in local git history (commits 67fe717..fb5e327).
   tool choice 41/42 single-turn and mid-conversation, decision p50 0.85 s. Actions (HA calls, phone notify to
   Austin, Echo announcements) run at once when ordered outright; inferred ones, unlocks and opening covers wait for a
   "yes" (`is_direct_command` in `courage/tools.py`). "Where is X" is one step: `presence_now(who)` looks through the
-  camera itself when the sighting is > 10 min old. Still to do: HA conversation agent, System-1 reflex routing,
-  approve button in the UI. Other agents still use keyword grounding and keyword-triggered device actions.
+  camera itself when the sighting is > 10 min old. Bare on/off orders for a uniquely named light/lamp/plug/fan
+  skip the LLM (`courage/reflex.py`; replaces the harness System-1 path, whose prototypes named nonexistent entities).
+  Server-infrastructure plugs are never switched off. Web chat shows Yes/No buttons for approvals.
+  HA: StoneSage's Ollama API (`/api/tags`, `/api/chat` on :8888) offers model `courage:latest` = the same tool loop
+  (one approval slot per calling host). HA's Ollama integration still points at `http://192.168.1.167:8080`, which only
+  302-redirects and rejects POST, so HA → StoneSage chat does not work until it is re-pointed at :8888. Still to do: re-point HA,
+  then assign Courage to a voice pipeline. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
 - Tests: `python tests/run_tests.py` (unit, LAN blocked) = 121 tests, 1 known failure (`test_ally_model_manager` context sizing).

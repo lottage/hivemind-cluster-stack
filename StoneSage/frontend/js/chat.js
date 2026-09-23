@@ -433,6 +433,15 @@ export async function submitPrompt() {
             continue;
           }
 
+          // Courage wants a yes/no before acting (inferred actions, unlocks)
+          if (parsed.type === 'approval_required') {
+            contentBuffer += `\n\n:::APPROVAL:::${parsed.summary || parsed.name}:::END_APPROVAL:::\n\n`;
+            assistantMsg.content = contentBuffer;
+            updateAssistantDom(msgElement, assistantMsg, true);
+            saveChatHistory();
+            continue;
+          }
+
           // Universal tool result event from cluster harness
           if (parsed.type === 'tool_result') {
             assistantMsg.executingTool = null;
@@ -1221,6 +1230,12 @@ function formatChatContent(raw) {
     return `<details class="tool-chip ${failed ? 'fail' : 'ok'}"><summary>${failed ? '✗' : '✓'} ${name} result</summary><pre>${payload}</pre></details>`;
   });
 
+  // 7b. Courage approval: one tap sends "yes" / "no"
+  escaped = escaped.replace(/:::APPROVAL:::([\s\S]*?):::END_APPROVAL:::/g, (match, summary) =>
+    `<div class="approval-chip"><span>⏳ ${summary}?</span>` +
+    `<button type="button" onclick="answerApproval('yes', this)">✓ Yes</button>` +
+    `<button type="button" onclick="answerApproval('no', this)">✗ No</button></div>`);
+
   // 8. OpenClaw Invariant & Handover Tags
   escaped = escaped.replace(/&lt;invariant&gt;([\s\S]*?)&lt;\/invariant&gt;/gi, '<div class="openclaw-invariant-card"><span class="openclaw-badge">🔒 OPENCLAW INVARIANT</span><div class="openclaw-content">$1</div></div>');
   escaped = escaped.replace(/&lt;handover&gt;([\s\S]*?)&lt;\/handover&gt;/gi, '<div class="openclaw-handover-card"><span class="openclaw-badge">📋 OPENCLAW HANDOVER</span><div class="openclaw-content">$1</div></div>');
@@ -1235,7 +1250,8 @@ function formatChatContent(raw) {
   // Format linebreaks
   escaped = escaped.replace(/\n/g, '<br>');
   // Tool chips sit in a tight row, not between blank lines
-  escaped = escaped.replace(/(?:<br>\s*)+(<details class="tool-chip)/g, '$1').replace(/(<\/details>)(?:\s*<br>)+/g, '$1');
+  escaped = escaped.replace(/(?:<br>\s*)+(<details class="tool-chip|<div class="approval-chip)/g, '$1')
+    .replace(/(<\/details>|<\/button><\/div>)(?:\s*<br>)+/g, '$1');
   // Clean adjacent blockquotes
   escaped = escaped.replace(/<\/blockquote><br><blockquote class="chat-blockquote">/g, '<br>');
   return escaped;
@@ -1442,6 +1458,16 @@ export async function deleteCurrentSession() {
 
 
 
+export function answerApproval(answer, btn) {
+  const chip = btn && btn.closest('.approval-chip');
+  if (chip) chip.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  const input = document.getElementById('chat-prompt-input');
+  if (!input) return;
+  input.value = answer;
+  submitPrompt();
+}
+
+window.answerApproval = answerApproval;
 window.removeStagedImage = removeStagedImage;
 window.scrollToChatBottom = scrollToChatBottom;
 window.syncDetailsToggle = syncDetailsToggle;
