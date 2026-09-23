@@ -30,7 +30,8 @@ class OpenClawContract:
 
 class OpenClawEngine:
     def __init__(self, profiles_dir: Optional[str] = None):
-        self.profiles_dir = profiles_dir or os.path.abspath(
+        # STONESAGE_AGENT_PROFILES_DIR lets the unit-test runner keep generated profiles out of the repo
+        self.profiles_dir = profiles_dir or os.environ.get("STONESAGE_AGENT_PROFILES_DIR") or os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "..", "server setup", "cluster-bridge", "agent_profiles")
         )
         os.makedirs(self.profiles_dir, exist_ok=True)

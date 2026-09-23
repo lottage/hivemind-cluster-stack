@@ -10,8 +10,9 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 2. Long game: a walled "garden" where agents explore their own limits and desires, built on the same
    grounded foundations (real senses, measurable evals, curated memory, budgets). Not before Phase 4.
 
-## Current phase: Phase 0 (stabilize). Next: Phase 1 model evals, Phase 2 tool-calling Courage.
-- DO NOT `git commit` or push until John says the code is polished enough. Snapshot: `_backups/pre-phase0-2026-09-23.tgz`.
+## Current phase: Phase 2 (tool-calling Courage). Phase 0 done 2026-09-23; Phase 1 model evals still open.
+- Git: one branch per feature (Phase 0 baseline = `phase0-restructure`), commit at the end of each session after a
+  secret scan. Never push (no remote yet; old history holds credentials that still need rotating).
 - Autonomous thinking loop, Assembly Hall, agent reproduction, Citadel 3D, Blender, trainer runs: shelved.
   Don't extend them; don't re-enable them.
 - John's decisions: Echos for voice (announce out, "Alexa, tell Computer" in); Frigate on the i7-12700K iGPU
@@ -21,7 +22,8 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 
 ## Layout
 - `StoneSage/backend/server.py` (8k lines, stdlib http.server, ~205 routes in do_GET/do_POST). Split it gradually.
-  Chat grounding: `ground_hardware_context()` (keyword-triggered; to be replaced by a tool loop).
+  Courage chat: `backend/courage/` tool loop (8 tools, approvals, presence card), routed from `/api/cluster/chat`
+  via `is_courage_agent()`. Other agents still use keyword `ground_hardware_context()`.
   Tools: `tool_harness.py` (`ToolRegistry`). HA: `hass_client.py`. Engines: `engine_controller.py`.
 - `StoneSage/frontend/` retro Win95 PWA (no frameworks). `harness/` CLI + core libs (duplicates some server logic).
 - `server setup/cluster-bridge/` runs on VM 102 at `/opt/cluster-bridge` (MCP bridge :8765, wildlife sentry).

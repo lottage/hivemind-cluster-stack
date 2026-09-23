@@ -74,7 +74,7 @@ class TestConsensusEngine(unittest.TestCase):
 
         # Stage 3 assertions (Founder synthesis)
         self.assertIn("Verified Consensus Solution", result.final_synthesis)
-        self.assertGreater(result.elapsed_seconds, 0.0)
+        self.assertGreaterEqual(result.elapsed_seconds, 0.0)  # mocked run can finish inside one Windows clock tick
 
         # Verify progress stages were reported
         stage_starts = [d["stage"] for t, d in stages_recorded if t == "stage_start"]

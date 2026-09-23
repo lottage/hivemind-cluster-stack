@@ -766,6 +766,11 @@ def _enqueue_tool_index(fn: Callable, arg: Dict[str, Any]) -> None:
         _TOOL_INDEX_THREAD.start()
 
 
+def _custom_tools_dir() -> str:
+    """data/ by default; STONESAGE_DATA_DIR lets the unit-test runner keep writes out of the repo."""
+    return os.environ.get("STONESAGE_DATA_DIR") or os.path.join(WORKSPACE_ROOT, "data")
+
+
 class ToolRegistry:
     """
     Central registry for all tools accessible to any chat model at any endpoint.
@@ -1351,7 +1356,7 @@ class ToolRegistry:
 
     def _persist_custom_tool(self, name: str, desc: str, params: Dict[str, Any], url: str):
         """Saves dynamic tool metadata to disk."""
-        data_dir = os.path.join(WORKSPACE_ROOT, "data")
+        data_dir = _custom_tools_dir()
         os.makedirs(data_dir, exist_ok=True)
         path = os.path.join(data_dir, "custom_tools.json")
         tools_dict = {}
@@ -1370,7 +1375,7 @@ class ToolRegistry:
 
     def _load_persisted_tools(self):
         """Restores custom tools from disk on startup."""
-        path = os.path.join(WORKSPACE_ROOT, "data", "custom_tools.json")
+        path = os.path.join(_custom_tools_dir(), "custom_tools.json")
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:

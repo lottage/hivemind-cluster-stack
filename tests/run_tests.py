@@ -11,8 +11,10 @@ OSError so modules fall back to their offline paths, and lists every attempt at 
 """
 
 import os
+import shutil
 import socket
 import sys
+import tempfile
 import unittest
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +54,18 @@ def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "unit"
     if mode == "unit":
         os.environ.setdefault("STONESAGE_OFFLINE", "1")
+        # modules that persist state (agent profiles, custom tools) write here instead of into the repo
+        # (seeded with copies of the committed files, which some tests read)
+        scratch = tempfile.mkdtemp(prefix="stonesage-unit-")
+        profiles = os.path.join(scratch, "agent_profiles")
+        shutil.copytree(os.path.join(REPO_ROOT, "server setup", "cluster-bridge", "agent_profiles"), profiles)
+        data = os.path.join(scratch, "data")
+        os.makedirs(data)
+        tools_json = os.path.join(REPO_ROOT, "data", "custom_tools.json")
+        if os.path.exists(tools_json):
+            shutil.copy2(tools_json, data)
+        os.environ["STONESAGE_AGENT_PROFILES_DIR"] = profiles
+        os.environ["STONESAGE_DATA_DIR"] = data
         install_network_guard()
         suite = unittest.defaultTestLoader.discover(TESTS_DIR, pattern="test_*.py", top_level_dir=TESTS_DIR)
     elif mode == "live":

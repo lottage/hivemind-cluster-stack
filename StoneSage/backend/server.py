@@ -2591,11 +2591,17 @@ def scan_room_with_camera(user_query: str) -> Optional[str]:
     For cameras without PTZ presets, falls back to single-frame capture.
     """
     cam_eid, cam_name = _select_camera_for_query(user_query)
-    ptz_config = CAMERA_PTZ_PRESETS.get(cam_eid)
-
     # Cameras without PTZ presets (Side Yard, Back Yard TC82 battery cams) — single frame
-    if not ptz_config:
+    if not CAMERA_PTZ_PRESETS.get(cam_eid):
         return capture_live_camera_perception(user_query)
+    return scan_camera_presets(cam_eid, cam_name)
+
+
+def scan_camera_presets(cam_eid: str, cam_name: str) -> Optional[str]:
+    """PTZ sweep of one camera through its presets; single analysed frame for cameras without presets."""
+    ptz_config = CAMERA_PTZ_PRESETS.get(cam_eid)
+    if not ptz_config:
+        return _analyze_single_frame(cam_eid, cam_name)
 
     preset_entity = ptz_config["preset_entity"]
     presets = ptz_config["presets"]
@@ -2641,6 +2647,93 @@ def scan_room_with_camera(user_query: str) -> Optional[str]:
         f"{composite}\n\n"
         f"STATUS: Multi-angle PTZ scan COMPLETE. Camera returned to default position '{default_preset}'."
     )
+
+# =====================================================================
+# Courage tool loop (Phase 2): real clients wired into backend/courage
+# =====================================================================
+
+
+def is_courage_agent(agent_id: Optional[str]) -> bool:
+    """True for 'courage-computer' and every alias of it in BUILTIN_AGENTS (home-agent, computer, ...)."""
+    if not agent_id:
+        return False
+    a = next((b for b in BUILTIN_AGENTS if b["id"] == agent_id or agent_id in b.get("aliases", [])), None)
+    return bool(a and a["id"] == "courage-computer")
+
+COURAGE_PHONES = {"austin": "mobile_app_austin_s_phone"}
+COURAGE_ECHOS = {"kitchen": "alexa_media_kitchen_echo_show_8_2",
+                 "bathroom": "alexa_media_bathroom_echo_dot_2",
+                 "everywhere": "alexa_media_everywhere_2"}
+_courage_agent = None
+_courage_amem = None
+_courage_lock = threading.Lock()
+_courage_presence_cache: Dict[str, Any] = {"at": 0.0, "state": None, "refreshing": False}
+
+
+def _courage_refresh_presence() -> None:
+    try:
+        from harness.core.home_presence_hub import home_presence_hub
+        _courage_presence_cache.update(state=home_presence_hub.get_full_presence_state(), at=time.time())
+    except Exception as e:
+        logger.warning(f"Courage presence refresh failed: {e}")
+    finally:
+        _courage_presence_cache["refreshing"] = False
+
+
+def _courage_presence() -> Dict[str, Any]:
+    """Presence hub state. A fresh read takes ~1.4 s, so serve a cached copy and refresh it in the background."""
+    age = time.time() - _courage_presence_cache["at"]
+    if _courage_presence_cache["state"] is not None and age < 60:
+        if age > 20 and not _courage_presence_cache["refreshing"]:
+            _courage_presence_cache["refreshing"] = True
+            threading.Thread(target=_courage_refresh_presence, daemon=True).start()
+        return _courage_presence_cache["state"]
+    _courage_refresh_presence()
+    return _courage_presence_cache["state"] or {}
+
+
+def _courage_memory_search(query: str) -> List[Dict[str, Any]]:
+    global _courage_amem
+    if _courage_amem is None:
+        from harness.data_fabric.valkey_amem import ValkeyAMEM
+        _courage_amem = ValkeyAMEM()
+    return _courage_amem.recall(query, max_atoms=4)
+
+
+def _courage_notify(message: str, target: str = "austin") -> Dict[str, Any]:
+    service = COURAGE_PHONES.get(target)
+    if not service:
+        return {"ok": False, "error": f"no phone registered in Home Assistant for '{target}'"}
+    return hass.call_service("notify", service, {"title": "Courage", "message": message})
+
+
+def _courage_speak(message: str, room: str = "kitchen") -> Dict[str, Any]:
+    service = COURAGE_ECHOS.get(room)
+    if not service:
+        return {"ok": False, "error": f"no Echo for '{room}'"}
+    return hass.call_service("notify", service, {"message": message, "data": {"type": "announce"}})
+
+
+def get_courage_agent():
+    """The shared Courage agent (pending approvals live on it, so there must be exactly one)."""
+    global _courage_agent
+    with _courage_lock:
+        if _courage_agent is None:
+            from courage import CourageAgent, CourageDeps, CourageTools
+            deps = CourageDeps(
+                ha_states=lambda domain: hass.get_states(domain),
+                ha_call=lambda domain, service, data: hass.call_service(domain, service, data),
+                presence=_courage_presence,
+                camera_look=lambda eid, name: _analyze_single_frame(eid, name),
+                camera_scan=scan_camera_presets,
+                memory_search=_courage_memory_search,
+                notify=_courage_notify,
+                speak=_courage_speak,
+            )
+            url = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1")
+            _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence)
+        return _courage_agent
+
 
 def ground_hardware_context(agent_id: str, user_query: str) -> str:
     """
@@ -3049,6 +3142,67 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.end_headers()
                 return
         super().do_HEAD()
+
+    def _handle_courage_chat(self, messages: List[Dict[str, Any]], session_id: Optional[str], agent_id: str):
+        """Courage tool loop (Phase 2): streams tool events and the answer as SSE; actions wait for approval.
+        Replaces keyword grounding and keyword-triggered device actions for the Courage agent."""
+        history = [m for m in messages if m.get("role") in ("user", "assistant")]
+        user_text = next((m.get("content", "") for m in reversed(history) if m.get("role") == "user"), "")
+        approval_key = session_id or f"ip:{self.client_address[0]}"
+
+        if session_id and user_text:
+            try:
+                from harness.data_fabric.pg_storage import relational_storage
+                relational_storage.save_message(session_id=session_id, role="user", content=user_text, agent_id=agent_id)
+            except Exception as ex:
+                logger.debug(f"Courage: could not save user turn: {ex}")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        active_session_state.start(prompt=user_text, model="coordinator", agent_id=agent_id, session_id=session_id)
+        content, tool_events, t0 = [], [], time.time()
+        client_gone = False
+        try:
+            for chunk in get_courage_agent().sse(history, approval_key):
+                if not client_gone:
+                    try:
+                        self.wfile.write(chunk.encode("utf-8"))
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        client_gone = True  # keep looping so approvals and history stay consistent
+                if not chunk.startswith("data: {"):
+                    continue
+                ev = json.loads(chunk[6:])
+                if ev.get("type") in ("tool_call", "tool_result", "approval_required"):
+                    tool_events.append(ev)
+                    if ev["type"] == "tool_call":
+                        active_session_state.set_tool(ev.get("status") or ev.get("name"))
+                else:
+                    delta = (ev.get("choices") or [{}])[0].get("delta") or {}
+                    if delta.get("content"):
+                        content.append(delta["content"])
+        except Exception as e:
+            logger.warning(f"Courage loop failed: {e}")
+            if not client_gone:
+                self.wfile.write(f"data: {json.dumps({'error': str(e)})}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        finally:
+            active_session_state.finish()
+            if session_id:
+                try:
+                    from harness.data_fabric.pg_storage import relational_storage
+                    relational_storage.save_message(
+                        session_id=session_id, role="assistant", content="".join(content),
+                        tool_calls=tool_events or None,
+                        metrics={"model": "courage", "latency_ms": round((time.time() - t0) * 1000)},
+                        agent_id=agent_id)
+                except Exception as ex:
+                    logger.debug(f"Courage: could not save assistant turn: {ex}")
 
     def send_json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
@@ -6251,6 +6405,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 if user_turns:
                     user_query = user_turns[-1].get("content", "")
 
+                # Courage runs its own tool loop: no keyword grounding, no keyword-triggered device actions
+                if is_courage_agent(agent_id) and config.get("courage", {}).get("tool_loop", True):
+                    self._handle_courage_chat(messages, session_id, agent_id)
+                    return
+
                 # Inject agent persona if an agent is selected
                 agent_system_prompt = body.get("agent_system_prompt")
                 if not agent_system_prompt and agent_id and agent_id not in ["coordinator", "worker", "moe", "none"]:
@@ -8270,6 +8429,8 @@ if __name__ == "__main__":
     host = config.get("server", {}).get("host", "0.0.0.0")
 
     http.server.ThreadingHTTPServer.allow_reuse_address = True
+    # Warm Courage's presence cache so the first question doesn't pay the ~1.4 s presence read
+    threading.Thread(target=_courage_refresh_presence, daemon=True, name="courage-presence-warmup").start()
     try:
         server = http.server.ThreadingHTTPServer((host, port), StoneSageHandler)
     except OSError as e:
