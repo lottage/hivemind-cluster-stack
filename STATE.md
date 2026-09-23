@@ -96,9 +96,9 @@ they appear in local git history (commits 67fe717..fb5e327).
   HA: StoneSage's Ollama API (`/api/tags`, `/api/chat` on :8888) offers model `courage:latest` = the same tool loop
   (one approval slot per calling host). HA (2026-09-23 via API): Ollama entry `http://192.168.1.167:8888` with agent
   `conversation.courage`; new assist pipeline "Courage" (faster-whisper STT, Piper `en_GB-alan-medium`, local intents
-  first) is the preferred pipeline. The old Ollama entry `:8080` (only 302-redirects, POST fails) and its pipeline
-  "Local Homelab Voice Stack" are left in place, unused. Pre-change backup: `_backups/ha_assist_backup_2026-09-23.json`.
-  Rollback: `assist_pipeline/pipeline/set_preferred` back to `01m1wsrmqgw0g7qjq6442ykdsa`. Other agents still use keyword grounding and keyword-triggered device actions.
+  first) is the preferred pipeline. The old Ollama entry `:8080` (only 302-redirected, POST failed) and its pipeline
+  "Local Homelab Voice Stack" were deleted the same day. Pre-change backup: `_backups/ha_assist_backup_2026-09-23.json`.
+  Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
 - Tests: `python tests/run_tests.py` (unit, LAN blocked) = 121 tests, 1 known failure (`test_ally_model_manager` context sizing).
