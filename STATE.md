@@ -91,4 +91,5 @@ they appear in local git history (commits 67fe717..fb5e327).
 - Night motion from spider webs on outdoor cams.
 - Tests: `python tests/run_tests.py` (unit, LAN blocked) = 121 tests, 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
-- Git: most of the project is untracked; last commit 2026-09-11. Snapshot at `_backups/pre-phase0-2026-09-23.tgz`.
+- Git: Phase 0 baseline committed 2026-09-23 on branch `phase0-restructure` (b3b5ebb); not merged to `main`, no remote.
+  Submodule `server setup/obsidian-vault-cli` has uncommitted changes of its own. Snapshot: `_backups/pre-phase0-2026-09-23.tgz`.
