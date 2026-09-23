@@ -4,7 +4,8 @@ Courage's tool loop against the coordinator's OpenAI-compatible API (llama.cpp, 
 run() yields plain event dicts; sse() turns them into the SSE chunks the StoneSage chat UI already
 understands (tool_call / tool_result events and OpenAI-style content deltas).
 
-Approval flow: when the model asks for an action that needs approval, the loop stops, the action is
+Approval flow: an action the user ordered outright ("turn off the TV lights") runs at once. When Courage
+inferred it ("it's cold in here" -> raise the heat) or it is an unlock/open, the loop stops, the action is
 parked in PendingActions for that session, and Courage asks. A later "yes" in the same session runs it,
 "no" drops it, anything else lets it expire.
 """
@@ -99,7 +100,10 @@ class CourageAgent:
             "chat_template_kwargs": {"enable_thinking": False},
         }
         data = self.post(self.url, body, self.timeout)
-        return (data.get("choices") or [{}])[0].get("message") or {}
+        msg = (data.get("choices") or [{}])[0].get("message") or {}
+        t = data.get("timings") or {}  # llama.cpp: predicted_n tokens generated in predicted_ms
+        msg["_gen"] = (t.get("predicted_n") or (data.get("usage") or {}).get("completion_tokens") or 0, t.get("predicted_ms") or 0)
+        return msg
 
     # ---- conversation shaping ------------------------------------------------
     def _build_messages(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -132,6 +136,15 @@ class CourageAgent:
 
     # ---- the loop ------------------------------------------------------------
     def run(self, history: List[Dict[str, Any]], session_id: str = "default") -> Iterator[Dict[str, Any]]:
+        """Events: tool_call, tool_result, approval_required, then usage (tokens generated, tok/s) and final."""
+        gen = [0, 0.0]
+        for ev in self._run(history, session_id, gen):
+            if ev["type"] == "final" and gen[0]:
+                yield {"type": "usage", "completion_tokens": gen[0],
+                       "tps": round(gen[0] / (gen[1] / 1000), 1) if gen[1] else 0}
+            yield ev
+
+    def _run(self, history: List[Dict[str, Any]], session_id: str, gen: List[float]) -> Iterator[Dict[str, Any]]:
         messages = self._build_messages(history)
         last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
 
@@ -158,6 +171,8 @@ class CourageAgent:
         for _ in range(self.max_steps):
             try:
                 msg = self._complete(messages)
+                gen[0] += msg["_gen"][0]
+                gen[1] += msg["_gen"][1]
             except Exception as e:
                 yield {"type": "final", "content": f"My brain on :8001 isn't answering ({type(e).__name__}). Try again in a moment."}
                 return
@@ -188,6 +203,7 @@ class CourageAgent:
                         yield {"type": "tool_result", "name": name, "result": result}
                         messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
                         continue
+                if self.tools.needs_approval(name) and not self.tools.is_direct_command(name, args, last_user):
                     action = self.pending.put(session_id, {"name": name, "args": args,
                                                            "summary": self.tools.describe_action(name, args)})
                     yield {"type": "approval_required", "id": action["id"], "name": name,
@@ -209,12 +225,15 @@ class CourageAgent:
         def chunk(obj: Dict[str, Any]) -> str:
             return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
+        usage = None
         for ev in self.run(history, session_id):
-            if ev["type"] == "final":
+            if ev["type"] == "usage":
+                usage = {"completion_tokens": ev["completion_tokens"], "tps": ev["tps"]}
+            elif ev["type"] == "final":
                 yield chunk({"object": "chat.completion.chunk", "model": "courage",
                              "choices": [{"index": 0, "delta": {"content": ev["content"]}, "finish_reason": None}]})
             else:
                 yield chunk(ev)
-        yield chunk({"object": "chat.completion.chunk", "model": "courage",
+        yield chunk({"object": "chat.completion.chunk", "model": "courage", "usage": usage,
                      "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
         yield "data: [DONE]\n\n"

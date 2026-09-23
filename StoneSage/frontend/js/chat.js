@@ -491,6 +491,13 @@ export async function submitPrompt() {
           assistantMsg.metrics.content_tokens = contentTokens;
           assistantMsg.metrics.tps = currentTps;
           assistantMsg.metrics.duration_s = Math.round(elapsedSec * 10) / 10;
+          // Courage sends its answer in one chunk; the server reports the real generated tokens and speed at the end
+          if (parsed.usage && parsed.usage.completion_tokens) {
+            assistantMsg.metrics.total_tokens = parsed.usage.completion_tokens;
+            assistantMsg.metrics.content_tokens = parsed.usage.completion_tokens;
+            assistantMsg.metrics.reasoning_tokens = 0;
+            assistantMsg.metrics.tps = Math.round(parsed.usage.tps || 0);
+          }
 
           // Incrementally update DOM & durable local storage!
           updateAssistantDom(msgElement, assistantMsg, true);
@@ -650,14 +657,14 @@ function renderAssistantBodyHtml(msg, isStreaming, isReasoning, rTokens, cTokens
       liveStatusBar = `
         <div class="chat-live-status-bar reasoning">
           <span class="pulse-dot">⏳</span>
-          <span><strong>THINKING / REASONING IN PROGRESS</strong> &mdash; ${rTokens} tokens trace...</span>
+          <span><strong>THINKING / REASONING IN PROGRESS</strong>${rTokens > 1 ? ` &mdash; ${rTokens} tokens trace` : ''}...</span>
         </div>
       `;
     } else {
       liveStatusBar = `
         <div class="chat-live-status-bar response">
           <span class="pulse-dot">⚡</span>
-          <span><strong>STREAMING RESPONSE</strong> &mdash; ${cTokens} tokens (${msg.metrics?.tps || 0} tps)...</span>
+          <span><strong>STREAMING RESPONSE</strong>${cTokens > 1 ? ` &mdash; ${cTokens} tokens (${msg.metrics?.tps || 0} tps)` : ''}...</span>
         </div>
       `;
     }

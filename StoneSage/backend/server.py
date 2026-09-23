@@ -3165,7 +3165,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
         active_session_state.start(prompt=user_text, model="coordinator", agent_id=agent_id, session_id=session_id)
-        content, tool_events, t0 = [], [], time.time()
+        content, tool_events, t0, usage = [], [], time.time(), {}
         client_gone = False
         try:
             for chunk in get_courage_agent().sse(history, approval_key):
@@ -3186,6 +3186,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     delta = (ev.get("choices") or [{}])[0].get("delta") or {}
                     if delta.get("content"):
                         content.append(delta["content"])
+                    if ev.get("usage"):
+                        usage = ev["usage"]
+                        with active_session_state.lock:
+                            active_session_state.tokens_count = usage.get("completion_tokens", 0)
+                            active_session_state.tps = usage.get("tps", 0)
         except Exception as e:
             logger.warning(f"Courage loop failed: {e}")
             if not client_gone:
@@ -3199,7 +3204,8 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     relational_storage.save_message(
                         session_id=session_id, role="assistant", content="".join(content),
                         tool_calls=tool_events or None,
-                        metrics={"model": "courage", "latency_ms": round((time.time() - t0) * 1000)},
+                        metrics={"model": "courage", "latency_ms": round((time.time() - t0) * 1000),
+                                 "total_tokens": usage.get("completion_tokens", 0), "tps": usage.get("tps", 0)},
                         agent_id=agent_id)
                 except Exception as ex:
                     logger.debug(f"Courage: could not save assistant turn: {ex}")

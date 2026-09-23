@@ -105,7 +105,7 @@ class TestCourageAgent(unittest.TestCase):
         ha = FakeHA()
         llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}))
         agent, _ = make_agent(llm, ha=ha, pending=pending)
-        events = run(agent, "turn off the kitchen light")
+        events = run(agent, "it's far too bright in the kitchen")  # inferred, so Courage asks
         self.assertEqual([e["type"] for e in events], ["approval_required", "final"])
         self.assertEqual(ha.calls, [], "nothing may run before approval")
         self.assertEqual(events[-1]["content"], "Shall I turn off the Kitchen Light? Say yes to approve.")
@@ -121,7 +121,7 @@ class TestCourageAgent(unittest.TestCase):
         ha = FakeHA()
         agent, _ = make_agent(ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_on", "entity_id": "light.bedroom"})),
                               ha=ha, pending=pending)
-        run(agent, "lamp on")
+        run(agent, "the bedroom is pitch dark")
         events = run(agent, "no, leave it")
         self.assertEqual(events, [{"type": "final", "content": "Right. Leaving it alone."}])
         self.assertEqual(ha.calls, [])
@@ -131,7 +131,7 @@ class TestCourageAgent(unittest.TestCase):
         ha = FakeHA()
         agent, _ = make_agent(ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_on", "entity_id": "light.bedroom"})),
                               ha=ha, pending=pending)
-        run(agent, "lamp on", session="phone")
+        run(agent, "the bedroom is pitch dark", session="phone")
         agent.post = ScriptedLLM(reply("Yes to what, exactly?"))
         run(agent, "yes", session="other-tab")
         self.assertEqual(ha.calls, [])
@@ -220,6 +220,35 @@ class TestCourageAgent(unittest.TestCase):
         agent, _ = make_agent(llm)
         events = run(agent, "loop forever")
         self.assertIn("round in circles", events[-1]["content"])
+
+    def test_direct_command_runs_without_asking(self):
+        ha = FakeHA()
+        llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}),
+                          {"choices": [{"message": {"content": "Done."}}], "timings": {"predicted_n": 40, "predicted_ms": 1000}})
+        agent, _ = make_agent(llm, ha=ha)
+        events = run(agent, "turn off the kitchen light")
+        self.assertEqual(ha.calls, [("light", "turn_off", {"entity_id": "light.kitchen"})])
+        self.assertEqual([e["type"] for e in events], ["tool_call", "tool_result", "usage", "final"])
+        self.assertEqual((events[2]["completion_tokens"], events[2]["tps"]), (40, 40.0))
+
+    def test_direct_word_must_match_the_service(self):
+        tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=None, camera_look=None, camera_scan=None))
+        on = {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}
+        self.assertTrue(tools.is_direct_command("ha_call", on, "turn the kitchen light on"))
+        self.assertTrue(tools.is_direct_command("ha_call", on, "lamp on"))
+        self.assertFalse(tools.is_direct_command("ha_call", on, "it's dark in here"))
+        self.assertFalse(tools.is_direct_command("ha_call", on, "is the kitchen light on?"))
+        self.assertFalse(tools.is_direct_command("ha_call", {"domain": "climate", "service": "set_temperature",
+                                                             "entity_id": "climate.nest_thermostat"}, "it's cold in here"))
+        self.assertTrue(tools.is_direct_command("speak", {"message": "dinner"}, "announce dinner is ready"))
+
+    def test_unlock_always_asks(self):
+        ha = FakeHA()
+        ha.states = lambda d: {"ok": True, "entities": [{"entity_id": "lock.front_door", "friendly_name": "Front Door", "state": "locked"}]}
+        agent, _ = make_agent(ScriptedLLM(tool_call("ha_call", {"domain": "lock", "service": "unlock", "entity_id": "lock.front_door"})), ha=ha)
+        events = run(agent, "unlock the front door")
+        self.assertEqual(events[0]["type"], "approval_required")
+        self.assertEqual(ha.calls, [])
 
     def test_find_stale_subject_looks_through_last_camera(self):
         looks = []

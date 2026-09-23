@@ -87,8 +87,10 @@ they appear in local git history (commits 67fe717..fb5e327).
   `autonomous_thinking_status` tool correctly reports false.
 - `cluster-mcp` takes ~90 s to stop (hits systemd's stop timeout, then SIGKILL).
 - Courage chat (agent `courage-computer` and aliases) now runs the `backend/courage` tool loop (live 2026-09-23):
-  tool choice 42/42 single-turn, 41/42 mid-conversation, decision p50 0.73 s. Actions (HA calls, phone notify to
-  Austin, Echo announcements) wait for a "yes". Still to do: HA conversation agent, System-1 reflex routing,
+  tool choice 41/42 single-turn and mid-conversation, decision p50 0.85 s. Actions (HA calls, phone notify to
+  Austin, Echo announcements) run at once when ordered outright; inferred ones, unlocks and opening covers wait for a
+  "yes" (`is_direct_command` in `courage/tools.py`). "Where is X" is one step: `presence_now(who)` looks through the
+  camera itself when the sighting is > 10 min old. Still to do: HA conversation agent, System-1 reflex routing,
   approve button in the UI. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.

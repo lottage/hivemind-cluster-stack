@@ -3,7 +3,7 @@
  * Enables PWA offline shell and background Web Push notification alerts.
  */
 
-const CACHE_NAME = 'stonesage-v4.0.7-toolchips';
+const CACHE_NAME = 'stonesage-v4.0.8-usage';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

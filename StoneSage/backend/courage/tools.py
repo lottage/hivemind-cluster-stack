@@ -3,11 +3,13 @@ Courage's curated tool set.
 
 Rules (John's decisions, 2026-09-23 plan):
 - Reading states and cameras, including PTZ moves, runs freely.
-- Every other action (HA service calls, notifications, announcements) needs approval first.
+- Other actions (HA service calls, notifications, announcements) run at once when the user ordered them,
+  and need approval when Courage inferred them (2026-09-23). Unlock and open-cover always need approval.
 - ha_call is limited to an allowlist of domain/service pairs; anything else is refused outright.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -32,7 +34,27 @@ ALLOWED_SERVICES: Dict[str, List[str]] = {
     "lock": ["lock", "unlock"],
 }
 
-FILLER_WORDS = {"any", "all", "every", "the", "a", "an", "my", "our", "house", "home", "right", "now", "currently", "on", "off"}
+# Direct commands run at once; these still ask even when ordered outright (security)
+ALWAYS_CONFIRM = {("lock", "unlock"), ("cover", "open_cover")}
+# words in the user's message that make an action a direct order, per HA service / tool
+DIRECT_SERVICE_WORDS: Dict[str, str] = {
+    "turn_on": r"\b(turn|switch|put|flip)\b.*\bon\b|\b(on|up)\s*(please|now)?\s*$|\b(light up|start|activate)\b",
+    "turn_off": r"\b(turn|switch|shut|put|flip)\b.*\b(off|down)\b|\b(off|kill)\b",
+    "toggle": r"\btoggle\b|\b(turn|switch|flip)\b",
+    "set_temperature": r"\b(set|raise|lower|bump|turn|make|increase|decrease|drop)\b|\bdegrees?\b|\d",
+    "set_hvac_mode": r"\b(set|switch|turn|put)\b",
+    "media_pause": r"\b(pause|stop)\b",
+    "media_play": r"\b(play|resume|unpause)\b",
+    "volume_set": r"\b(volume|louder|quieter|turn (it )?(up|down)|mute)\b",
+    "lock": r"\block\b",
+    "close_cover": r"\b(close|shut|lower)\b",
+}
+DIRECT_TOOL_WORDS: Dict[str, str] = {
+    "notify": r"\b(send|notify|text|message|ping|push|remind)\b",
+    "speak": r"\b(announce|say|tell|broadcast|shout|yell|call out)\b",
+}
+
+FILLER_WORDS ={"any", "all", "every", "the", "a", "an", "my", "our", "house", "home", "right", "now", "currently", "on", "off"}
 
 MAX_RESULT_CHARS = 1500
 STALE_MINUTES = 10  # presence_now(who) looks through a camera itself when the last sighting is older than this
@@ -178,6 +200,12 @@ class CourageTools:
         if name == "ha_call":
             entity, _ = self.resolve_entity(args.get("domain", ""), args.get("entity_id", ""))
             label = (entity or {}).get("friendly_name") or args.get("entity_id")
+            data = args.get("data") or {}
+            if args.get("service") == "set_temperature" and "temperature" in data:
+                now = (entity or {}).get("current_temperature") or ((entity or {}).get("attributes") or {}).get("current_temperature")
+                return f"set the {label} to {data['temperature']}°" + (f" (it's {now}° now)" if now is not None else "")
+            if args.get("service") == "set_hvac_mode" and data.get("hvac_mode"):
+                return f"switch the {label} to {data['hvac_mode']}"
             extra = f" ({', '.join(f'{k} {v}' for k, v in args['data'].items())})" if args.get("data") else ""
             return f"{args.get('service', '').replace('_', ' ')} the {label}{extra}"
         if name == "notify":
@@ -185,6 +213,22 @@ class CourageTools:
         if name == "speak":
             return f"announce in {args.get('room', 'kitchen')}: \"{args.get('message', '')}\""
         return f"{name}({json.dumps(args)})"
+
+    def is_direct_command(self, name: str, args: Dict[str, Any], user_text: str) -> bool:
+        """True when the user's own message ordered this action, so it runs without asking.
+
+        Courage only asks when it inferred the action ("it's cold in here" -> raise the heat?).
+        Unlocking doors and opening covers (garage) always ask.
+        """
+        text = (user_text or "").lower()
+        if name == "ha_call":
+            service = args.get("service", "")
+            if (args.get("domain"), service) in ALWAYS_CONFIRM:
+                return False
+            pattern = DIRECT_SERVICE_WORDS.get(service)
+            return bool(pattern and re.search(pattern, text))
+        pattern = DIRECT_TOOL_WORDS.get(name)
+        return bool(pattern and re.search(pattern, text))
 
     def execute(self, name: str, args: Dict[str, Any]) -> str:
         """Run a tool (approval must already be settled by the caller). Returns a clipped string for the model."""

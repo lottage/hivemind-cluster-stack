@@ -16,8 +16,8 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 - Autonomous thinking loop, Assembly Hall, agent reproduction, Citadel 3D, Blender, trainer runs: shelved.
   Don't extend them; don't re-enable them.
 - John's decisions: Echos for voice (announce out, "Alexa, tell Computer" in); Frigate on the i7-12700K iGPU
-  (OpenVINO); vision runs on the RX 6600 GPU for now (2026-09-23, layout A in STATE.md); Courage may use camera/PTZ tools freely, every other
-  action needs approval; <= 6 unprompted remarks/day, triggered by arrivals, cooking, cleaning
+  (OpenVINO); vision runs on the RX 6600 GPU for now (2026-09-23, layout A in STATE.md); Courage may use camera/PTZ tools freely; actions John orders outright run at once, actions Courage
+  infers ("it's cold in here") ask first, unlock/open-garage always ask (2026-09-23); <= 6 unprompted remarks/day, triggered by arrivals, cooking, cleaning
   (living room/kitchen + outdoor cams).
 
 ## Layout
