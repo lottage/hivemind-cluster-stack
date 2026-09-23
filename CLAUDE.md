@@ -13,6 +13,7 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 ## Current phase: Phase 2 (tool-calling Courage). Phase 0 done 2026-09-23; Phase 1 model evals still open.
 - Git: one branch per feature (Phase 0 baseline = `phase0-restructure`), commit at the end of each session after a
   secret scan. Never push (no remote yet; old history holds credentials that still need rotating).
+  No Co-Authored-By or other attribution lines in commit messages (John's call).
 - Autonomous thinking loop, Assembly Hall, agent reproduction, Citadel 3D, Blender, trainer runs: shelved.
   Don't extend them; don't re-enable them.
 - John's decisions: Echos for voice (announce out, "Alexa, tell Computer" in); Frigate on the i7-12700K iGPU
