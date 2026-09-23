@@ -13,6 +13,7 @@ import { fetchAgentDnaList } from './agent_dna.js';
 import { initWorkstationAce } from './workstation_ace.js';
 import { initEngineStudio } from './engine_studio.js';
 import { initEngineConsole } from './engine_console.js';
+import { initProfile } from './profile.js';
 
 // Early window modal helpers so click handlers are bound immediately
 window.openModelModal = function() {
@@ -139,6 +140,13 @@ function bootstrapApp() {
     }
   } catch (err) {
     console.error('Failed drawer autonomy select listener:', err);
+  }
+
+  // 1b. Live hardware/model profile (fills every data-profile label)
+  try {
+    initProfile();
+  } catch (err) {
+    console.error('Failed initProfile:', err);
   }
 
   // 2. Initialize Durable Tab Navigation

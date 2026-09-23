@@ -5,7 +5,8 @@
 > Philosophy and history docs (COMPANION_MANIFESTO, COLLECTIVE_SOUL_FOUNDATION,
 > PROJECT_MASTER_PASSDOWN) are background reading, not operational truth.
 
-Last updated: 2026-09-23 13:20 EDT (VM 102 from `phase0_vm102_report.sh`, `systemctl show`, per-process VRAM from amdgpu fdinfo, and a benchmark; all services from StoneSage `/api/health/all`)
+Last updated: 2026-09-23 (node IPs from the Proxmox `/cluster/status` API; were wrong before)
+Previously: 2026-09-23 13:20 EDT (VM 102 from `phase0_vm102_report.sh`, `systemctl show`, per-process VRAM from amdgpu fdinfo, and a benchmark; all services from StoneSage `/api/health/all`)
 
 ## Goal (current)
 A usable home assistant: Courage (tool-calling, camera-aware, voice via Echo) inside StoneSage.
@@ -15,11 +16,11 @@ Plan: https://claude.ai/code/artifact/1b6a0188-feca-4e2f-ae48-16f768b3524b
 ## Hosts
 | Host | IP | Role |
 | --- | --- | --- |
-| Proxmox VIP | 192.168.1.245:8006 | Cluster API (use this, not node IPs) |
-| pve (node 1) | 192.168.1.229 | i7-12700K, RX 6750 XT 12 GB + RX 6600 8 GB (Navi 23, reported as non-XT); UHD 770 iGPU free (reserved for Frigate) |
+| Proxmox API | 192.168.1.245:8006 | Cluster API (any node serves it; .245 is bigserv) |
+| pve (node 1) | 192.168.1.222 | i7-12700K, RX 6750 XT 12 GB + RX 6600 8 GB (Navi 23, reported as non-XT); UHD 770 iGPU free (reserved for Frigate) |
 | VM 102 ubu | 192.168.1.105 | LLM engines, cluster MCP, wildlife sentry, Valkey |
 | LXC 117 qdrant | 192.168.1.112:6333 | Vector DB |
-| bigserv (node 2) | 192.168.1.82 | HA OS VM 103 (:8123), app LXCs |
+| bigserv (node 2) | 192.168.1.245 | Hosts HA OS VM 103 (192.168.1.82:8123) and app LXCs |
 | LXC 120 stonesage | 192.168.1.167:8888 | StoneSage cockpit (+ :8080 redirect, HTTPS for mic) |
 | LXC 121 voice | 192.168.1.121 | Whisper :8200 / :10300, Kokoro :8300, Piper :10200 |
 | LXC 116 couchdb | 192.168.1.230:5984 | Obsidian LiveSync |

@@ -52,8 +52,8 @@
 
         <!-- Model Target Selector -->
         <select class="topbar-select" id="topbar-model-select" title="Active Model Routing">
-          <option value="coordinator" selected>🤖 coder-agent (:8001 Primary)</option>
-          <option value="worker">⚡ home-agent (:8002 Worker)</option>
+          <option value="coordinator" selected data-profile-tpl="{engines.coordinator.label} :{engines.coordinator.port}">Coordinator</option>
+          <option value="worker" data-profile-tpl="{engines.worker.label} :{engines.worker.port}">Worker</option>
         </select>
 
         <!-- Theme Switcher (Deuteranopia Standard) -->
@@ -91,7 +91,7 @@
         </button>
 
         <button type="button" class="topbar-badge-btn" id="mobile-model-btn" onclick="openModelModal()" title="Select Model" style="color:var(--term-text-bright);">
-          <span id="mobile-model-text">🤖 14B</span> ▾
+          <span id="mobile-model-text" data-profile-tpl="🤖 {engines.coordinator.params}">🤖</span> ▾
         </button>
 
         <button type="button" class="menu-toggle-btn" id="mobile-menu-btn" onclick="openSettingsDrawer()" title="Settings & Controls">
@@ -736,7 +736,7 @@
                 <div class="unrestricted-control-card engine-advanced-only" style="display:none;">
                   <label>Flash Attention (-fa):</label>
                   <select id="harness-flash-attn" class="form-select">
-                    <option value="on" selected>ON (Explicit value required on Vulkan)</option>
+                    <option value="on" selected>ON</option>
                     <option value="off">OFF</option>
                     <option value="auto">AUTO</option>
                   </select>
@@ -884,7 +884,7 @@
                 <!-- GPU Device Mapping (-dev) -->
                 <div class="unrestricted-control-card engine-advanced-only" style="display:none;">
                   <label>Device Mapping (-dev / --device):</label>
-                  <input type="text" id="harness-device" class="form-input" placeholder="e.g. Vulkan0 or Vulkan0,Vulkan1" style="font-size:0.8rem; font-family:monospace;">
+                  <input type="text" id="harness-device" class="form-input" placeholder="llama.cpp --device, e.g. Vulkan0 or CUDA0" style="font-size:0.8rem; font-family:monospace;">
                 </div>
 
                 <!-- Tensor Split Proportions (-ts) -->
@@ -1148,8 +1148,8 @@
                     </div>
                   </div>
                   <select id="harness-model-select" class="form-select" onchange="onHarnessModelSelected(this.value)">
-                    <option value="coordinator" selected>Primary Model (Vulkan0 :8001)</option>
-                    <option value="worker">Secondary Model (Vulkan1 :8002)</option>
+                    <option value="coordinator" selected data-profile-tpl="{engines.coordinator.label} :{engines.coordinator.port}">Coordinator</option>
+                    <option value="worker" data-profile-tpl="{engines.worker.label} :{engines.worker.port}">Worker</option>
                   </select>
                   <!-- Model Info Banner (Ground-Truth Metadata) -->
                   <div id="model-info-banner" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:6px; margin-top:8px; padding:6px 10px; background:var(--term-bg); border:1px solid var(--term-border-dim); font-size:0.75rem; font-family:var(--font-mono);">
@@ -1415,8 +1415,8 @@
                 <div style="display:flex; align-items:center; gap:6px;">
                   <label style="font-size:0.75rem; font-weight:bold; color:var(--term-text-muted);">TARGET MODEL:</label>
                   <select id="playground-model-select" class="form-select" style="font-size:0.78rem; padding:3px 8px;">
-                    <option value="coordinator" selected>Primary Model (RX 6750 XT :8001)</option>
-                    <option value="worker">Secondary Model (RX 6600 XT :8002)</option>
+                    <option value="coordinator" selected data-profile-tpl="{engines.coordinator.label} :{engines.coordinator.port}">Coordinator</option>
+                    <option value="worker" data-profile-tpl="{engines.worker.label} :{engines.worker.port}">Worker</option>
                   </select>
                 </div>
               </div>
@@ -1770,7 +1770,7 @@
                 <button type="button" class="preset-btn" data-hvac-mode="off">[OFF]</button>
               </div>
 
-              <!-- home-agent / Home-3B NLP Automation Dispatch -->
+              <!-- home-agent automation dispatch -->
               <div style="border-top:1px dashed var(--term-border-dim); padding-top:8px; margin-top:8px;">
                 <div style="font-size:0.74rem; color:var(--term-text-muted); margin-bottom:4px;">✨ home-agent (Domestic Concierge & Sentry) Automation Dispatch:</div>
                 <div style="display:flex; gap:6px;">
@@ -1904,10 +1904,7 @@
         <div style="margin-bottom:14px;">
           <label style="display:block; font-size:0.75rem; color:var(--term-text-muted); margin-bottom:4px;">Target Node:</label>
           <select id="add-root-node-select" class="topbar-select" style="width:100%;">
-            <option value="local">Local Workstation</option>
-            <option value="vm102">VM 102 Compute Host</option>
-            <option value="bigserv">Bigserv Storage Node</option>
-            <option value="ally_x">ROG Ally X</option>
+            <option value="local">This machine</option>
           </select>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:8px;">
@@ -2096,8 +2093,8 @@
               <div style="margin-bottom:8px;">
                 <label style="display:block; font-size:0.72rem; color:var(--term-text-muted); margin-bottom:2px;">Preferred Model:</label>
                 <select id="edit-agent-model" class="topbar-select" style="width:100%;">
-                  <option value="coordinator">Primary Coordinator :8001 (Ornith-1.5-9B / Conversational Reasoning)</option>
-                  <option value="worker">Fast Worker :8002 (Home-3B-v3 / Sub-second Tool Dispatch)</option>
+                  <option value="coordinator" data-profile-tpl="{engines.coordinator.label} :{engines.coordinator.port}">Coordinator</option>
+                  <option value="worker" data-profile-tpl="{engines.worker.label} :{engines.worker.port}">Worker</option>
                 </select>
               </div>
               <div style="margin-bottom:8px;">
@@ -2309,7 +2306,7 @@
         <!-- Photo Tab Content -->
         <div id="capture-tab-content-photo" style="display:none; flex-direction:column; gap:10px;">
           <div class="form-group">
-            <label style="font-size:0.75rem; color:var(--term-text-muted);">Select or Drop Image (Resized to 640px Lanczos, analyzed by Qwen2.5-VL :8004):</label>
+            <label style="font-size:0.75rem; color:var(--term-text-muted);">Select or Drop Image (resized to 640px, analyzed by <span data-profile="engines.vision.model">the vision engine</span>):</label>
             <input type="file" id="capture-photo-file-input" accept="image/*" class="form-input" style="width:100%; font-size:0.82rem;" onchange="handleCapturePhotoSelect(event)">
           </div>
           <div id="capture-photo-preview-box" style="display:none; text-align:center; padding:8px; background:var(--term-surface); border:1px dashed var(--term-border-dim); border-radius:4px;">
@@ -2337,7 +2334,7 @@
     </div>
 
   <!-- Core StoneSage Runtime & Modules -->
-  <script type="module" src="/js/app.js?v=4.0.9"></script>
+  <script type="module" src="/js/app.js?v=4.1.0"></script>
   <script type="module" src="/js/studio3d.js?v=4.0.6"></script>
 </body>
 </html>

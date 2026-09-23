@@ -6,6 +6,7 @@
 import { State, escapeHtml } from './state.js';
 import { switchSession } from './chat.js';
 import { openFileInTerminal } from './terminal.js';
+import { Profile, engine, engineShort } from './profile.js';
 
 export function initFleet() {
   loadFleetInstances();
@@ -177,7 +178,11 @@ let cachedClusterHealth = null;
 let cachedProxmoxNodes = null;
 let cachedModelsInfo = null;
 let cachedClusterModes = null;
-window._coordShort = 'MoE';
+window._coordShort = '';
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch (_) { return ''; }
+}
 
 
 export async function loadFleetInstances(forceRefresh = false) {
@@ -235,7 +240,7 @@ export async function loadFleetInstances(forceRefresh = false) {
       const activeInst = instances.find(i => i.is_active) || instances[0];
 
       const nodeOptions = instances.map(inst => `
-        <option value="${inst.id}" ${inst.is_active ? 'selected' : ''}>
+        <option value="${inst.id}" data-host="${escapeHtml(hostOf(inst.url))}" ${inst.is_active ? 'selected' : ''}>
           ${inst.reachable ? '🟢' : '🔴'} ${escapeHtml(inst.name)}
         </option>
       `).join('');
@@ -245,6 +250,12 @@ export async function loadFleetInstances(forceRefresh = false) {
       }
       if (drawerNodeSelect && drawerNodeSelect.innerHTML !== nodeOptions) {
         drawerNodeSelect.innerHTML = nodeOptions;
+      }
+      const rootNodeSelect = document.getElementById('add-root-node-select');
+      if (rootNodeSelect) {
+        const rootOptions = '<option value="local">This machine</option>' + instances.filter(i => !i.is_base).map(inst =>
+          `<option value="${inst.id}" data-host="${escapeHtml(hostOf(inst.url))}">${escapeHtml(inst.name)}</option>`).join('');
+        if (rootNodeSelect.innerHTML !== rootOptions) rootNodeSelect.innerHTML = rootOptions;
       }
 
       if (container) {
@@ -321,22 +332,20 @@ function updateModelSelectors(cluster, topbarModelSelect, mobileModelText, model
   const coordOnline = Boolean(coordData.online);
   const workerOnline = Boolean(workerData.online);
 
-  let coordName = coordData.model_name ? `${coordData.model_name} (:8001)` : 'Compute Endpoint 1 (:8001)';
-  let coordDesc = coordOnline ? `Port 8001 • ${coordData.latency_ms || 0}ms` : 'Offline / Standby';
-  let coordShort = coordData.model_name ? coordData.model_name.slice(0, 12) : 'Endpoint 1';
-
-  if (modelsInfo && modelsInfo.ok && modelsInfo.active_model) {
-    coordName = `${modelsInfo.active_model} (:8001)`;
-    coordShort = modelsInfo.active_model.slice(0, 12);
-    if (modelsInfo.active_context) {
-      coordDesc = `Port 8001 • ${modelsInfo.active_context} Ctx`;
-    }
-  }
+  // names, ports and context come from /api/system/profile (live /props + hardware probe)
+  const describe = (role, data, online) => {
+    const e = engine(role);
+    const port = e && e.port ? ` :${e.port}` : '';
+    const name = e && e.model ? `${e.label}${port}` : `${role}${port}`;
+    const ctx = e && e.ctx_per_slot ? `${e.ctx_per_slot}×${e.slots || 1} ctx` : '';
+    const desc = online ? [ctx, data.latency_ms ? `${data.latency_ms}ms` : ''].filter(Boolean).join(' • ') : 'Offline / Standby';
+    return { name, desc, short: engineShort(role) };
+  };
+  const c = describe('coordinator', coordData, coordOnline);
+  const w = describe('worker', workerData, workerOnline);
+  const coordName = c.name, coordDesc = c.desc, coordShort = c.short;
+  const workerName = w.name, workerDesc = w.desc, workerShort = w.short;
   window._coordShort = coordShort;
-
-  let workerName = workerData.model_name ? `${workerData.model_name} (:8002)` : 'Compute Endpoint 2 (:8002)';
-  let workerDesc = workerOnline ? `Port 8002 • ${workerData.latency_ms || 0}ms` : 'Offline / Standby';
-  let workerShort = workerData.model_name ? workerData.model_name.slice(0, 12) : 'Endpoint 2';
 
   const models = [
     { id: 'antigravity', name: '🌌 Antigravity Frontier Director (Tier-1 Hybrid)', short: 'AGY Director', desc: 'Tier-1 Meta-Verifier directing cluster to minimize cloud tokens', online: true, latency: null },
@@ -361,7 +370,7 @@ function updateModelSelectors(cluster, topbarModelSelect, mobileModelText, model
 
   if (mobileModelText) {
     const curr = models.find(m => m.id === State.activeModel) || models[0];
-    const shortName = curr.id === 'worker' ? '3B' : (curr.id === 'antigravity' ? 'AGY' : (curr.id === 'gemini' ? 'Frontier' : coordShort));
+    const shortName = curr.id === 'antigravity' ? 'AGY' : (curr.id === 'gemini' ? 'Frontier' : curr.short);
     mobileModelText.textContent = `🤖 ${shortName}`;
   }
 
@@ -391,9 +400,6 @@ function renderClusterHealthPopover(cluster, nodes) {
   const body = document.getElementById('cluster-health-popover-body');
   if (!body) return;
 
-  const coord = cluster.coordinator_14b;
-  const worker = cluster.worker_3b;
-  const embed = cluster.embedder_bge;
   const mcp = cluster.mcp_bridge;
   const qdrant = cluster.qdrant_brain;
 
@@ -404,7 +410,7 @@ function renderClusterHealthPopover(cluster, nodes) {
         <div style="font-weight:bold; color:var(--term-accent-gold); margin-bottom:4px;">PROXMOX HYPERVISORS:</div>
         ${Object.values(nodes).map(n => `
           <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-            <span>${n.online ? '🟢' : '🔴'} <strong>${escapeHtml(n.node)}</strong> (${n.node === 'pve' ? '192.168.1.222' : '192.168.1.245'})</span>
+            <span>${n.online ? '🟢' : '🔴'} <strong>${escapeHtml(n.node)}</strong> ${n.ip ? `(${escapeHtml(n.ip)})` : ''}</span>
             <span>CPU: <strong>${n.cpu_pct || 0}%</strong> • RAM: <strong>${n.memory_pct || 0}%</strong> (${n.memory_used_gb || 0}G)</span>
           </div>
         `).join('')}
@@ -414,18 +420,11 @@ function renderClusterHealthPopover(cluster, nodes) {
 
   body.innerHTML = `
     <div style="display:flex; flex-direction:column; gap:5px;">
+      ${Object.values((Profile.data && Profile.data.engines) || {}).map(e => `
       <div style="display:flex; justify-content:space-between;">
-        <span>${coord?.online ? '🟢' : '🔴'} ${coord?.model_name || 'Compute Endpoint 1'} (:8001)</span>
-        <span>${coord?.online ? `${coord.latency_ms}ms` : 'Offline / Standby'}</span>
-      </div>
-      <div style="display:flex; justify-content:space-between;">
-        <span>${worker?.online ? '🟢' : '🔴'} ${worker?.model_name || 'Compute Endpoint 2'} (:8002)</span>
-        <span>${worker?.online ? `${worker.latency_ms}ms` : 'Offline / Standby'}</span>
-      </div>
-      <div style="display:flex; justify-content:space-between;">
-        <span>${embed?.online ? '🟢' : '🔴'} ${embed?.model_name || 'Vector Embedder'} (:8003)</span>
-        <span>${embed?.online ? `${embed.latency_ms}ms` : 'Offline'}</span>
-      </div>
+        <span>${e.online ? '🟢' : '🔴'} ${escapeHtml(e.label || e.role)} (:${e.port})</span>
+        <span>${e.online ? (e.ctx_per_slot ? `${e.ctx_per_slot}×${e.slots || 1} ctx` : 'online') : 'Offline'}</span>
+      </div>`).join('')}
       <div style="display:flex; justify-content:space-between;">
         <span>${mcp?.online ? '🟢' : '🔴'} Cluster MCP Bridge (:8765)</span>
         <span>${mcp?.online ? `${mcp.latency_ms}ms` : 'Offline'}</span>
@@ -449,7 +448,7 @@ function renderFleetGrid(container, instances, nodes, cluster) {
           <span class="status-badge ${n.online ? 'online' : 'offline'}">${n.online ? '🟢 ONLINE' : '🔴 OFFLINE'}</span>
         </div>
         <div style="font-size:0.78rem; color:var(--term-text-muted); display:flex; flex-direction:column; gap:3px;">
-          <div>IP / Role: <code>${n.node === 'pve' ? '192.168.1.222 (Compute Node)' : '192.168.1.245 (Cluster VIP / App Node)'}</code></div>
+          ${n.ip ? `<div>IP: <code>${escapeHtml(n.ip)}</code></div>` : ''}
           <div>CPU Usage: <strong>${n.cpu_pct || 0}%</strong></div>
           <div>Memory: <strong>${n.memory_used_gb || 0} GB / ${n.memory_total_gb || 0} GB (${n.memory_pct || 0}%)</strong></div>
           <div>Disk: <strong>${n.disk_used_gb || 0} GB / ${n.disk_total_gb || 0} GB (${n.disk_pct || 0}%)</strong></div>
@@ -1022,8 +1021,7 @@ window.selectModel = function(modelId) {
   if (sel) sel.value = modelId;
   const mobText = document.getElementById('mobile-model-text');
   if (mobText) {
-    const cShort = window._coordShort || 'MoE';
-    mobText.textContent = modelId === 'worker' ? '🤖 3B' : (modelId === 'antigravity' ? '🌌 AGY' : (modelId === 'gemini' ? '⚡ Frontier' : `🤖 ${cShort}`));
+    mobText.textContent = modelId === 'antigravity' ? '🌌 AGY' : (modelId === 'gemini' ? '⚡ Frontier' : `🤖 ${engineShort(modelId)}`);
   }
   closeModelModal();
   if (cachedClusterHealth) {
@@ -1088,7 +1086,8 @@ export async function loadHaData() {
     const connBadge = document.getElementById('ha-connection-badge');
     if (connBadge) {
       connBadge.className = `status-badge ${haStatus.online ? 'online' : 'offline'}`;
-      connBadge.textContent = haStatus.online ? `HAOS: 192.168.1.82:8123 (ONLINE ${haStatus.latency_ms || 1.6}ms)` : 'HAOS: 192.168.1.82:8123 (OFFLINE)';
+      const haHost = haStatus.url ? haStatus.url.replace(/^https?:\/\//, '') : 'Home Assistant';
+      connBadge.textContent = haStatus.online ? `HA: ${haHost} (ONLINE ${haStatus.latency_ms ?? '?'}ms)` : `HA: ${haHost} (OFFLINE)`;
     }
 
     const climate = (haDash.climate || [])[0] || {};
@@ -1331,26 +1330,22 @@ export async function loadTrainerWatchdogData() {
               <span class="status-badge online">${watchdogRes.intercept_count || 0} CYCLES</span>
             </div>
             <div style="font-size:0.8rem; color:var(--term-text); line-height:1.6; margin-top:6px;">
-              <div>• <strong>Daemon:</strong> <code>/opt/pve-watchdog/pve_hardware_watchdog.py</code> (LXC 120)</div>
-              <div>• <strong>Targets:</strong> Physical Node 1 <code>pve</code> &amp; Compute <code>VM 102</code></div>
-              <div>• <strong>Fencer:</strong> TP-Link Kasa KP125 <code>192.168.1.109:9999</code></div>
-              <div>• <strong>Hold-Down:</strong> 120s (12 consecutive dead probes)</div>
-              <div>• <strong>Cold Bleed:</strong> 8-second power drop before return</div>
+              <div>• <strong>Status:</strong> ${watchdogRes.armed ? 'armed' : 'disarmed'}</div>
+              <div>• <strong>Last power cycle:</strong> ${watchdogRes.last_intercept ? escapeHtml(String(watchdogRes.last_intercept)) : 'never'}</div>
             </div>
           </div>
 
-          <!-- Dual-GPU VRAM Allocations -->
+          <!-- GPU VRAM from the live hardware probe -->
           <div class="harness-card">
             <div class="harness-card-title">
-              <span>⚡ DUAL-GPU VRAM ENVELOPE</span>
-              <span style="font-size:0.75rem; color:var(--term-accent-gold);">${vram.total_cluster_vram_gb || 20} GB VRAM</span>
+              <span>⚡ GPU VRAM</span>
+              <span style="font-size:0.75rem; color:var(--term-accent-gold);">${((Profile.data && Profile.data.gpus) || []).reduce((t, g) => t + g.vram_total_gb, 0).toFixed(1)} GB VRAM</span>
             </div>
             <div style="font-size:0.8rem; color:var(--term-text); line-height:1.6; margin-top:6px;">
-              <div>• <strong>Primary:</strong> ${escapeHtml(vram.primary_gpu || 'AMD Radeon RX 6750 XT (12GB Vulkan0)')}</div>
-              <div>• <strong>Secondary:</strong> ${escapeHtml(vram.secondary_gpu || 'AMD Radeon RX 6600 XT (8GB Vulkan1)')}</div>
-              <div>• <strong>Ornith-9B NF4 Envelope:</strong> 4.6 GB Base | Peak 8.5 GB (Single GPU In-VRAM)</div>
-              <div>• <strong>Primary Headroom:</strong> <span style="color:var(--term-accent-green); font-weight:bold;">3.5 GB Headroom</span></div>
-              <div>• <strong>Ornith-35B MoE:</strong> 19.5 GB Base | Peak 23.5 GB (Dual-GPU Spanned)</div>
+              ${((Profile.data && Profile.data.gpus) || []).map(g => `
+                <div>• <strong>${escapeHtml(g.name)}:</strong> ${g.vram_used_gb} / ${g.vram_total_gb} GB used
+                  ${g.engines && g.engines.length ? `(${g.engines.map(r => escapeHtml(engine(r) ? engine(r).model || r : r)).join(', ')})` : ''}</div>`).join('')
+                || '<div style="color:var(--term-text-muted);">Hardware probe unavailable</div>'}
             </div>
           </div>
         </div>

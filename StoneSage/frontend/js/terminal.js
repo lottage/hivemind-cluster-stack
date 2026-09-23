@@ -468,10 +468,10 @@ export function connectTerminal() {
 
       const nodeSelect = document.getElementById('topbar-node-select');
       const nodeVal = nodeSelect ? nodeSelect.value : State.activeNode;
-      let targetHost = null;
-      if (nodeVal === 'vm102') targetHost = '192.168.1.105';
-      else if (nodeVal === 'ally_x') targetHost = '192.168.1.213';
-      else if (nodeVal === 'bigserv') targetHost = '192.168.1.82';
+      // host comes from the configured harness instance (data-host set by fleet.js), never from code
+      const opt = nodeSelect ? nodeSelect.selectedOptions[0] : null;
+      let targetHost = (opt && opt.dataset.host) || null;
+      if (targetHost === '127.0.0.1' || targetHost === 'localhost') targetHost = null;
 
       termSocket.send(JSON.stringify({
         type: 'terminal_init',

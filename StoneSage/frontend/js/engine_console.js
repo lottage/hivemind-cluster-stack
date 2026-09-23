@@ -20,9 +20,28 @@ let selectedEngine = 'coordinator';
 let consoleSublayer = 'dashboard';
 
 // ─── Dynamic / Roaming Nodes ─────────────────────────────────────────────
-let dynamicNodes = [
-  { key: 'rog_ally_x', name: 'ROG Ally X', host: '192.168.1.213', port: 1234, type: 'lm-studio', is_roaming: true },
-];
+// Filled from the configured harness instances (config.json) that serve a model API: LM Studio (:1234),
+// Ollama (:11434) or any instance marked "engine": true. Nothing is hardcoded here.
+let dynamicNodes = [];
+const ENGINE_PORTS = new Set([1234, 11434]);
+
+async function loadDynamicNodes() {
+  try {
+    const res = await fetch('/api/harness/instances').then(r => r.json());
+    const found = (res.instances || []).flatMap(inst => {
+      try {
+        const u = new URL(inst.url);
+        const port = parseInt(u.port, 10);
+        if (!inst.engine && !ENGINE_PORTS.has(port)) return [];
+        return [{ key: inst.id, name: inst.name, host: u.hostname, port, type: 'auto', is_roaming: true }];
+      } catch (_) { return []; }
+    });
+    const manual = dynamicNodes.filter(n => n.type === 'auto' && !found.some(f => f.key === n.key) && n.manual);
+    dynamicNodes = [...found, ...manual];
+  } catch (err) {
+    console.warn('[EngineConsole] could not load instances:', err);
+  }
+}
 
 // ─── Initialization ──────────────────────────────────────────────────────
 export function initEngineConsole() {
@@ -140,6 +159,7 @@ function selectEngine(key) {
 
 // ─── Dashboard Polling ───────────────────────────────────────────────────
 async function pollAllEngines() {
+  if (!dynamicNodes.loaded) { await loadDynamicNodes(); dynamicNodes.loaded = true; }
   // Fetch fixed engines
   const fixedPromise = fetch('/api/engine/state/all')
     .then(r => r.json())
@@ -670,7 +690,7 @@ function addDynamicNode() {
   if (!host) return;
 
   const key = name.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
-  dynamicNodes.push({ key, name, host, port, type: 'auto', is_roaming: true });
+  dynamicNodes.push({ key, name, host, port, type: 'auto', is_roaming: true, manual: true });
 
   hostEl.value = '';
   portEl.value = '1234';

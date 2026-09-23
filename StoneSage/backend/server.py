@@ -566,6 +566,7 @@ from stm_engine import ShortTermMemoryEngine
 from dataset_compiler import DatasetCompiler
 from trainer_client import TrainerClient
 import health as service_health
+import system_profile
 from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -1868,85 +1869,28 @@ print(json.dumps(models))
             return json.loads(res.stdout.strip())
     except Exception as e:
         print("Error discovering models:", e)
-    return [
-        {"filename": "ornith-1.5-9b-coordinator-q8_0.gguf", "path": "/opt/models/ornith-1.5-9b-coordinator-q8_0.gguf", "size_gb": 9.11, "quant": "Q8_0", "max_context": 131072},
-        {"filename": "home-3b-v3-q5_k_m.gguf", "path": "/opt/models/home-3b-v3-q5_k_m.gguf", "size_gb": 2.27, "quant": "Q5_K_M", "max_context": 32768},
-        {"filename": "ornith-1.5-35b-moe.gguf", "path": "/opt/models/ornith-1.5-35b-moe.gguf", "size_gb": 21.87, "quant": "IQ4_NL", "max_context": 131072},
-        {"filename": "qwen3.8-27b-turbo-fable-cold-fusion.gguf", "path": "/opt/models/qwen3.8-27b-turbo-fable-cold-fusion.gguf", "size_gb": 16.4, "quant": "Q4_K_M", "max_context": 262144}
-    ]
+    return []  # host unreachable: show nothing rather than models that may not exist
 
 def get_hardware_capabilities() -> Dict[str, Any]:
-    """Poll compute host hardware dynamically: GPU VRAM from sysfs, CPU threads, RAM."""
-    remote_cmd = r"""
-python3 -c "
-import os, glob, subprocess, json, re
+    """Real GPUs, CPU and RAM of the inference host, from system_profile's hardware probe (no invented defaults)."""
+    prof = system_profile.get_profile(load_config())
+    gpus = prof.get("gpus") or []
+    host = prof.get("host") or {}
 
-threads = os.cpu_count() or 8
-ram_gb = 32.0
-try:
-    with open('/proc/meminfo') as f:
-        for line in f:
-            if 'MemTotal' in line:
-                ram_gb = round(int(line.split()[1]) / (1024**2), 1)
-                break
-except Exception: pass
+    def gpu_line(g):
+        return f"{g['name']} ({g['vram_total_gb']} GB)" if g else None
 
-gpus = []
-vram_paths = sorted(glob.glob('/sys/class/drm/card[0-9]/device/mem_info_vram_total'))
-for i, vp in enumerate(vram_paths):
-    try:
-        with open(vp) as f:
-            bytes_total = int(f.read().strip())
-            gb = round(bytes_total / (1024**3), 1)
-            gpus.append({'vram_gb': gb, 'device': f'Vulkan{i}'})
-    except Exception: pass
-
-try:
-    sub = subprocess.run(['lspci'], capture_output=True, text=True, timeout=3)
-    pci_lines = [l for l in sub.stdout.splitlines() if any(k in l for k in ['VGA', '3D', 'Display'])]
-    pci_lines = [l for l in pci_lines if 'Virtio' not in l and 'Standard' not in l]
-    for idx, line in enumerate(pci_lines):
-        parts = line.split(': ', 1)
-        name = parts[1] if len(parts) > 1 else line
-        name = re.sub(r'Advanced Micro Devices, Inc\. \[AMD/ATI\]\s*', '', name)
-        name = re.sub(r'NVIDIA Corporation\s*', '', name)
-        if idx < len(gpus):
-            gpus[idx]['name'] = name.strip()
-except Exception: pass
-
-primary_vram = gpus[0]['vram_gb'] if len(gpus) > 0 else 12.0
-secondary_vram = gpus[1]['vram_gb'] if len(gpus) > 1 else 8.0
-primary_name = gpus[0].get('name', 'Compute Accelerator 0') if len(gpus) > 0 else 'Compute Accelerator 0'
-secondary_name = gpus[1].get('name', 'Compute Accelerator 1') if len(gpus) > 1 else 'Compute Accelerator 1'
-total_vram = round(sum(g['vram_gb'] for g in gpus), 1) if gpus else round(primary_vram + secondary_vram, 1)
-
-print(json.dumps({
-    'primary_gpu': f'{primary_name} ({primary_vram}GB Vulkan0)',
-    'primary_vram_gb': primary_vram,
-    'secondary_gpu': f'{secondary_name} ({secondary_vram}GB Vulkan1)',
-    'secondary_vram_gb': secondary_vram,
-    'total_vram_gb': total_vram,
-    'gpus': gpus,
-    'cpu_threads': threads,
-    'ram_gb': ram_gb
-}))
-"
-"""
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", remote_cmd.strip()]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-        if res.returncode == 0:
-            return json.loads(res.stdout.strip())
-    except Exception as e:
-        print("Error polling hardware:", e)
     return {
-        "primary_gpu": "Compute Accelerator 0 (Vulkan0)",
-        "primary_vram_gb": 12.0,
-        "secondary_gpu": "Compute Accelerator 1 (Vulkan1)",
-        "secondary_vram_gb": 8.0,
-        "total_vram_gb": 20.0,
-        "cpu_threads": os.cpu_count() or 16,
-        "ram_gb": 32.0
+        "primary_gpu": gpu_line(gpus[0]) if gpus else None,
+        "primary_vram_gb": gpus[0]["vram_total_gb"] if gpus else None,
+        "secondary_gpu": gpu_line(gpus[1]) if len(gpus) > 1 else None,
+        "secondary_vram_gb": gpus[1]["vram_total_gb"] if len(gpus) > 1 else None,
+        "total_vram_gb": round(sum(g["vram_total_gb"] for g in gpus), 1) if gpus else None,
+        "gpus": [{"name": g["name"], "vram_gb": g["vram_total_gb"], "device": f"GPU{g['index']}"} for g in gpus],
+        "cpu": host.get("cpu"),
+        "cpu_threads": host.get("cpu_threads"),
+        "ram_gb": round(host["ram_total_mb"] / 1024, 1) if host.get("ram_total_mb") else None,
+        "probe_error": prof.get("probe_error"),
     }
 
 def apply_llama_parameters(service_name: str, port: int, alias: str, params: Dict[str, Any]) -> tuple:
@@ -3540,6 +3484,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(service_health.check_all(load_config(), use_cache=not fresh))
             return
 
+        elif path == "/api/system/profile":
+            # the single source for every hardware/model/engine label in the UI and CLI
+            self.send_json(system_profile.get_profile(load_config(), fresh="fresh=1" in (parsed.query or "")))
+            return
+
         elif path == "/api/dataset/status":
             self.send_json({"ok": True, "status": dataset_compiler.get_status()})
             return
@@ -3796,6 +3745,8 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/ha/status":
             status = hass.ping()
+            if isinstance(status, dict):
+                status["url"] = getattr(hass, "base_url", None)
             self.send_json(status)
             return
 
