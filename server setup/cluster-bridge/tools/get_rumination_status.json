@@ -1,0 +1,9 @@
+{
+  "name": "get_rumination_status",
+  "description": "Query status of the Cognitive Rumination & Sleep Memory Consolidation queue, current consolidation phase, threshold, and metrics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

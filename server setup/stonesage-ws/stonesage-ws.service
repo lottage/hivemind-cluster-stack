@@ -1,0 +1,19 @@
+[Unit]
+Description=StoneSage 24/7 WebSocket Agent & Streaming Broker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/stonesage-ws
+ExecStart=/usr/bin/python3 -u ws_broker.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+Environment="PYTHONUNBUFFERED=1"
+Environment="WS_PORT=8086"
+
+[Install]
+WantedBy=multi-user.target

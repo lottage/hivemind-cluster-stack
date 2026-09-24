@@ -1,0 +1,137 @@
+{
+  "timestamp": "2026-09-06 05:16:04",
+  "best_profile": {
+    "model": "3B Worker (:8002)",
+    "temp": 0.1,
+    "min_p": 0.05,
+    "presence_penalty": 0.0,
+    "accuracy_pct": 100.0,
+    "json_valid_pct": 100.0,
+    "avg_latency_ms": 846.1,
+    "avg_tps": 57.2,
+    "composite_score": 9.91,
+    "description": "Greedy Baseline"
+  },
+  "all_runs": [
+    {
+      "model": "3B Worker (:8002)",
+      "temp": 0.1,
+      "min_p": 0.05,
+      "presence_penalty": 0.0,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 846.1,
+      "avg_tps": 57.2,
+      "composite_score": 9.91,
+      "description": "Greedy Baseline"
+    },
+    {
+      "model": "3B Worker (:8002)",
+      "temp": 0.25,
+      "min_p": 0.06,
+      "presence_penalty": 0.1,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 835.9,
+      "avg_tps": 57.1,
+      "composite_score": 9.9,
+      "description": "Low-Temp Strict"
+    },
+    {
+      "model": "3B Worker (:8002)",
+      "temp": 0.45,
+      "min_p": 0.08,
+      "presence_penalty": 0.15,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 854.9,
+      "avg_tps": 56.3,
+      "composite_score": 9.88,
+      "description": "Balanced Min-P"
+    },
+    {
+      "model": "14B Coordinator (:8001)",
+      "temp": 0.45,
+      "min_p": 0.08,
+      "presence_penalty": 0.15,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 1278.6,
+      "avg_tps": 36.7,
+      "composite_score": 9.22,
+      "description": "Balanced Min-P"
+    },
+    {
+      "model": "14B Coordinator (:8001)",
+      "temp": 0.25,
+      "min_p": 0.06,
+      "presence_penalty": 0.1,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 1251.0,
+      "avg_tps": 36.2,
+      "composite_score": 9.21,
+      "description": "Low-Temp Strict"
+    },
+    {
+      "model": "14B Coordinator (:8001)",
+      "temp": 0.1,
+      "min_p": 0.05,
+      "presence_penalty": 0.0,
+      "accuracy_pct": 100.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 1296.3,
+      "avg_tps": 35.7,
+      "composite_score": 9.19,
+      "description": "Greedy Baseline"
+    },
+    {
+      "model": "14B Coordinator (:8001)",
+      "temp": 0.65,
+      "min_p": 0.08,
+      "presence_penalty": 0.2,
+      "accuracy_pct": 90.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 1302.9,
+      "avg_tps": 36.2,
+      "composite_score": 8.71,
+      "description": "Explorative CoT"
+    },
+    {
+      "model": "3B Worker (:8002)",
+      "temp": 0.2,
+      "min_p": 0.05,
+      "presence_penalty": 0.1,
+      "accuracy_pct": 70.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 784.6,
+      "avg_tps": 57.1,
+      "composite_score": 8.4,
+      "description": "Precise CoT"
+    },
+    {
+      "model": "3B Worker (:8002)",
+      "temp": 0.65,
+      "min_p": 0.08,
+      "presence_penalty": 0.2,
+      "accuracy_pct": 70.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 804.9,
+      "avg_tps": 56.7,
+      "composite_score": 8.39,
+      "description": "Explorative CoT"
+    },
+    {
+      "model": "14B Coordinator (:8001)",
+      "temp": 0.2,
+      "min_p": 0.05,
+      "presence_penalty": 0.1,
+      "accuracy_pct": 80.0,
+      "json_valid_pct": 100.0,
+      "avg_latency_ms": 1275.7,
+      "avg_tps": 36.6,
+      "composite_score": 8.22,
+      "description": "Precise CoT"
+    }
+  ]
+}

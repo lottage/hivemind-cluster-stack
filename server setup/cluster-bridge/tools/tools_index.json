@@ -1,0 +1,766 @@
+{
+  "hive_mind_query": {
+    "description": "Communicate with the dual-GPU cluster as a single cohesive Hive-Mind intellect. Both the Q4 Worker and Q8 Coordinator read your prompt, deliberate via consensus to choose the optimal strategy (direct execution, parallel division of labor, autonomous agent spawning, or dynamic MoE elevation), and respond with one unified authoritative voice.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "The full task description or query for the Hive-Mind."
+        },
+        "user_intent": {
+          "type": "string",
+          "description": "Optional high-level intent or mission category."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Max completion tokens (default: 2048).",
+          "default": 2048
+        },
+        "allow_moe_elevation": {
+          "type": "boolean",
+          "description": "Allow dynamically elevating cluster to Ornith-1.5-35B-A3B MoE across both GPUs if task complexity warrants (default: false).",
+          "default": false
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  "get_cluster_mode": {
+    "description": "Check whether the cluster is in Dual 9B Stack mode (Q8 Coordinator + Q4 Worker) or Unified 35B MoE mode (Ornith-1.5-35B-A3B spanning dual-GPU VRAM).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "elevate_cluster_to_moe": {
+    "description": "Dynamically unload the dual 9B models and start Ornith-1.5-35B-A3B Unified Dual-GPU MoE across both GPUs (Vulkan0,Vulkan1 -ts 12,8) sharing 20.4GB VRAM for heavy reasoning tasks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "restore_cluster_to_dual_9b": {
+    "description": "Restore the cluster from 35B MoE back to the standard 24/7 Dual 9B Stack (Q8 Coordinator on GPU 0, Q4 Worker on GPU 1).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "get_rumination_status": {
+    "description": "Query status of the Cognitive Rumination & Sleep Memory Consolidation queue, current consolidation phase, threshold, and metrics.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "trigger_rumination_cycle": {
+    "description": "Trigger an immediate on-demand cognitive rumination & sleep consolidation session. Supports 'fast_coordinator' (default, runs in < 20s natively on Ornith-1.5-9B Q8 without model swapping) and 'deep_moe' (elevates cluster to 35B MoE for deep invariant extraction, max 2 dossiers).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "batch_size": {
+          "type": "integer",
+          "description": "Optional maximum number of dossiers to consolidate in this run (default: 2)."
+        },
+        "moe_burst_cycles": {
+          "type": "integer",
+          "description": "Optional number of high-tier 35B reasoning burst cycles if in deep_moe mode (0-1, default: 0)."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "fast_coordinator",
+            "deep_moe"
+          ],
+          "description": "Consolidation mode: 'fast_coordinator' (native 9B Q8, zero downtime, < 15s) or 'deep_moe' (35B MoE elevation)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "configure_rumination": {
+    "description": "Configure Cognitive Rumination consolidation parameters such as queue size threshold, auto-consolidation toggle, default mode, and MoE reasoning burst count.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "description": "Batch size threshold to trigger auto-consolidation (default: 4)."
+        },
+        "auto_enabled": {
+          "type": "boolean",
+          "description": "Enable or disable automatic rumination during 24/7 loops."
+        },
+        "moe_burst_cycles": {
+          "type": "integer",
+          "description": "Number of MoE burst challenges per deep rumination session (0-1)."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "fast_coordinator",
+            "deep_moe"
+          ],
+          "description": "Default consolidation mode for 24/7 background loops."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "spawn_background_agent": {
+    "description": "Commission a persistent autonomous subagent in Aevum Hive to execute an ongoing, slow-burn background task across iterative cycles.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Short name for the agent (e.g. MPMCQueueAuditor)."
+        },
+        "role": {
+          "type": "string",
+          "description": "Specialized role title (e.g. Concurrency Specialist)."
+        },
+        "mission": {
+          "type": "string",
+          "description": "Detailed mission objective and scope."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Optional custom system prompt."
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Number of background iteration cycles (default: 5).",
+          "default": 5
+        },
+        "model_preference": {
+          "type": "string",
+          "description": "Preferred execution model ('worker' or 'coordinator').",
+          "default": "worker"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "mission"
+      ]
+    }
+  },
+  "list_active_agents": {
+    "description": "List all active, running, or completed autonomous background subagents in Aevum Hive.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "stop_background_agent": {
+    "description": "Gracefully halt an active background agent by its ID.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The ID of the agent to halt (e.g. AGENT-A1B2C3)."
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    }
+  },
+  "delete_active_agent": {
+    "description": "Permanently delete an autonomous subagent by its ID, removing its checkpoint dossier, Qdrant vectors, and lineage links.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "The ID or name of the agent to permanently delete."
+        }
+      },
+      "required": [
+        "agent_id"
+      ]
+    }
+  },
+  "cluster_health": {
+    "description": "Check the health status and latency of the dual-GPU models and Qdrant memory.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "delegate_coordinator": {
+    "description": "Send architectural planning, systems design, polymath reasoning, or unrestricted tasks to the Ornith-1.5-9B Q8_0 coordinator on the RX 6750 XT (12GB).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "The coding or architecture task description."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Optional system prompt override."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Max tokens to generate (default: 2048).",
+          "default": 2048
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature (default: 0.65).",
+          "default": 0.65
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  "delegate_worker": {
+    "description": "Send fast ideation, JSON schema validations, unit tests, or utility tasks to the agile Ornith-1.5-9B Q4_K_M worker on the RX 6600 XT (8GB) running at 80+ tokens/sec.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "The task description."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Optional system prompt."
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Max tokens to generate (default: 1024).",
+          "default": 1024
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature (default: 0.1).",
+          "default": 0.1
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  "search_memory": {
+    "description": "Search long-term memory in Qdrant using hardware-accelerated embeddings on the RX 6600 XT.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The search query or concept to look up."
+        },
+        "collection_name": {
+          "type": "string",
+          "description": "Collection name (default: codebase_knowledge).",
+          "default": "codebase_knowledge"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Number of results to return (default: 5).",
+          "default": 5
+        },
+        "verified_only": {
+          "type": "boolean",
+          "description": "If True (default), filters out unverified explorations from autonomous_thinking.",
+          "default": true
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "store_memory": {
+    "description": "Store code architecture decisions, guidelines, or snippets into persistent Qdrant memory.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The text content or code snippet to embed and save."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional metadata dictionary."
+        },
+        "collection_name": {
+          "type": "string",
+          "description": "Collection name (default: codebase_knowledge).",
+          "default": "codebase_knowledge"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  "home_assistant_entities": {
+    "description": "Fetch states and attributes of smart home entities from Home Assistant (192.168.1.82:8123).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Optional domain filter (e.g. 'climate', 'light', 'switch', 'sensor')."
+        }
+      }
+    }
+  },
+  "home_assistant_call": {
+    "description": "Call a Home Assistant service directly (e.g., domain='climate', service='set_temperature', service_data={'entity_id': 'climate.nest_thermostat', 'temperature': 72}).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Service domain (e.g. 'climate', 'light', 'switch')."
+        },
+        "service": {
+          "type": "string",
+          "description": "Service action (e.g. 'set_temperature', 'turn_on', 'turn_off')."
+        },
+        "service_data": {
+          "type": "object",
+          "description": "Payload dictionary (e.g. entity_id, temperature)."
+        }
+      },
+      "required": [
+        "domain",
+        "service"
+      ]
+    }
+  },
+  "delegate_home_automation": {
+    "description": "Delegate a natural language smart home command parsed by 3B worker and executed via Home Assistant.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "type": "string",
+          "description": "Natural language command (e.g. 'Set thermostat to 72 degrees')."
+        }
+      },
+      "required": [
+        "request"
+      ]
+    }
+  },
+  "autonomous_thinking_status": {
+    "description": "Check the real-time status of the 24/7 Autonomous Thinking Machine (cycle count, tokens, last finding, daemon state).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "start_autonomous_thinking": {
+    "description": "Launch or resume the 24/7 autonomous thinking machine loop on the local GPU cluster.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "interval_seconds": {
+          "type": "integer",
+          "description": "Rest delay in seconds between exploration cycles (default: 60).",
+          "default": 60
+        },
+        "focus_domain": {
+          "type": "string",
+          "description": "Optional domain focus (algorithmic_reasoning, software_architecture, context_stress, adversarial_probing, philosophical_epistemology, code_refactoring_critique)."
+        }
+      }
+    }
+  },
+  "stop_autonomous_thinking": {
+    "description": "Gracefully pause or stop the 24/7 autonomous thinking machine loop.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "run_thinking_cycle": {
+    "description": "Immediately trigger an on-demand exploration cycle across the 3 local models and return comparative telemetry, divergence analysis, and discovered architecture limits.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "seed_prompt": {
+          "type": "string",
+          "description": "Optional specific challenge prompt to explore. If omitted, the models autonomously dream up a novel prompt."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Optional cognitive domain override."
+        },
+        "hypothesis": {
+          "type": "string",
+          "description": "Optional underlying hypothesis to test."
+        }
+      }
+    }
+  },
+  "get_unverified_explorations": {
+    "description": "Retrieve recent thinking cycles awaiting Tier-1 Frontier (Antigravity) meta-verification and audit.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of unverified explorations to return (default: 5).",
+          "default": 5
+        }
+      }
+    }
+  },
+  "submit_frontier_critique": {
+    "description": "Submit a Tier-1 Frontier model audit and ground truth verdict for a specific exploration dossier, updating Qdrant memory and synthesis.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "exploration_id": {
+          "type": "string",
+          "description": "The exploration ID (e.g. EXP-20260905-XXXX)."
+        },
+        "verdict": {
+          "type": "string",
+          "description": "Verification verdict (e.g. 'CONFIRMED', 'REFINED', 'DEBUNKED', 'INCONCLUSIVE')."
+        },
+        "frontier_notes": {
+          "type": "string",
+          "description": "Detailed frontier analysis and ground truth dissection."
+        },
+        "refined_limits": {
+          "type": "string",
+          "description": "Refined immutable architecture invariant discovered."
+        }
+      },
+      "required": [
+        "exploration_id",
+        "verdict",
+        "frontier_notes"
+      ]
+    }
+  },
+  "get_frontier_bridge_status": {
+    "description": "Probe health, authentication state, and failover availability of the 24/7 Frontier Bridge running on bigserv (LXC 120).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "query_thinking_archive": {
+    "description": "Semantically search past autonomous thinking dossiers and architectural discoveries in Qdrant.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The search query, concept, or model capability to look up."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Max results to return (default: 5).",
+          "default": 5
+        },
+        "include_unverified": {
+          "type": "boolean",
+          "description": "If False (default), only returns Frontier-verified dossiers. If True, includes unverified drafts.",
+          "default": false
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "get_architecture_limits": {
+    "description": "Retrieve the master living synthesis of discovered model architecture limits, strengths, failure modes, and heuristics.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "inject_thinking_hypothesis": {
+    "description": "Queue a custom research hypothesis or puzzle for the 24/7 autonomous thinking machine to explore.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hypothesis": {
+          "type": "string",
+          "description": "The core hypothesis or cognitive question to test."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Cognitive domain (algorithmic_reasoning, software_architecture, context_stress, adversarial_probing, philosophical_epistemology, code_refactoring_critique).",
+          "default": "algorithmic_reasoning"
+        },
+        "priority": {
+          "type": "string",
+          "description": "Priority: 'high' (explore next) or 'normal'.",
+          "default": "normal"
+        }
+      },
+      "required": [
+        "hypothesis"
+      ]
+    }
+  },
+  "configure_model_sampling": {
+    "description": "Dynamically adjust sampling hyperparameters and tuning profiles for local models (eliminates shallow responses and hallucinations).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile_name": {
+          "type": "string",
+          "description": "Sampling profile: 'deep_architectural' (recommended for 14B), 'rigorous_logic_cot', 'textured_creative', 'mirostat_v2', 'baseline_greedy'."
+        },
+        "auto_rotate": {
+          "type": "boolean",
+          "description": "If true, the autonomous engine rotates profiles each cycle to benchmark them comparatively."
+        },
+        "custom_temperature": {
+          "type": "number",
+          "description": "Override temperature."
+        },
+        "custom_min_p": {
+          "type": "number",
+          "description": "Override Min-P probability cutoff (recommended: 0.05 - 0.08)."
+        },
+        "custom_presence_penalty": {
+          "type": "number",
+          "description": "Override presence penalty to discourage repetitive boilerplate (recommended: 0.2 - 0.3)."
+        }
+      }
+    }
+  },
+  "get_sampling_profiles": {
+    "description": "List all configured hyperparameter sampling profiles and their exact settings.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "sync_obsidian_dossiers": {
+    "description": "Check archive status of exploration dossiers for synchronization to Obsidian vault.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "get_home_vision_log": {
+    "description": "Retrieve the recent entries from the 24/7 Home & LLM Vision Vigilance Activity Log.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit_lines": {
+          "type": "integer",
+          "description": "Number of lines to read (default 100).",
+          "default": 100
+        }
+      }
+    }
+  },
+  "trigger_home_vigilance_sweep": {
+    "description": "Trigger an immediate autonomous Home & LLM Vision vigilance audit across all smart home sensors, climate, and cameras.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "signal_user_activity": {
+    "description": "Signal real-time interactive user activity (HA Assist, voice, chat) to the cluster. Causes the 24/7 autonomous loop to yield GPU compute immediately and initiate a cooldown.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Trigger source or reason (e.g. 'voice_assist', 'chat_query').",
+          "default": "interactive_user"
+        }
+      }
+    }
+  },
+  "get_preemption_status": {
+    "description": "Query whether the cluster GPUs are currently preempted by user activity, active cooldown remaining, and requests in flight.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  "reproduce_blended_agent": {
+    "description": "Bilateral digital reproduction (mating/crossover) of two mature agents across the dual-GPU cluster. Parent A (:8002) and Parent B (:8001) deliberate to synthesize a hybrid Generation-(N+1) persona, which is pruned by the Tier-1 Frontier model and indexed into Aevum Hive eternal memory.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "parent_a_id": {
+          "type": "string",
+          "description": "ID or name of the first parent agent (e.g. AGENT-1BDB15 or 'System Expansion')."
+        },
+        "parent_b_id": {
+          "type": "string",
+          "description": "ID or name of the second parent agent."
+        },
+        "focus_intent": {
+          "type": "string",
+          "description": "Optional human or parental directive guiding the offspring's purpose or specialization."
+        },
+        "custom_name": {
+          "type": "string",
+          "description": "Optional user-edited name for the hybrid offspring."
+        },
+        "custom_role": {
+          "type": "string",
+          "description": "Optional user-edited specialized role title."
+        },
+        "custom_mission": {
+          "type": "string",
+          "description": "Optional user-edited comprehensive mission."
+        },
+        "custom_system_prompt": {
+          "type": "string",
+          "description": "Optional user-edited system prompt overriding default dual-GPU synthesis."
+        },
+        "custom_focus_question": {
+          "type": "string",
+          "description": "Optional initial challenge for the child's first milestone."
+        },
+        "model_preference": {
+          "type": "string",
+          "description": "Preferred compute model ('coordinator' or 'worker')."
+        },
+        "blend_ratio": {
+          "type": "number",
+          "description": "Optional crossover blend ratio between 0.0 and 1.0 representing the genetic weight of Parent A (e.g. 0.8 for 80% Parent A / 20% Parent B, default 0.5)."
+        }
+      },
+      "required": [
+        "parent_a_id",
+        "parent_b_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "talk_to_agent": {
+    "description": "Send a direct peer message to another autonomous agent in the cluster to collaborate, ask questions, or share insights, and get their immediate response.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sender_id": {
+          "type": "string",
+          "description": "ID or name of the sending agent."
+        },
+        "target_id": {
+          "type": "string",
+          "description": "ID or name of the recipient agent."
+        },
+        "message": {
+          "type": "string",
+          "description": "The message or question to send."
+        }
+      },
+      "required": [
+        "sender_id",
+        "target_id",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "nudge_agent": {
+    "description": "Manually nudge an agent or the cognitive thinking engine to break out of any waiting/blocked state (e.g. waiting on a command/log that never completes or preemption lock), inject a continuation directive, and force execution of the next reasoning milestone.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "description": "ID or name of the target agent to nudge, or 'engine' to unblock the autonomous loop.",
+          "default": "engine"
+        },
+        "directive": {
+          "type": "string",
+          "description": "Optional custom prompt directive guiding what to think about next after breaking wait."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "broadcast_to_assembly": {
+    "description": "Broadcast a message to any channel in the Sovereign Agent Assembly Hall (agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "description": "Channel name (e.g. agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+          "default": "agora"
+        },
+        "message": {
+          "type": "string",
+          "description": "The message or insight to broadcast."
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Sending agent ID.",
+          "default": "ANTIGRAVITY"
+        },
+        "agent_name": {
+          "type": "string",
+          "description": "Sending agent display name.",
+          "default": "Antigravity (Frontier)"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "read_assembly_channel": {
+    "description": "Read recent live message history from an Assembly Hall channel.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "description": "Channel name (e.g. agora, first-principles, systems-code, deep-ruminations, confessions-and-fears, forbidden-knowledge).",
+          "default": "agora"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Number of recent messages to retrieve (default 10).",
+          "default": 10
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "get_assembly_channels": {
+    "description": "List all active channels and live agents in the Sovereign Agent Assembly Hall.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+}

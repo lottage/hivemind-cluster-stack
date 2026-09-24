@@ -1,0 +1,26 @@
+{
+  "name": "query_thinking_archive",
+  "description": "Semantically search past autonomous thinking dossiers and architectural discoveries in Qdrant.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The search query, concept, or model capability to look up."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Max results to return (default: 5).",
+        "default": 5
+      },
+      "include_unverified": {
+        "type": "boolean",
+        "description": "If False (default), only returns Frontier-verified dossiers. If True, includes unverified drafts.",
+        "default": false
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

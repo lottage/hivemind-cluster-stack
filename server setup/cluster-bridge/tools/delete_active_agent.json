@@ -1,0 +1,16 @@
+{
+  "name": "delete_active_agent",
+  "description": "Permanently delete an autonomous subagent by its ID, removing its checkpoint dossier, Qdrant vectors, and lineage links.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "The ID or name of the agent to permanently delete."
+      }
+    },
+    "required": [
+      "agent_id"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "list_active_agents",
+  "description": "List all active, running, or completed autonomous background subagents in Aevum Hive.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

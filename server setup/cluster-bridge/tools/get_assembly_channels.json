@@ -1,0 +1,9 @@
+{
+  "name": "get_assembly_channels",
+  "description": "List all active channels and live agents in the Sovereign Agent Assembly Hall.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

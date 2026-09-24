@@ -1,0 +1,14 @@
+{
+  "name": "get_home_vision_log",
+  "description": "Retrieve the recent entries from the 24/7 Home & LLM Vision Vigilance Activity Log.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit_lines": {
+        "type": "integer",
+        "description": "Number of lines to read (default 100).",
+        "default": 100
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "signal_user_activity",
+  "description": "Signal real-time interactive user activity (HA Assist, voice, chat) to the cluster. Causes the 24/7 autonomous loop to yield GPU compute immediately and initiate a cooldown.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Trigger source or reason (e.g. 'voice_assist', 'chat_query').",
+        "default": "interactive_user"
+      }
+    }
+  }
+}

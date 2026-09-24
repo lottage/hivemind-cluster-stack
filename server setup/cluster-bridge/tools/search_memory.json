@@ -1,0 +1,31 @@
+{
+  "name": "search_memory",
+  "description": "Search long-term memory in Qdrant using hardware-accelerated embeddings on the RX 6600 XT.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The search query or concept to look up."
+      },
+      "collection_name": {
+        "type": "string",
+        "description": "Collection name (default: codebase_knowledge).",
+        "default": "codebase_knowledge"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Number of results to return (default: 5).",
+        "default": 5
+      },
+      "verified_only": {
+        "type": "boolean",
+        "description": "If True (default), filters out unverified explorations from autonomous_thinking.",
+        "default": true
+      }
+    },
+    "required": [
+      "query"
+    ]
+  }
+}

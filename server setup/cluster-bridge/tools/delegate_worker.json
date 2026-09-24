@@ -1,0 +1,30 @@
+{
+  "name": "delegate_worker",
+  "description": "Send fast ideation, JSON schema validations, unit tests, or utility tasks to the agile Ornith-1.5-9B Q4_K_M worker on the RX 6600 XT (8GB) running at 80+ tokens/sec.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "The task description."
+      },
+      "system_prompt": {
+        "type": "string",
+        "description": "Optional system prompt."
+      },
+      "max_tokens": {
+        "type": "integer",
+        "description": "Max tokens to generate (default: 1024).",
+        "default": 1024
+      },
+      "temperature": {
+        "type": "number",
+        "description": "Sampling temperature (default: 0.1).",
+        "default": 0.1
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  }
+}

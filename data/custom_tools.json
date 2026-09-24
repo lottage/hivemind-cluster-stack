@@ -1,0 +1,19 @@
+{
+  "remote_weather_lookup": {
+    "description": "Fetch weather forecast for city",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "City name"
+        }
+      },
+      "required": [
+        "city"
+      ]
+    },
+    "url": "https://example.com/tools/weather.json",
+    "added_at": 1790185006.5151806
+  }
+}

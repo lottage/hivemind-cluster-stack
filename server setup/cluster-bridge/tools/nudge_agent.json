@@ -1,0 +1,19 @@
+{
+  "name": "nudge_agent",
+  "description": "Manually nudge an agent or the cognitive thinking engine to break out of any waiting/blocked state (e.g. waiting on a command/log that never completes or preemption lock), inject a continuation directive, and force execution of the next reasoning milestone.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "ID or name of the target agent to nudge, or 'engine' to unblock the autonomous loop.",
+        "default": "engine"
+      },
+      "directive": {
+        "type": "string",
+        "description": "Optional custom prompt directive guiding what to think about next after breaking wait."
+      }
+    },
+    "additionalProperties": false
+  }
+}

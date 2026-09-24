@@ -1,0 +1,163 @@
+{
+  "notes": {
+    "user_vault:2014 BMW F30 328i X-Drive.md": {
+      "hash": "fbbed17d807874c6c8e427def8fba9de",
+      "mtime": 1788627388.2103665,
+      "chunks": 6,
+      "collection": "companion_profile"
+    },
+    "user_vault:Accounting Program - Bachelor's Degree - WGU.md": {
+      "hash": "b5eca6a9670c8bd0f2aca0cd1b28a6be",
+      "mtime": 1788397193.6655798,
+      "chunks": 4,
+      "collection": "companion_profile"
+    },
+    "user_vault:Continuing Education.md": {
+      "hash": "6c19e60f584ac111a6f0f227e38d767a",
+      "mtime": 1788629327.2469685,
+      "chunks": 1,
+      "collection": "companion_profile"
+    },
+    "user_vault:Gifts List - Wedding.md": {
+      "hash": "696a1a3b91ad5d75e4c22a63d15c2819",
+      "mtime": 1788629272.9701927,
+      "chunks": 1,
+      "collection": "companion_profile"
+    },
+    "user_vault:Ideas - Jot List.md": {
+      "hash": "cc99fdbaa325d4bdb9a7d029e5cdbc5e",
+      "mtime": 1788397697.4923615,
+      "chunks": 2,
+      "collection": "agent_memories"
+    },
+    "user_vault:To-Do List.md": {
+      "hash": "7256b6a32f7d28a72800b27471265e69",
+      "mtime": 1788396350.7626505,
+      "chunks": 3,
+      "collection": "companion_profile"
+    },
+    "user_vault:Tokens.md": {
+      "hash": "7ca1889edef1423e4b4cc3216309efb0",
+      "mtime": 1788640097.6211665,
+      "chunks": 1,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Untit hey.md": {
+      "hash": "d41d8cd98f00b204e9800998ecf8427e",
+      "mtime": 1788633519.654,
+      "chunks": 0,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Untitled 1.md": {
+      "hash": "d41d8cd98f00b204e9800998ecf8427e",
+      "mtime": 1788637883.23,
+      "chunks": 0,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Untitled.md": {
+      "hash": "1648e15e0a46d7457d2b33fcf82a3aae",
+      "mtime": 1788631703.394,
+      "chunks": 1,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Clippings/MyEducator - Lesson 8.2 Adjusting Entries for Deferrals.md": {
+      "hash": "cb71ad41adb5854b26b54e217004f297",
+      "mtime": 1788626666.785728,
+      "chunks": 32,
+      "collection": "companion_profile"
+    },
+    "user_vault:Clippings/MyEducator - The Income Statement.md": {
+      "hash": "fbb07baaf2b2bd5ffed873e3627b0e58",
+      "mtime": 1788626344.7547328,
+      "chunks": 10,
+      "collection": "companion_profile"
+    },
+    "user_vault:Home/Home Info.md": {
+      "hash": "2526b72847b684af4b0d7c02d1d235b2",
+      "mtime": 1788628253.399113,
+      "chunks": 3,
+      "collection": "companion_profile"
+    },
+    "user_vault:Home/Notes_260714_194957.md": {
+      "hash": "569472640bfc2072c93526ff87db050c",
+      "mtime": 1788626579.774,
+      "chunks": 1,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Home/Shelving Plan_260712_134644.md": {
+      "hash": "1c5024f5dab3c7d4e405eedaf76ad1a1",
+      "mtime": 1788626579.802,
+      "chunks": 1,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Junk/Discord Status Message.md": {
+      "hash": "1f0941262d0991d4e9da186803757de0",
+      "mtime": 1788626579.938,
+      "chunks": 1,
+      "collection": "agent_memories"
+    },
+    "user_vault:Junk/Notes_260530_092818.md": {
+      "hash": "796c2e4738fe878a3e5ded6e9343abbd",
+      "mtime": 1788626579.682,
+      "chunks": 1,
+      "collection": "agent_memories"
+    },
+    "user_vault:LocalLlmHub/chats/chat-1788539209705.md": {
+      "hash": "e3717ceb7b66649345d8883122915460",
+      "mtime": 1788542432.835804,
+      "chunks": 16,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:skills/okf/SKILL.md": {
+      "hash": "ae8d9722aaf5b68ae0a265b82fc9aadb",
+      "mtime": 1788370128.1784687,
+      "chunks": 24,
+      "collection": "codebase_knowledge"
+    },
+    "tertiary_vault:test1.md": {
+      "hash": "27c4a19bc05c10638d324941fac73e4c",
+      "mtime": 1788626035.4483666,
+      "chunks": 0,
+      "collection": "codebase_knowledge"
+    },
+    "tertiary_vault:VAULT_README.md": {
+      "hash": "bfb3c4b342ea9d936833956bd81a2f10",
+      "mtime": 1788598233.8619819,
+      "chunks": 1,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Autonomous Thinking/ARCHITECTURE_LIMITS_SYNTHESIS.md": {
+      "hash": "df3a6143da934acdd8f8f3bafa3eacdd",
+      "mtime": 1788677726.145888,
+      "chunks": 7,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Autonomous Thinking/Explorations/ARCHITECTURE_LIMITS_SYNTHESIS.md": {
+      "hash": "4554d5c70a7e523f27893b0f6dcb38f8",
+      "mtime": 1788677627.42226,
+      "chunks": 3,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Autonomous Thinking/Explorations/EXP-20260906-001735-76C6.md": {
+      "hash": "9d4831bc59e35508db6aa88ed09874bf",
+      "mtime": 1788677703.9492831,
+      "chunks": 32,
+      "collection": "companion_profile"
+    },
+    "user_vault:Autonomous Thinking/Explorations/EXP-20260906-022717-9BFE.md": {
+      "hash": "49b8ec76b1b45c142b1c1c174d2175a0",
+      "mtime": 1788677703.954698,
+      "chunks": 33,
+      "collection": "codebase_knowledge"
+    },
+    "user_vault:Autonomous Thinking/Explorations/EXP-20260906-025244-186C.md": {
+      "hash": "eb7625eedaa8e10d755d5691e6049085",
+      "mtime": 1788677703.9598956,
+      "chunks": 39,
+      "collection": "codebase_knowledge"
+    }
+  },
+  "last_synced": "2026-09-06 03:39:28",
+  "total_notes": 26,
+  "total_chunks": 220
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Gemini Web Session Bridge (Google One AI Plus - Port 8086)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/frontier-bridge
+ExecStart=/usr/bin/python3 -u gemini_web_service.py
+Restart=always
+RestartSec=5
+KillMode=process
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+{
+  "name": "trigger_rumination_cycle",
+  "description": "Trigger an immediate on-demand cognitive rumination & sleep consolidation session. Supports 'fast_coordinator' (default, runs in < 20s natively on Ornith-1.5-9B Q8 without model swapping) and 'deep_moe' (elevates cluster to 35B MoE for deep invariant extraction, max 2 dossiers).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "batch_size": {
+        "type": "integer",
+        "description": "Optional maximum number of dossiers to consolidate in this run (default: 2)."
+      },
+      "moe_burst_cycles": {
+        "type": "integer",
+        "description": "Optional number of high-tier 35B reasoning burst cycles if in deep_moe mode (0-1, default: 0)."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "fast_coordinator",
+          "deep_moe"
+        ],
+        "description": "Consolidation mode: 'fast_coordinator' (native 9B Q8, zero downtime, < 15s) or 'deep_moe' (35B MoE elevation)."
+      }
+    },
+    "additionalProperties": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "host": "0.0.0.0",
+  "port": 8085,
+  "delay_agy_auth": true,
+  "agy_path": "/usr/local/bin/agy",
+  "agy_timeout_sec": 25,
+  "agy_model": "gemini-3.8-flash",
+  "agy_effort": "high",
+  "openrouter_api_key": "",
+  "openrouter_model": "google/gemini-2.5-flash",
+  "gemini_api_key": "",
+  "fallback_model": "gemini-2.5-flash",
+  "openai_api_key": "",
+  "openai_model": "gpt-4o-mini",
+  "local_coordinator_url": "http://192.168.1.105:8001/v1/chat/completions"
+}

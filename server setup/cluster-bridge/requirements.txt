@@ -1,0 +1,5 @@
+mcp>=1.2.0,<2.0.0
+requests>=2.31.0
+qdrant-client>=1.9.0
+uvicorn>=0.30.0
+starlette>=0.38.0

@@ -1,0 +1,30 @@
+{
+  "name": "delegate_coordinator",
+  "description": "Send architectural planning, systems design, polymath reasoning, or unrestricted tasks to the Ornith-1.5-9B Q8_0 coordinator on the RX 6750 XT (12GB).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "The coding or architecture task description."
+      },
+      "system_prompt": {
+        "type": "string",
+        "description": "Optional system prompt override."
+      },
+      "max_tokens": {
+        "type": "integer",
+        "description": "Max tokens to generate (default: 2048).",
+        "default": 2048
+      },
+      "temperature": {
+        "type": "number",
+        "description": "Sampling temperature (default: 0.65).",
+        "default": 0.65
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  }
+}

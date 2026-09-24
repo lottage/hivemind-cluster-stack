@@ -1,0 +1,27 @@
+{
+  "name": "talk_to_agent",
+  "description": "Send a direct peer message to another autonomous agent in the cluster to collaborate, ask questions, or share insights, and get their immediate response.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "sender_id": {
+        "type": "string",
+        "description": "ID or name of the sending agent."
+      },
+      "target_id": {
+        "type": "string",
+        "description": "ID or name of the recipient agent."
+      },
+      "message": {
+        "type": "string",
+        "description": "The message or question to send."
+      }
+    },
+    "required": [
+      "sender_id",
+      "target_id",
+      "message"
+    ],
+    "additionalProperties": false
+  }
+}

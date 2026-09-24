@@ -1,0 +1,30 @@
+{
+  "name": "configure_rumination",
+  "description": "Configure Cognitive Rumination consolidation parameters such as queue size threshold, auto-consolidation toggle, default mode, and MoE reasoning burst count.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "threshold": {
+        "type": "integer",
+        "description": "Batch size threshold to trigger auto-consolidation (default: 4)."
+      },
+      "auto_enabled": {
+        "type": "boolean",
+        "description": "Enable or disable automatic rumination during 24/7 loops."
+      },
+      "moe_burst_cycles": {
+        "type": "integer",
+        "description": "Number of MoE burst challenges per deep rumination session (0-1)."
+      },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "fast_coordinator",
+          "deep_moe"
+        ],
+        "description": "Default consolidation mode for 24/7 background loops."
+      }
+    },
+    "additionalProperties": false
+  }
+}

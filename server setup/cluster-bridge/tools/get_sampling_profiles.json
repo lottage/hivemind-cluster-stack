@@ -1,0 +1,9 @@
+{
+  "name": "get_sampling_profiles",
+  "description": "List all configured hyperparameter sampling profiles and their exact settings.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

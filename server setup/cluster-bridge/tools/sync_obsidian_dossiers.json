@@ -1,0 +1,9 @@
+{
+  "name": "sync_obsidian_dossiers",
+  "description": "Check archive status of exploration dossiers for synchronization to Obsidian vault.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

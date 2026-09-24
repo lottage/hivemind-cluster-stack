@@ -1,0 +1,13 @@
+{
+  "name": "home_assistant_entities",
+  "description": "Fetch states and attributes of smart home entities from Home Assistant (192.168.1.82:8123).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "description": "Optional domain filter (e.g. 'climate', 'light', 'switch', 'sensor')."
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "pve-cluster": {
+      "type": "http",
+      "url": "http://192.168.1.105:8765/messages"
+    },
+    "cluster-work": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "C:/Users/johna/OneDrive/Documents/.ai/cluster-work-mcp/server.py",
+        "stdio"
+      ]
+    }
+  }
+}

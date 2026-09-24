@@ -1,0 +1,20 @@
+# =====================================================================
+# Aevum Unified LLM Harness & StoneSage Cockpit (v0.02)
+# Python 3.10+ Dependencies for Server and Laptop CLI
+# =====================================================================
+
+# Interactive Terminal UI, markdown rendering & slash command formatting
+rich>=13.0.0
+
+# Interactive CLI auto-complete popup menu, tab-completion & history
+prompt_toolkit>=3.0.0
+
+# Duplex WebSocket daemon for 1:1 PTY terminal and shell streaming (:8088)
+websockets>=12.0
+
+# HTTP utilities for remote cluster APIs and HuggingFace Hub queries
+requests>=2.31.0
+
+# Optional: Valkey / Redis client for sub-ms in-RAM A-MEM knowledge cards
+# (Note: An automatic in-memory fallback store is utilized if redis is absent)
+redis>=5.0.0

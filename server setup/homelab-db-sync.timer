@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Homelab Qdrant to Obsidian Sync every 30 minutes
+After=network.target
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

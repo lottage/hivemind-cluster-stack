@@ -1,0 +1,54 @@
+{
+  "name": "reproduce_blended_agent",
+  "description": "Bilateral digital reproduction (mating/crossover) of two mature agents across the dual-GPU cluster. Parent A (:8002) and Parent B (:8001) deliberate to synthesize a hybrid Generation-(N+1) persona, which is pruned by the Tier-1 Frontier model and indexed into Aevum Hive eternal memory.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "parent_a_id": {
+        "type": "string",
+        "description": "ID or name of the first parent agent (e.g. AGENT-1BDB15 or 'System Expansion')."
+      },
+      "parent_b_id": {
+        "type": "string",
+        "description": "ID or name of the second parent agent."
+      },
+      "focus_intent": {
+        "type": "string",
+        "description": "Optional human or parental directive guiding the offspring's purpose or specialization."
+      },
+      "custom_name": {
+        "type": "string",
+        "description": "Optional user-edited name for the hybrid offspring."
+      },
+      "custom_role": {
+        "type": "string",
+        "description": "Optional user-edited specialized role title."
+      },
+      "custom_mission": {
+        "type": "string",
+        "description": "Optional user-edited comprehensive mission."
+      },
+      "custom_system_prompt": {
+        "type": "string",
+        "description": "Optional user-edited system prompt overriding default dual-GPU synthesis."
+      },
+      "custom_focus_question": {
+        "type": "string",
+        "description": "Optional initial challenge for the child's first milestone."
+      },
+      "model_preference": {
+        "type": "string",
+        "description": "Preferred compute model ('coordinator' or 'worker')."
+      },
+      "blend_ratio": {
+        "type": "number",
+        "description": "Optional crossover blend ratio between 0.0 and 1.0 representing the genetic weight of Parent A (e.g. 0.8 for 80% Parent A / 20% Parent B, default 0.5)."
+      }
+    },
+    "required": [
+      "parent_a_id",
+      "parent_b_id"
+    ],
+    "additionalProperties": false
+  }
+}

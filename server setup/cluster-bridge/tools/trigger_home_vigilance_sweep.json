@@ -1,0 +1,9 @@
+{
+  "name": "trigger_home_vigilance_sweep",
+  "description": "Trigger an immediate autonomous Home & LLM Vision vigilance audit across all smart home sensors, climate, and cameras.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}
