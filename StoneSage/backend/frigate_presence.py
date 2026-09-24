@@ -15,8 +15,10 @@ An event without end_time is an object in view right now.
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
+import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 
@@ -187,6 +189,32 @@ class FrigatePresence:
             logger.warning(f"Frigate presence bootstrap failed: {e}")
         self._thread = threading.Thread(target=lambda: asyncio.run(self._listen()), name="frigate-presence", daemon=True)
         self._thread.start()
+
+
+EVENT_ID = re.compile(r"^[0-9]+\.[0-9]+-[a-z0-9]+$")
+
+
+def live_cameras(go2rtc_url: str, frigate_cameras: List[str]) -> List[Dict[str, str]]:
+    """Cameras the StoneSage LIVE tab can play: each Frigate camera, on its go2rtc sub stream (H.264, plays in
+    every browser) when one exists, else the main stream."""
+    with urllib.request.urlopen(f"{go2rtc_url.rstrip('/')}/api/streams", timeout=3) as r:
+        streams = set(json.load(r) or {})
+    out = []
+    for cam in frigate_cameras:
+        if cam in streams:
+            out.append({"id": cam, "name": camera_label(cam),
+                        "stream": f"{cam}_sub" if f"{cam}_sub" in streams else cam})
+    return out
+
+
+def webrtc_answer(go2rtc_url: str, stream: str, offer: Dict[str, Any]) -> Dict[str, Any]:
+    """Relay a browser's SDP offer to go2rtc and return its answer. Only signalling passes through StoneSage;
+    the video goes straight from go2rtc (:8555) to the browser, so HTTPS pages can play it."""
+    req = urllib.request.Request(f"{go2rtc_url.rstrip('/')}/api/webrtc?src={urllib.parse.quote(stream)}",
+                                 data=json.dumps({"type": "offer", "sdp": offer.get("sdp", "")}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
 
 
 def describe_in_view(objects: List[Dict[str, Any]]) -> str:

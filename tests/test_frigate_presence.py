@@ -94,6 +94,26 @@ class TestCameraLook(unittest.TestCase):
         self.assertEqual(text, "Kylo (dog, in view 40 s), a person (not identified, in view 5 s)")
 
 
+class TestLiveCameras(unittest.TestCase):
+    def test_prefers_sub_stream_and_skips_cameras_without_one(self):
+        import io
+        from unittest import mock
+        from frigate_presence import live_cameras
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = io.BytesIO(json.dumps({"kitchen_living_room": {}, "kitchen_living_room_sub": {},
+                                                             "garage": {}}).encode())
+        with mock.patch("frigate_presence.urllib.request.urlopen", return_value=resp):
+            cams = live_cameras("http://go2rtc:1984", ["kitchen_living_room", "garage", "attic"])
+        self.assertEqual(cams, [{"id": "kitchen_living_room", "name": "kitchen living room", "stream": "kitchen_living_room_sub"},
+                                {"id": "garage", "name": "garage", "stream": "garage"}])
+
+    def test_event_id_pattern_rejects_paths(self):
+        from frigate_presence import EVENT_ID
+        self.assertTrue(EVENT_ID.match("1790276100.088879-gen6ep"))
+        self.assertFalse(EVENT_ID.match("../../api/config"))
+        self.assertFalse(EVENT_ID.match("1790276100.088879-gen6ep/../x"))
+
+
 class TestMerge(unittest.TestCase):
     def test_newest_source_wins_per_identity(self):
         hub = {"austin": {"minutes_ago": 12.0, "camera": "Kitchen/Living"}, "kylo": {"minutes_ago": 30.0}}

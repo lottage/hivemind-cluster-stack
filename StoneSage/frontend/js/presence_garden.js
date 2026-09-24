@@ -26,20 +26,29 @@ export function renderPresence(data) {
     const locs = data.locations;
     const known = data.known_entities || {};
     const allEntities = [...(known.people || []), ...(known.pets || [])];
+    if (locs.someone) allEntities.push({ name: 'Someone', role: 'Person Frigate could not identify' });
 
     allEntities.forEach(ent => {
       const key = ent.name.toLowerCase();
       const loc = locs[key];
       const isOnline = loc && loc.minutes_ago < 60;
-      const statusBadge = isOnline
+      const statusBadge = loc && loc.minutes_ago === 0
+        ? `<span style="color:#22c55e; font-weight:bold;">🟢 In view now</span>`
+        : isOnline
         ? `<span style="color:#22c55e; font-weight:bold;">🟢 Active (${Math.round(loc.minutes_ago)}m ago)</span>`
         : `<span style="color:var(--term-text-muted); font-weight:bold;">⚪ Inactive (${loc ? Math.round(loc.minutes_ago) + 'm ago' : 'No recent sighting'})</span>`;
 
-      const snapshotImg = loc && loc.snapshot
+      // Frigate sightings carry an event id (snapshot proxied by StoneSage); sentry sightings a snapshot filename
+      const snapSrc = loc && loc.source === 'frigate' && loc.event_id ? `/api/frigate/snapshot/${loc.event_id}`
+        : loc && loc.snapshot ? `/api/presence/snapshot/${loc.snapshot}` : null;
+      const snapshotImg = snapSrc
         ? `<div style="margin-top:6px; border:1px solid var(--term-border-dim); border-radius:3px; overflow:hidden; max-height:90px; background:#000;">
-             <img src="/api/presence/snapshot/${loc.snapshot}" alt="${ent.name}" style="width:100%; height:90px; object-fit:cover;" loading="lazy">
+             <img src="${snapSrc}" alt="${ent.name}" style="width:100%; height:90px; object-fit:cover;" loading="lazy">
            </div>`
         : `<div style="margin-top:6px; height:45px; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; font-size:0.7rem; color:var(--term-text-muted);">No snapshot</div>`;
+      const lastSeen = !loc ? 'Unknown'
+        : loc.last_seen || new Date(loc.mtime * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const via = loc && loc.source === 'frigate' ? ' · Frigate' : '';
 
       html += `
         <div style="background:var(--term-bg); border:1px solid var(--term-border-dim); border-radius:4px; padding:8px;">
@@ -49,7 +58,7 @@ export function renderPresence(data) {
           </div>
           <div style="font-size:0.72rem; color:var(--term-text-muted); margin-top:2px;">${ent.role || ent.breed || ent.species}</div>
           ${snapshotImg}
-          <div style="font-size:0.68rem; color:var(--term-text-muted); margin-top:4px;">Last: ${loc ? loc.last_seen : 'Unknown'}</div>
+          <div style="font-size:0.68rem; color:var(--term-text-muted); margin-top:4px;">Last: ${lastSeen}${loc && loc.camera ? ` · ${loc.camera}` : ''}${via}</div>
         </div>
       `;
     });
@@ -82,6 +91,98 @@ export function renderPresence(data) {
     `;
   }
 }
+
+// ------------------------------------------------------------ live cameras ----
+// WebRTC from go2rtc on the Frigate host. StoneSage only relays the SDP offer/answer (/api/cameras/webrtc);
+// the video flows straight from go2rtc to the browser, so this also works when StoneSage is on HTTPS.
+const livePeers = [];
+
+function stopLive() {
+  while (livePeers.length) {
+    const pc = livePeers.pop();
+    try { pc.close(); } catch (e) { /* already closed */ }
+  }
+  const grid = document.getElementById('presence-live-grid');
+  if (grid) grid.innerHTML = '';
+}
+
+function iceGathered(pc, ms = 1500) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+    pc.addEventListener('icegatheringstatechange', done);
+    setTimeout(resolve, ms);  // host candidates are enough on the LAN; don't wait for slow STUN
+  });
+}
+
+async function playStream(video, status, stream) {
+  const pc = new RTCPeerConnection();
+  livePeers.push(pc);
+  const media = new MediaStream();
+  video.srcObject = media;
+  pc.ontrack = (e) => media.addTrack(e.track);
+  pc.onconnectionstatechange = () => {
+    status.textContent = { connected: '● LIVE', failed: 'connection failed', disconnected: 'reconnecting…' }[pc.connectionState] || pc.connectionState;
+    status.style.color = pc.connectionState === 'connected' ? '#22c55e' : 'var(--term-text-muted)';
+  };
+  pc.addTransceiver('video', { direction: 'recvonly' });
+  pc.addTransceiver('audio', { direction: 'recvonly' });
+  await pc.setLocalDescription(await pc.createOffer());
+  await iceGathered(pc);
+  const res = await fetch('/api/cameras/webrtc', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stream, offer: { sdp: pc.localDescription.sdp } }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'signalling failed');
+  await pc.setRemoteDescription(json.answer);
+}
+
+async function startLive() {
+  const grid = document.getElementById('presence-live-grid');
+  if (!grid) return;
+  stopLive();
+  grid.innerHTML = '<div style="color:var(--term-text-muted); font-size:0.75rem;">Connecting to cameras…</div>';
+  let cams = [];
+  try {
+    cams = (await (await fetch('/api/cameras/live')).json()).cameras || [];
+  } catch (e) { /* shown below */ }
+  if (!cams.length) {
+    grid.innerHTML = '<div style="color:var(--term-text-muted); font-size:0.75rem;">No live cameras (Frigate/go2rtc unreachable?).</div>';
+    return;
+  }
+  grid.innerHTML = cams.map((c) => `
+    <div style="background:#000; border:1px solid var(--term-border-dim); border-radius:4px; overflow:hidden;">
+      <video id="live-${c.id}" autoplay muted playsinline style="width:100%; aspect-ratio:16/9; display:block; background:#000;" title="Click to toggle sound"></video>
+      <div style="display:flex; justify-content:space-between; padding:4px 6px; font-size:0.72rem; background:var(--term-bg);">
+        <span style="font-weight:bold; color:var(--term-text-bright); text-transform:capitalize;">${c.name}</span>
+        <span id="live-status-${c.id}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>
+      </div>
+    </div>`).join('') + `
+    <div style="font-size:0.68rem; color:var(--term-text-muted); align-self:end;">Battery and solar cameras (side yard, back yard, driveway) have no live stream; their sightings are under Residents &amp; Pets.</div>`;
+  for (const c of cams) {
+    const video = document.getElementById(`live-${c.id}`);
+    const status = document.getElementById(`live-status-${c.id}`);
+    video.addEventListener('click', () => { video.muted = !video.muted; });
+    playStream(video, status, c.stream).catch((e) => { status.textContent = e.message; });
+  }
+}
+
+export function showPresenceTab(which) {
+  const live = which === 'live';
+  document.getElementById('presence-locations-grid').style.display = live ? 'none' : 'grid';
+  document.getElementById('presence-live-grid').style.display = live ? 'grid' : 'none';
+  document.getElementById('presence-tab-people').classList.toggle('active', !live);
+  document.getElementById('presence-tab-live').classList.toggle('active', live);
+  if (live) startLive(); else stopLive();  // only hold camera streams open while someone is watching
+}
+
+// Close the streams when the page is hidden (phone locked, tab switched); reopen on return
+document.addEventListener('visibilitychange', () => {
+  const liveOn = document.getElementById('presence-tab-live')?.classList.contains('active');
+  if (!liveOn) return;
+  if (document.hidden) stopLive(); else startLive();
+});
 
 export async function askCourage(query) {
   const inputEl = document.getElementById('courage-query-input');
@@ -240,3 +341,4 @@ window.toggleRainDelay = toggleRainDelay;
 window.emergencyCloseAll = emergencyCloseAll;
 window.fetchPresenceState = fetchPresenceState;
 window.fetchGardenState = fetchGardenState;
+window.showPresenceTab = showPresenceTab;

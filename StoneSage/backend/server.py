@@ -3598,10 +3598,41 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
         elif path == "/api/presence/status":
             try:
-                from harness.core.home_presence_hub import home_presence_hub
-                self.send_json({"ok": True, "data": home_presence_hub.get_full_presence_state()})
+                self.send_json({"ok": True, "data": _courage_presence()})  # hub + Frigate, same view Courage has
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, 500)
+            return
+
+        elif path == "/api/cameras/live":
+            # Cameras the LIVE tab can play over WebRTC (Frigate cameras with a go2rtc stream)
+            fcfg = load_config().get("frigate") or {}
+            try:
+                from frigate_presence import live_cameras
+                cams = live_cameras(fcfg.get("go2rtc_url", ""), list((fcfg.get("cameras") or {}).values()))
+                self.send_json({"ok": True, "cameras": cams})
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"go2rtc unreachable: {e}", "cameras": []})
+            return
+
+        elif path.startswith("/api/frigate/snapshot/"):
+            # Frigate event snapshot through StoneSage (same origin, so HTTPS pages can show it)
+            from frigate_presence import EVENT_ID
+            eid = path[len("/api/frigate/snapshot/"):]
+            fcfg = load_config().get("frigate") or {}
+            if not EVENT_ID.match(eid) or not fcfg.get("url"):
+                self.send_json({"ok": False, "error": "bad event id"}, 400)
+                return
+            try:
+                with urllib.request.urlopen(f"{fcfg['url'].rstrip('/')}/api/events/{eid}/snapshot.jpg?h=270", timeout=5) as r:
+                    img = r.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(img)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"snapshot unavailable: {e}"}, 404)
             return
 
         elif path.startswith("/api/presence/snapshot/"):
@@ -7092,6 +7123,21 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(fn(body))
                 except Exception as e:
                     self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+                return
+
+            elif path == "/api/cameras/webrtc":
+                # WebRTC signalling relay to go2rtc; only streams the LIVE tab lists are allowed
+                fcfg = load_config().get("frigate") or {}
+                stream = body.get("stream", "")
+                try:
+                    from frigate_presence import live_cameras, webrtc_answer
+                    allowed = {c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list((fcfg.get("cameras") or {}).values()))}
+                    if stream not in allowed:
+                        self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
+                        return
+                    self.send_json({"ok": True, "answer": webrtc_answer(fcfg["go2rtc_url"], stream, body.get("offer") or {})})
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"go2rtc: {e}"}, 502)
                 return
 
             elif path == "/api/engine-profiles/apply":

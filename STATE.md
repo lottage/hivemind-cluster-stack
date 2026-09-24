@@ -97,8 +97,14 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   showed Qwen3-14B does not reliably ask for a "full" look on object questions (package, stove), and Frigate only tracks
   people/dogs/cats, so a skipped look would answer wrong. Frigate unreachable -> old HA snapshot path.
   Live: object question 5.3 s end to end; tool choice unchanged (42/42, 41/42).
-- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), go2rtc WebRTC in the StoneSage camera tab,
-  commentary engine, HA Frigate integration.
+- Live cameras (2026-09-24): F5 Smart Home & CCTV, Courage card, tab [📹 LIVE CAMERAS] next to [👥 RESIDENTS & PETS].
+  WebRTC from go2rtc (sub stream, H.264 720p); StoneSage only relays the SDP (`POST /api/cameras/webrtc`, stream must be
+  in `GET /api/cameras/live`), media goes go2rtc :8555 -> browser, so it also works from the HTTPS page (not yet tried on
+  :8443/phone). Streams close when the tab is switched or the page is hidden. Verified in the browser: 1280x720 at
+  24 fps, audio + video. `config.json frigate.go2rtc_url`.
+  Residents & Pets now reads the merged hub + Frigate view (`/api/presence/status` = `_courage_presence()`); Frigate
+  sightings show their event snapshot via `GET /api/frigate/snapshot/<event_id>` and an extra "Someone" card.
+- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,
