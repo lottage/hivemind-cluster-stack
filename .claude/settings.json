@@ -26,7 +26,8 @@
     "ask": [
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(ssh root@192.168.1.229:*)",
+      "Bash(ssh root@192.168.1.222:*)",
+      "Bash(ssh root@192.168.1.245:*)",
       "Bash(ssh root@192.168.1.82:*)",
       "Bash(rm:*)"
     ],
