@@ -62,7 +62,7 @@ Native tool calling works on 8001: this llama.cpp build enables `--jinja` by def
 | agent-assembly (:8766) | stopped + disabled 2026-09-23 (code kept) |
 | wildlife-sentry | running; canonical source is `server setup/cluster-bridge/wildlife_sentry_daemon.py` |
 | valkey | running |
-| pve-watchdog (LXC 120) | running |
+| pve-watchdog (LXC 120) | running, armed (power-cycles pve via Kasa plug .109 after 120 s of all probes failing). Probes pve .222 + VM 102; source `server setup/watchdog/` (live md5 dd0555a3…, 2026-09-23). Tokens from `/etc/stonesage/secrets.env` |
 | stonesage + stonesage-ws (LXC 120) | running; `/api/health/all` live since 13:05. `stonesage-ws` only polls loop status, makes no LLM calls |
 
 ## A-MEM (Valkey :6379 on VM 102)
@@ -83,8 +83,11 @@ Pre-change backup of all 250 cards: `_backups/valkey_cards_backup_2026-09-23.jso
 Real values live only in `StoneSage/backend/config.json` (gitignored) and `/etc/stonesage/secrets.env`
 on each host (template: `server setup/secrets.env.example`). Nothing secret goes in code or docs.
 VM 102: `/etc/stonesage/secrets.env` (root, 600) holds `HASS_URL`/`HASS_TOKEN`; `cluster-mcp.service` loads it via `EnvironmentFile=` (no inline token).
+LXC 120: `/etc/stonesage/secrets.env` (root, 600) holds `PVE_TOKEN`/`HASS_TOKEN`; `pve-watchdog.service` loads it via
+`EnvironmentFile=-` (2026-09-23). The live watchdog script had both tokens hardcoded as fallbacks until then; the pre-change copy
+(still holding them) is in `/root/pve-watchdog-backup-2026-09-23/` on LXC 120. Delete it once the tokens are rotated.
 **Rotate** the HA long-lived token, the Proxmox `StoneSage` API token and the CouchDB/config password:
-they appear in local git history (commits 67fe717..fb5e327).
+they appear in local git history (commits 67fe717..fb5e327) and sat in plain text in the live LXC 120 watchdog until 2026-09-23.
 
 ## Live system profile (2026-09-23)
 Hardware, model and engine labels are no longer written in code. Sources, in order:
