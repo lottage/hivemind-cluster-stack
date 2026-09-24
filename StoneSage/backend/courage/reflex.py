@@ -8,7 +8,10 @@ Replaces the old harness System-1 path, whose prototypes named entities that don
 vector match could not tell "turn on" from "turn off".
 """
 
+import json
+import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 ORDER_FIRST = re.compile(r"^(?:please\s+)?(?:(?:can|could|would) you\s+)?(?:turn|switch|flip)\s+(on|off)\s+(.+?)"
@@ -70,3 +73,73 @@ def match(order: Dict[str, str], ents: List[Dict[str, Any]]) -> Optional[Dict[st
     # entity ids carry names too: "String Lights" is switch.front_porch_..._lights, so "porch lights" finds it
     hits = [e for e in ents if want <= set(_words(f"{e.get('friendly_name') or ''} {e['entity_id'].split('.', 1)[-1]}"))]
     return hits[0] if len(hits) == 1 else None
+
+
+# ------------------------------------------------------------ learned phrasings ----
+LEARNABLE_SERVICES = {"turn_on", "turn_off", "toggle"}
+PHRASE_FILLER = {"please", "courage", "computer", "hey", "hi", "can", "could", "would", "you", "the", "my", "our",
+                 "now", "for", "me", "just", "go", "ahead", "and"}
+
+
+def phrase_key(text: str) -> str:
+    """'Please, kill the TV lights!' -> 'kill tv lights' (order kept: the phrase is the cache key)."""
+    words = re.sub(r"[^a-z0-9 ]+", " ", (text or "").lower()).split()
+    return " ".join(w for w in words if w not in PHRASE_FILLER)
+
+
+class LearnedReflexes:
+    """Exact phrasings that the LLM loop turned into a successful direct on/off order, replayed without the LLM.
+    Only direct orders are learned (never approvals or inferred remarks), and a replay still goes through the
+    tool's validation (allowlist, server-plug guard, entity must still exist)."""
+
+    def __init__(self, path: str, max_items: int = 300):
+        import threading
+        self.path, self.max_items = path, max_items
+        self._lock = threading.Lock()
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.items = json.load(f)
+        except (OSError, ValueError):
+            self.items = {}
+
+    def _save(self) -> None:
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.items, f, indent=1)
+        os.replace(tmp, self.path)
+
+    def lookup(self, text: str) -> Optional[Dict[str, Any]]:
+        key = phrase_key(text)
+        with self._lock:
+            return dict(self.items[key], key=key) if key in self.items else None
+
+    def learn(self, text: str, args: Dict[str, Any], name: str) -> bool:
+        key = phrase_key(text)
+        if (not key or len(text) > 60 or args.get("service") not in LEARNABLE_SERVICES or args.get("data")
+                or COMPOUND.search(text.lower()) or QUESTION_START.match(key)):
+            return False
+        with self._lock:
+            old = self.items.get(key, {})
+            self.items[key] = {"phrase": text.strip(), "domain": args["domain"], "service": args["service"],
+                               "entity_id": args["entity_id"], "name": name, "hits": old.get("hits", 0),
+                               "learned_at": old.get("learned_at", time.time()), "last_used": time.time()}
+            if len(self.items) > self.max_items:  # drop the least recently used
+                oldest = min(self.items, key=lambda k: self.items[k].get("last_used", 0))
+                self.items.pop(oldest, None)
+            self._save()
+        return True
+
+    def hit(self, key: str) -> None:
+        with self._lock:
+            if key in self.items:
+                self.items[key]["hits"] = self.items[key].get("hits", 0) + 1
+                self.items[key]["last_used"] = time.time()
+                self._save()
+
+    def forget(self, key: str) -> bool:
+        with self._lock:
+            found = self.items.pop(key, None) is not None
+            if found:
+                self._save()
+            return found

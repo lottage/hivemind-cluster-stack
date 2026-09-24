@@ -2619,6 +2619,20 @@ def get_courage_agent():
             url = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1")
             _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence,
                                           runs_on_fn=_courage_runs_on)
+            from courage.reflex import LearnedReflexes
+            data_dir = os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+            _courage_agent.learned = LearnedReflexes(os.path.join(data_dir, "courage_reflexes.json"))
+            # approvals by actionable phone notification (Yes / No buttons), for Home Assistant conversations by default
+            ha_cfg = config.get("homeassistant", {})
+            phone = COURAGE_PHONES.get("austin")
+            if ha_cfg.get("token") and phone:
+                from courage.push_approvals import PushApprovals
+                push = PushApprovals(ha_cfg.get("url", hass.base_url), ha_cfg["token"], phone, _courage_agent.pending,
+                                     execute=_courage_agent.tools.execute,
+                                     policy=config.get("courage", {}).get("push_approvals", "voice"))
+                _courage_agent.on_approval = push.offer
+                _courage_agent.push = push
+                push.start()
         return _courage_agent
 
 
@@ -3445,6 +3459,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": "unknown loader route"}, 404)
             except Exception as e:
                 self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+            return
+
+        elif path == "/api/courage/reflexes":
+            learned = getattr(get_courage_agent(), "learned", None)
+            self.send_json({"ok": True, "reflexes": learned.items if learned else {}})
             return
 
         elif path == "/api/system/profile":
@@ -6991,6 +7010,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "synthesis": synthesis})
                 return
 
+            elif path == "/api/courage/reflexes/forget":
+                learned = getattr(get_courage_agent(), "learned", None)
+                self.send_json({"ok": bool(learned and learned.forget(body.get("key", "")))})
+                return
+
             elif path in ("/api/loader/plan", "/api/loader/preview", "/api/loader/apply"):
                 try:
                     fn = {"/api/loader/plan": model_loader.plan, "/api/loader/preview": model_loader.preview,
@@ -8324,6 +8348,7 @@ if __name__ == "__main__":
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     # Warm Courage's presence cache so the first question doesn't pay the ~1.4 s presence read
     threading.Thread(target=_courage_refresh_presence, daemon=True, name="courage-presence-warmup").start()
+    threading.Thread(target=get_courage_agent, daemon=True, name="courage-agent-warmup").start()  # starts the phone-approval listener
     try:
         server = http.server.ThreadingHTTPServer((host, port), StoneSageHandler)
     except OSError as e:

@@ -69,6 +69,15 @@ class PendingActions:
                 return None
             return a
 
+    def pop_by_id(self, action_id: str) -> Optional[Dict[str, Any]]:
+        """Take a parked action by its id, whichever session parked it (phone approvals don't know the session)."""
+        with self._lock:
+            for sid, a in list(self._items.items()):
+                if a.get("id") == action_id:
+                    self._items.pop(sid, None)
+                    return a if time.time() - a["created"] <= self.ttl else None
+        return None
+
     def pop(self, session_id: str) -> Optional[Dict[str, Any]]:
         a = self.get(session_id)
         with self._lock:
@@ -94,6 +103,8 @@ class CourageAgent:
         self.tools = tools
         self.presence_fn = presence_fn
         self.runs_on_fn = runs_on_fn
+        self.on_approval: Optional[Callable[[str, Dict[str, Any]], bool]] = None  # e.g. push to the phone
+        self.learned: Optional["reflex.LearnedReflexes"] = None  # phrasings the loop resolved, replayed without the LLM
         self.pending = pending or PendingActions()
         self.max_steps = max_steps
         self.timeout = timeout
@@ -153,24 +164,40 @@ class CourageAgent:
     # ---- reflex: bare on/off orders without the LLM ------------------------------------
     def _reflex(self, text: str):
         """Generator; returns True when it handled the message (events already yielded)."""
+        learned = self.learned.lookup(text) if self.learned else None
+        if learned:
+            ent, _ = self.tools.resolve_entity(learned["domain"], learned["entity_id"])
+            if ent is None:
+                self.learned.forget(learned["key"])  # the device is gone: fall back to the loop
+                return False
+            args = {"domain": learned["domain"], "service": learned["service"], "entity_id": learned["entity_id"]}
+            state = learned["service"].replace("turn_", "") if learned["service"] != "toggle" else None
+            handled = yield from self._switch(args, ent.get("friendly_name") or learned["name"], state, ent.get("state"))
+            if handled:
+                self.learned.hit(learned["key"])
+            return handled
         order = reflex.parse(text)
         if not order:
             return False
         ent = reflex.match(order, reflex.candidates(self.tools.deps.ha_states))
         if not ent:
             return False
-        name = ent.get("friendly_name") or ent["entity_id"]
         args = {"domain": ent["domain"], "service": f"turn_{order['state']}", "entity_id": ent["entity_id"]}
+        return (yield from self._switch(args, ent.get("friendly_name") or ent["entity_id"], order["state"], ent.get("state")))
+
+    def _switch(self, args: Dict[str, Any], name: str, state: Optional[str], current: Optional[str]):
         if self.tools.validate("ha_call", args):
             return False  # refused (e.g. server plug): let the loop explain
-        if ent.get("state") == order["state"]:
-            yield {"type": "final", "content": f"The {name} {'is' if not name.lower().endswith('s') else 'are'} already {order['state']}."}
+        if state and current == state:
+            yield {"type": "final", "content": f"The {name} {'is' if not name.lower().endswith('s') else 'are'} already {state}."}
             return True
-        yield {"type": "tool_call", "name": "ha_call", "arguments": args, "status": f"Switching {order['state']} {name}…"}
+        verb = f"Switching {state}" if state else "Toggling"
+        yield {"type": "tool_call", "name": "ha_call", "arguments": args, "status": f"{verb} {name}…"}
         result = self.tools.execute("ha_call", args)
         yield {"type": "tool_result", "name": "ha_call", "result": result}
         ok = json.loads(result).get("ok", False) if result.startswith("{") else False
-        yield {"type": "final", "content": f"{name} {order['state']}." if ok else f"Home Assistant refused to switch {order['state']} the {name}."}
+        done = f"{name} {state}." if state else f"{name} toggled."
+        yield {"type": "final", "content": done if ok else f"Home Assistant refused to change the {name}."}
         return True
 
     # ---- the loop ------------------------------------------------------------
@@ -212,6 +239,7 @@ class CourageAgent:
                 return
 
         nudged = False
+        switched = []  # successful direct ha_calls this turn; a phrasing is learned only if it caused exactly one
         for _ in range(self.max_steps):
             try:
                 msg = self._complete(messages)
@@ -231,6 +259,8 @@ class CourageAgent:
                 continue
             if not calls:
                 text = msg["content"]
+                if self.learned and len(switched) == 1:
+                    self.learned.learn(last_user, *switched[0])
                 yield {"type": "final", "content": text or "I have nothing useful to add, which is rare."}
                 return
 
@@ -252,14 +282,24 @@ class CourageAgent:
                                                            "summary": self.tools.describe_action(name, args)})
                     yield {"type": "approval_required", "id": action["id"], "name": name,
                            "arguments": args, "summary": action["summary"]}
+                    pushed = False
+                    if self.on_approval:
+                        try:
+                            pushed = bool(self.on_approval(session_id, action))
+                        except Exception:
+                            pushed = False
                     skipped = len(calls) - i - 1
                     extra = f" (I've held back {skipped} other request{'s' if skipped > 1 else ''} until then.)" if skipped else ""
-                    yield {"type": "final", "content": f"Shall I {action['summary']}? Say yes to approve.{extra}"}
+                    phone = " Or tap Yes on your phone." if pushed else ""
+                    yield {"type": "final", "content": f"Shall I {action['summary']}? Say yes to approve.{phone}{extra}"}
                     return
 
                 yield {"type": "tool_call", "name": name, "arguments": args, "status": self.tools.status_text(name, args)}
                 result = self.tools.execute(name, args)
                 yield {"type": "tool_result", "name": name, "result": result}
+                if name == "ha_call" and self.learned and result.startswith("{") and json.loads(result).get("ok"):
+                    ent, _ = self.tools.resolve_entity(args.get("domain", ""), args.get("entity_id", ""))
+                    switched.append((args, (ent or {}).get("friendly_name") or args.get("entity_id", "")))
                 messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
 
         yield {"type": "final", "content": "I've gone round in circles on that one. Ask me again, more plainly?"}

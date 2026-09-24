@@ -330,3 +330,117 @@ class TestCourageReflex(unittest.TestCase):
         events = run(agent, "bedroom lamp off")
         self.assertEqual(ha.calls, [])
         self.assertEqual(events[-1]["content"], "The Bedroom Lamp is already off.")
+
+
+class TestPushApprovals(unittest.TestCase):
+    """Approve from the phone: Yes/No buttons on an HA notification (fake HA, no network)."""
+
+    def setUp(self):
+        from courage.push_approvals import PushApprovals
+        self.sent, self.ran = [], []
+        self.pending = PendingActions()
+        self.push = PushApprovals("http://ha:8123", "t", "mobile_app_phone", self.pending,
+                                  execute=lambda n, a: self.ran.append((n, a)) or '{"ok": true}',
+                                  post=lambda path, body: self.sent.append((path, body)))
+
+    def park(self, session="ha:192.168.1.82"):
+        return self.pending.put(session, {"name": "ha_call", "args": {"domain": "light", "service": "turn_off",
+                                                                       "entity_id": "light.kitchen"}, "summary": "turn off the Kitchen Light"})
+
+    def test_policy(self):
+        self.assertTrue(self.push.wants_push("ha:192.168.1.82"))
+        self.assertFalse(self.push.wants_push("web-session-1"))
+        self.push.policy = "always"
+        self.assertTrue(self.push.wants_push("web-session-1"))
+
+    def test_offer_sends_buttons(self):
+        a = self.park()
+        self.assertTrue(self.push.offer("ha:192.168.1.82", a))
+        path, body = self.sent[0]
+        self.assertEqual(path, "/api/services/notify/mobile_app_phone")
+        self.assertEqual([b["action"] for b in body["data"]["actions"]], [f"COURAGE_YES_{a['id']}", f"COURAGE_NO_{a['id']}"])
+
+    def test_yes_runs_the_parked_action_once(self):
+        a = self.park()
+        self.assertEqual(self.push.handle_action(f"COURAGE_YES_{a['id']}"), "Done: turn off the Kitchen Light.")
+        self.assertEqual(self.ran, [("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"})])
+        self.assertIn("expired", self.push.handle_action(f"COURAGE_YES_{a['id']}"))  # second tap does nothing
+        self.assertEqual(len(self.ran), 1)
+        self.assertNotIn("actions", self.sent[-1][1]["data"])  # outcome replaces the buttons
+
+    def test_no_drops_it(self):
+        a = self.park()
+        self.assertIn("Left alone", self.push.handle_action(f"COURAGE_NO_{a['id']}"))
+        self.assertEqual(self.ran, [])
+        self.assertIsNone(self.pending.get("ha:192.168.1.82"))
+
+    def test_foreign_actions_ignored(self):
+        self.assertIsNone(self.push.handle_action("SOME_OTHER_APP_ACTION"))
+
+    def test_agent_mentions_the_phone(self):
+        ha = FakeHA()
+        agent, _ = make_agent(ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"})), ha=ha)
+        agent.on_approval = lambda sid, action: sid.startswith("ha:")
+        events = run(agent, "it's far too bright in the kitchen", session="ha:192.168.1.82")
+        self.assertIn("tap Yes on your phone", events[-1]["content"])
+
+
+class TestLearnedReflexes(unittest.TestCase):
+    """A phrasing the loop resolved into one direct on/off order is replayed next time without the LLM."""
+
+    def setUp(self):
+        import tempfile
+        from courage.reflex import LearnedReflexes
+        self.path = os.path.join(tempfile.mkdtemp(), "reflexes.json")
+        self.store = LearnedReflexes(self.path)
+
+    def agent(self, llm, ha):
+        agent, _ = make_agent(llm, ha=ha)
+        agent.learned = self.store
+        return agent
+
+    def test_learn_then_replay_without_llm(self):
+        ha = FakeHA()
+        llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}), reply("Done."))
+        run(self.agent(llm, ha), "kill the kitchen light")          # not a bare on/off sentence: the LLM resolves it
+        self.assertEqual(ha.calls, [("light", "turn_off", {"entity_id": "light.kitchen"})])
+        self.assertIn("kill kitchen light", self.store.items)
+        ha2 = FakeHA()
+        ha2.states = lambda d: {"ok": True, "entities": [{"entity_id": "light.kitchen", "friendly_name": "Kitchen Light", "state": "on"}]}
+        events = run(self.agent(ScriptedLLM(), ha2), "Please kill the kitchen light!")  # any LLM call would fail
+        self.assertEqual(ha2.calls, [("light", "turn_off", {"entity_id": "light.kitchen"})])
+        self.assertEqual(events[-1]["content"], "Kitchen Light off.")
+        self.assertEqual(self.store.items["kill kitchen light"]["hits"], 1)
+
+    def test_not_learned_from_approvals_or_multi_actions(self):
+        ha = FakeHA()
+        llm = ScriptedLLM(tool_call("ha_call", {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}))
+        run(self.agent(llm, ha), "it's far too bright in here")        # inferred: asks, never learned
+        self.assertEqual(self.store.items, {})
+        two = {"choices": [{"message": {"content": "", "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "ha_call", "arguments": json.dumps({"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"})}},
+            {"id": "b", "type": "function", "function": {"name": "ha_call", "arguments": json.dumps({"domain": "light", "service": "turn_off", "entity_id": "light.bedroom"})}}]}}]}
+        run(self.agent(ScriptedLLM(two, reply("Both off.")), FakeHA()), "kill everything off")
+        self.assertEqual(self.store.items, {})
+
+    def test_refuses_compound_questions_and_data(self):
+        args = {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}
+        self.assertFalse(self.store.learn("kill the lights in ten minutes", args, "x"))
+        self.assertFalse(self.store.learn("kill the lights and the fan", args, "x"))
+        self.assertFalse(self.store.learn("is the light off", args, "x"))
+        self.assertFalse(self.store.learn("warm it up", {"domain": "climate", "service": "set_temperature",
+                                                         "entity_id": "climate.x", "data": {"temperature": 72}}, "x"))
+        self.assertTrue(self.store.learn("lights out in the kitchen please", args, "Kitchen Light") is False)  # "in" = compound
+
+    def test_forgets_when_device_disappears(self):
+        self.store.learn("kill the pantry light", {"domain": "light", "service": "turn_off", "entity_id": "light.pantry"}, "Pantry")
+        ha = FakeHA()  # has no light.pantry
+        agent = self.agent(ScriptedLLM(reply("There is no pantry light.")), ha)
+        run(agent, "kill the pantry light")
+        self.assertNotIn("kill pantry light", self.store.items)
+        self.assertEqual(ha.calls, [])
+
+    def test_persists(self):
+        from courage.reflex import LearnedReflexes
+        self.store.learn("lamp off now", {"domain": "light", "service": "turn_off", "entity_id": "light.bedroom"}, "Bedroom Lamp")
+        self.assertIn("lamp off", LearnedReflexes(self.path).items)

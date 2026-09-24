@@ -10,7 +10,7 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 2. Long game: a walled "garden" where agents explore their own limits and desires, built on the same
    grounded foundations (real senses, measurable evals, curated memory, budgets). Not before Phase 4.
 
-## Current phase: Phase 2 (tool-calling Courage). Phase 0 done 2026-09-23; Phase 1 model evals still open.
+## Current phase: Phase 2 done 2026-09-24 (tool-calling Courage); next Phase 3 (Frigate). Phase 1 model evals still open.
 - Git: one branch per feature (Phase 0 baseline = `phase0-restructure`), commit at the end of each session after a
   secret scan. Never push (no remote yet; old history holds credentials that still need rotating).
   No Co-Authored-By or other attribution lines in commit messages (John's call).

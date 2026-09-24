@@ -426,6 +426,7 @@ export async function submitPrompt() {
           // Universal tool call event from cluster harness
           if (parsed.type === 'tool_call') {
             assistantMsg.executingTool = parsed.name || 'tool';
+            assistantMsg.toolStatus = parsed.status || '';  // e.g. "Looking at the driveway front door camera…"
             const argsStr = typeof parsed.arguments === 'object' ? JSON.stringify(parsed.arguments, null, 2) : (parsed.arguments || '{}');
             contentBuffer += `\n\n:::TOOL_CALL:::${parsed.name}:::${argsStr}:::END_TOOL_CALL:::\n\n`;
             assistantMsg.content = contentBuffer;
@@ -660,7 +661,7 @@ function renderAssistantBodyHtml(msg, isStreaming, isReasoning, rTokens, cTokens
       liveStatusBar = `
         <div class="chat-live-status-bar tool">
           <span class="pulse-dot">⚙️</span>
-          <span><strong>EXECUTING TOOL:</strong> <code>${escapeHtml(msg.executingTool)}</code> &mdash; waiting for hardware / process output...</span>
+          <span>${msg.toolStatus ? `<strong>${escapeHtml(msg.toolStatus)}</strong> <code>${escapeHtml(msg.executingTool)}</code>` : `<strong>EXECUTING TOOL:</strong> <code>${escapeHtml(msg.executingTool)}</code> &mdash; waiting for hardware / process output...`}</span>
         </div>
       `;
     } else if (isReasoning) {

@@ -131,10 +131,16 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `conversation.courage`; new assist pipeline "Courage" (faster-whisper STT, Piper `en_GB-alan-medium`, local intents
   first) is the preferred pipeline. The old Ollama entry `:8080` (only 302-redirected, POST failed) and its pipeline
   "Local Homelab Voice Stack" were deleted the same day. Pre-change backup: `_backups/ha_assist_backup_2026-09-23.json`.
-  Other agents still use keyword grounding and keyword-triggered device actions.
+  Phone approvals (2026-09-24, `courage/push_approvals.py`): an approval raised in an HA conversation also goes to Austin's
+  phone as a notification with Yes/No buttons; StoneSage listens on HA's websocket for `mobile_app_notification_action`
+  (log line "listening for approval taps from the phone"). Policy `config.json courage.push_approvals`: voice (default) |
+  always | never. Learned phrasings (`LearnedReflexes`, `/opt/stonesage/data/courage_reflexes.json`, list at
+  `GET /api/courage/reflexes`, drop with `POST /api/courage/reflexes/forget {key}`): a direct on/off order the LLM resolved
+  (exactly one action, no timers/compounds) is replayed without the LLM next time. Web chat shows the tool's status text.
+  Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 121 tests, 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 179 tests, 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline committed 2026-09-23 on branch `phase0-restructure` (b3b5ebb); not merged to `main`, no remote.
   Submodule `server setup/obsidian-vault-cli` has uncommitted changes of its own. Snapshot: `_backups/pre-phase0-2026-09-23.tgz`.

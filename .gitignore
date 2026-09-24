@@ -127,3 +127,4 @@ pipeline-gguf-trainer/data/
 # config backups hold secrets
 config.json.bak*
 *.json.bak-*
+data/courage_reflexes.json
