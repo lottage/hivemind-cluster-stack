@@ -116,8 +116,15 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
 
 ## Known issues
 - `config.json` `network_devices` (LXC 120 and the workstation copy) still says pve = 192.168.1.229 and
-  bigserv = 192.168.1.82 (real: .222 / .245). No code reads it; fix by hand. The Qdrant device-map document from
-  `backup_to_qdrant.py` has the old IPs until that script is re-run.
+  bigserv = 192.168.1.82 (real: .222 / .245). No code reads it; fix by hand.
+- Qdrant (2026-09-24): the two `home_automation_registry` device-map points were corrected in place (backup
+  `_backups/qdrant_registry_points_backup_2026-09-24.json`). Do NOT re-run `backup_to_qdrant.py`: it upserts with random
+  ids and duplicates every document. `codebase_knowledge` still holds 25 stale file snapshots (old IPs, and old layouts
+  such as "Ubuntu VM at .229" or MCP at .229:8765); it needs a re-index from current files, not an IP swap.
+- **Secret in Qdrant**: the current HA long-lived token is stored in plain text in 4 points (`codebase_knowledge`,
+  `companion_profile`, `obsidian_brain`, `obsidian_vault`), ingested from the Obsidian notes `Tokens.md` and
+  `Junk/Tokens - Logins.md`. Any RAG query can surface it. Rotate the HA token, remove those points, and exclude
+  credential notes from vault ingestion.
 - `ws_broker.py` banner text still describes the old topology.
 - `thinking_state.json` on VM 102 still says `is_running: true` (written before the old process was killed); the live
   `autonomous_thinking_status` tool correctly reports false.
@@ -145,5 +152,6 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
 - Night motion from spider webs on outdoor cams.
 - Tests: `python tests/run_tests.py` (unit, LAN blocked) = 179 tests, 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
-- Git: Phase 0 baseline committed 2026-09-23 on branch `phase0-restructure` (b3b5ebb); not merged to `main`, no remote.
+- Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
+  tracks `main`. No remote.
   Submodule `server setup/obsidian-vault-cli` has uncommitted changes of its own. Snapshot: `_backups/pre-phase0-2026-09-23.tgz`.
