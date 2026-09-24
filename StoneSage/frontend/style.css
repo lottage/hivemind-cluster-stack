@@ -2750,6 +2750,8 @@ html, body {
 /* ===================== Model Loader ===================== */
 #model-loader-root { display: flex; flex-direction: column; gap: 10px; font-size: 0.8rem; }
 .ml-empty { padding: 14px; color: var(--term-text-muted); }
+.ml-profiles { margin-bottom: 10px; }
+.ml-profiles .ml-review { margin-top: 8px; }
 .ml-topology { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
 .ml-node { background: var(--term-surface-sunken); border: 1px solid var(--term-border-dim); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .ml-node-head small { color: var(--term-text-muted); margin-left: 4px; }

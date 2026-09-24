@@ -568,6 +568,7 @@ from trainer_client import TrainerClient
 import health as service_health
 import system_profile
 import model_loader
+import engine_profiles
 from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -3457,6 +3458,21 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json(model_loader.get_job(q.get("id", [""])[0]))
                 else:
                     self.send_json({"ok": False, "error": "unknown loader route"}, 404)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+            return
+
+        elif path.startswith("/api/engine-profiles"):
+            # Engine Profiles (backend/engine_profiles.py): named bundles applied via the Model Loader.
+            # Own prefix: /api/profiles and /api/profiles/list already belong to entity and sampling profiles.
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                if path == "/api/engine-profiles":
+                    self.send_json(engine_profiles.list_profiles())
+                elif path == "/api/engine-profiles/job":
+                    self.send_json(engine_profiles.get_profile_job(q.get("id", [""])[0]))
+                else:
+                    self.send_json({"ok": False, "error": "unknown profiles route"}, 404)
             except Exception as e:
                 self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
             return
@@ -7020,6 +7036,13 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     fn = {"/api/loader/plan": model_loader.plan, "/api/loader/preview": model_loader.preview,
                           "/api/loader/apply": model_loader.apply}[path]
                     self.send_json(fn(body))
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+                return
+
+            elif path == "/api/engine-profiles/apply":
+                try:
+                    self.send_json(engine_profiles.apply_profile(body.get("name", "")))
                 except Exception as e:
                     self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
                 return
