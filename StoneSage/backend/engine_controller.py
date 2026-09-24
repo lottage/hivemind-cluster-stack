@@ -180,83 +180,105 @@ def build_all_engine_states() -> dict:
         "timestamp": time.time()
     }
 
-def build_dynamic_engine_state(host: str, port: int, name: str = "dynamic") -> dict:
-    """Builds state for an arbitrary dynamic engine (LM Studio, llama-server, or any OpenAI-compat server)."""
-    models_data = {}
-    model_alias = ""
-    model_path = ""
-    model_context = 0
+def _configured_device(host: str, port: int) -> Dict[str, Any]:
+    """The user's own description of a node (config.json harness_instances[].hardware), matched by host:port."""
+    import system_profile
+    for inst in system_profile.load_cfg().get("harness_instances", []):
+        u = inst.get("url", "")
+        if f"//{host}:{port}" in u:
+            return {"name": inst.get("name"), "hardware": inst.get("hardware") or {}}
+    return {}
 
-    # Attempt 1: LM Studio native API (/api/v1/models) — has loaded_instances detail
+
+def _lmstudio_state(host: str, port: int, name: str, data: dict, latency_ms: float) -> dict:
+    """LM Studio REST API v1 (/api/v1/models) state. LM Studio has no /props, /slots, /health or /metrics:
+    calling those only fills its developer log with 'Unexpected endpoint' errors."""
+    models = [m for m in data.get("models", []) if m.get("type", "llm") == "llm"]
+    loaded = next((m for m in models if m.get("loaded_instances")), None)
+    inst = (loaded or {}).get("loaded_instances", [{}])[0] if loaded else {}
+    cfg = inst.get("config", {}) if isinstance(inst, dict) else {}
+    dev = _configured_device(host, port)
+    hw = dev.get("hardware") or {}
+    device = ", ".join(str(x) for x in (hw.get("device"), hw.get("cpu"), f"{hw['ram_gb']} GB" if hw.get("ram_gb") else None) if x)
+    return {
+        "key": name, "host": host, "port": port,
+        "device": device or "LM Studio host",
+        "role": dev.get("name") or "LM Studio",
+        "service": "lm-studio", "api": "lm-studio",
+        "online": True, "latency_ms": latency_ms,
+        "model": {
+            "path": (loaded or {}).get("key", ""),
+            "alias": (loaded or {}).get("display_name") or (loaded or {}).get("key", ""),
+            "quantization": ((loaded or {}).get("quantization") or {}).get("name", ""),
+            "params": (loaded or {}).get("params_string", ""),
+            "architecture": (loaded or {}).get("architecture", ""),
+            "context": cfg.get("context_length") or 0,
+            "max_context": (loaded or {}).get("max_context_length") or 0,
+            "modalities": {"vision": bool(((loaded or {}).get("capabilities") or {}).get("vision"))},
+        },
+        "status_note": None if loaded else "online, no model loaded",
+        "available_models": [{"key": m.get("key"), "name": m.get("display_name") or m.get("key"),
+                              "params": m.get("params_string"), "quant": (m.get("quantization") or {}).get("name"),
+                              "max_context": m.get("max_context_length"), "size_gb": round((m.get("size_bytes") or 0) / 1024**3, 2)}
+                             for m in models],
+        "slots": [], "metrics": {}, "props": {}, "is_dynamic": True,
+    }
+
+
+def build_dynamic_engine_state(host: str, port: int, name: str = "dynamic") -> dict:
+    """State for a roaming/dynamic engine. LM Studio is detected by its REST API and polled only through it;
+    llama-server gets the /health, /props, /slots, /metrics probes; other OpenAI servers just /v1/models."""
+    t0 = time.time()
     try:
-        url = f"http://{host}:{port}/api/v1/models"
-        req = urllib.request.Request(url, headers={"User-Agent": "StoneSage-EngineConsole"})
-        with urllib.request.urlopen(req, timeout=1.5) as response:
-            if response.getcode() == 200:
-                models_data = json.loads(response.read().decode('utf-8'))
-                raw_models = models_data.get("models", models_data.get("data", []))
-                loaded = [m for m in raw_models if m.get("loaded_instances")]
-                if loaded:
-                    m = loaded[0]
-                    model_alias = m.get("key") or m.get("display_name") or m.get("id", "")
-                    model_path = m.get("path", "")
-                    inst = m.get("loaded_instances", [])[0] if m.get("loaded_instances") else {}
-                    model_context = inst.get("config", {}).get("context_length", m.get("max_context_length", 0))
+        req = urllib.request.Request(f"http://{host}:{port}/api/v1/models", headers={"User-Agent": "StoneSage-EngineConsole"})
+        with urllib.request.urlopen(req, timeout=2.0) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("models"), list):
+                return _lmstudio_state(host, port, name, data, round((time.time() - t0) * 1000, 1))
     except Exception:
         pass
 
-    # Attempt 2: OpenAI-compatible /v1/models — fallback
-    if not model_alias:
+    # Not LM Studio. llama-server answers /props with JSON; only then use its other endpoints.
+    props = fetch_engine_props(host, port)
+    if props:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            f_health = executor.submit(probe_engine_health, host, port)
+            f_slots = executor.submit(fetch_engine_slots, host, port)
+            f_metrics = executor.submit(fetch_engine_metrics, host, port)
+            health, slots, metrics = f_health.result(), f_slots.result(), f_metrics.result()
+        api = "llama-server"
+    else:
+        health, slots, metrics, api = {"online": False, "latency_ms": 0.0}, [], {}, "openai"
+
+    model_alias = props.get("model_alias", "")
+    if not props:  # plain OpenAI-compatible server (Ollama, vLLM...)
         try:
-            url = f"http://{host}:{port}/v1/models"
-            req = urllib.request.Request(url, headers={"User-Agent": "StoneSage-EngineConsole"})
+            req = urllib.request.Request(f"http://{host}:{port}/v1/models", headers={"User-Agent": "StoneSage-EngineConsole"})
             with urllib.request.urlopen(req, timeout=1.5) as response:
-                if response.getcode() == 200:
-                    data = json.loads(response.read().decode('utf-8'))
-                    model_list = data.get("data", [])
-                    if model_list:
-                        model_alias = model_list[0].get("id", "")
+                model_list = json.loads(response.read().decode("utf-8")).get("data", [])
+                health = {"online": True, "latency_ms": round((time.time() - t0) * 1000, 1)}
+                model_alias = model_list[0].get("id", "") if model_list else ""
         except Exception:
             pass
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        f_health = executor.submit(probe_engine_health, host, port)
-        f_props = executor.submit(fetch_engine_props, host, port)
-        f_slots = executor.submit(fetch_engine_slots, host, port)
-        f_metrics = executor.submit(fetch_engine_metrics, host, port)
-
-        health = f_health.result()
-        props = f_props.result()
-        slots = f_slots.result()
-        metrics = f_metrics.result()
-
-    # Overlay props data if LM Studio didn't provide it
-    if not model_alias:
-        model_alias = props.get("model_alias", "")
-    if not model_path:
-        model_path = props.get("model_path", "")
-
+    dev = _configured_device(host, port)
     return {
-        "key": name,
-        "host": host,
-        "port": port,
-        "device": "Roaming / Dynamic",
-        "role": "Dynamic Node",
-        "service": "unknown",
+        "key": name, "host": host, "port": port,
+        "device": (dev.get("hardware") or {}).get("device") or "unknown",
+        "role": dev.get("name") or "Dynamic Node",
+        "service": "unknown", "api": api,
         "online": health.get("online", False),
         "latency_ms": health.get("latency_ms", 0.0),
         "model": {
-            "path": model_path,
+            "path": props.get("model_path", ""),
             "alias": model_alias,
             "quantization": props.get("model_ftype", ""),
             "modalities": props.get("modalities", {}),
-            "context": model_context,
+            "context": (props.get("default_generation_settings") or {}).get("n_ctx", 0),
         },
-        "slots": slots,
-        "metrics": metrics,
-        "props": props,
-        "is_dynamic": True
+        "slots": slots, "metrics": metrics, "props": props, "is_dynamic": True,
     }
+
 
 def reload_service(service_name: str, ssh_host: str = "192.168.1.105", ssh_user: str = "austin") -> dict:
     """Restarts a systemd service via SSH and polls for health."""

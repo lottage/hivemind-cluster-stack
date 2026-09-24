@@ -210,7 +210,9 @@ function renderDashboard() {
 function renderEngineCard(key, eng) {
   const online = eng.online;
   const statusClass = online ? 'engine-online' : 'engine-offline';
-  const statusText = online ? (eng.slots?.[0]?.is_processing ? '⚡ PROCESSING' : '🟢 IDLE') : '🔴 OFFLINE';
+  const isLmStudio = eng.api === 'lm-studio';
+  const statusText = !online ? '🔴 OFFLINE' : (eng.status_note ? '🟡 NO MODEL LOADED'
+    : (eng.slots?.[0]?.is_processing ? '⚡ PROCESSING' : '🟢 IDLE'));
 
   const model = eng.model || {};
   const metrics = eng.metrics || {};
@@ -238,13 +240,16 @@ function renderEngineCard(key, eng) {
         <span class="econsole-card-status">${statusText}</span>
       </div>
       <div class="econsole-card-body">
-        <div class="econsole-card-row"><span class="econsole-label">Model:</span> <span class="econsole-value">${escapeHtml(model.alias || '—')}</span></div>
+        <div class="econsole-card-row"><span class="econsole-label">Model:</span> <span class="econsole-value">${escapeHtml(model.alias || (eng.available_models ? `none loaded (${eng.available_models.length} available)` : '—'))}${model.params ? ` · ${escapeHtml(model.params)}` : ''}</span></div>
         <div class="econsole-card-row"><span class="econsole-label">File:</span> <span class="econsole-value econsole-mono">${escapeHtml((model.path || '').split('/').pop() || '—')}</span></div>
         <div class="econsole-card-row"><span class="econsole-label">Quantization:</span> <span class="econsole-value">${escapeHtml(model.quantization || '—')}</span></div>
         <div class="econsole-card-row"><span class="econsole-label">Device:</span> <span class="econsole-value">${escapeHtml(eng.device || '—')}</span></div>
-        <div class="econsole-card-row"><span class="econsole-label">Context:</span> <span class="econsole-value">${slot0.n_ctx || '—'}</span></div>
+        <div class="econsole-card-row"><span class="econsole-label">Context:</span> <span class="econsole-value">${slot0.n_ctx || model.context || '—'}${model.max_context ? ` / ${model.max_context} max` : ''}</span></div>
         <div class="econsole-card-row"><span class="econsole-label">Slots:</span> <span class="econsole-value">${eng.slots?.length || '—'}</span></div>
-        ${online ? `
+        ${online && isLmStudio ? `
+        <div class="econsole-card-divider"></div>
+        <div class="econsole-card-row"><span class="econsole-label">API:</span> <span class="econsole-value">LM Studio REST v1 (${eng.latency_ms} ms)</span></div>` : ''}
+        ${online && !isLmStudio ? `
         <div class="econsole-card-divider"></div>
         <div class="econsole-card-row"><span class="econsole-label">Prompt tok/s:</span> <span class="econsole-value econsole-gauge">${promptTps}</span></div>
         <div class="econsole-card-row"><span class="econsole-label">Gen tok/s:</span> <span class="econsole-value econsole-gauge">${genTps}</span></div>
