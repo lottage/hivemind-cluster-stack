@@ -115,8 +115,6 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   live engine (first real apply is John's).
 
 ## Known issues
-- `config.json` `network_devices` (LXC 120 and the workstation copy) still says pve = 192.168.1.229 and
-  bigserv = 192.168.1.82 (real: .222 / .245). No code reads it; fix by hand.
 - Qdrant (2026-09-24): the two `home_automation_registry` device-map points were corrected in place (backup
   `_backups/qdrant_registry_points_backup_2026-09-24.json`). Do NOT re-run `backup_to_qdrant.py`: it upserts with random
   ids and duplicates every document. `codebase_knowledge` still holds 25 stale file snapshots (old IPs, and old layouts
