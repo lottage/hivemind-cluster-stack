@@ -1,0 +1,77 @@
+# Frigate config (canonical copy; live at /opt/frigate/config/config.yml on LXC 128).
+# No secrets here: {FRIGATE_*} are filled from /etc/stonesage/secrets.env at start.
+# Cameras: only ones with RTSP. The TC82 battery cams (side .214, back .130) and the solar TCW90
+# driveway (.228, no RTSP server) stay in wildlife_sentry: push alerts, plus timer snapshots for the solar one.
+
+mqtt:
+  enabled: true
+  host: 192.168.1.82           # Mosquitto add-on on HA OS
+  port: 1883
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+  topic_prefix: frigate
+  client_id: frigate
+
+detectors:
+  ov:
+    type: openvino
+    device: GPU                # UHD 770 via /dev/dri/renderD128
+
+model:                         # SSDLite MobileNet v2 ships inside the Frigate image for OpenVINO
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+go2rtc:                        # one connection per camera; Frigate, HA and StoneSage all read the restream
+  streams:
+    kitchen_living_room:
+      - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream1"
+    kitchen_living_room_sub:
+      - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream2"
+  webrtc:
+    candidates:
+      - 192.168.1.150:8555     # LXC 128 static address
+      - stun:8555
+
+detect:
+  enabled: true
+  fps: 5
+
+objects:
+  track: [person, dog, cat]
+
+record:                        # alerts/detections only (0.18: no continuous recording unless record.continuous is set)
+  enabled: true
+  alerts:
+    retain:
+      days: 7
+  detections:
+    retain:
+      days: 3
+
+snapshots:
+  enabled: true
+  bounding_box: true
+  retain:
+    default: 14
+
+cameras:
+  kitchen_living_room:         # Tapo C260, indoor
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/kitchen_living_room_sub
+          input_args: preset-rtsp-restream
+          roles: [detect]
+        - path: rtsp://127.0.0.1:8554/kitchen_living_room
+          input_args: preset-rtsp-restream
+          roles: [record]
+    objects:
+      track: [person, dog, cat]
+
+version: 0.18-0                # config schema version; without it Frigate migrates and rewrites this file

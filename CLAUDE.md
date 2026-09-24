@@ -33,8 +33,9 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
 
 ## Remote access (Windows OpenSSH, key auth already set up)
 - VM 102 compute: `ssh austin@192.168.1.105` (sudo for systemctl). LXC 120 StoneSage: `ssh root@192.168.1.167`.
+  LXC 128 Frigate: `ssh root@192.168.1.150`. pve node: `ssh root@192.168.1.222` (key added 2026-09-24; shared cluster-wide).
 - Proxmox: API at `https://192.168.1.245:8006` (bigserv; per `/cluster/status`: pve = 192.168.1.222, bigserv = .245;
-  HA OS VM = .82). No SSH key on the nodes yet; use the API.
+  HA OS VM = .82). Prefer the API for guest config; SSH to the nodes for device passthrough and `pct`/`qm`.
 - Deploy with the `homelab-deploy` skill. Never end a quoted Windows path with `\` in scp/ssh args.
 - Use `ssh -n` for non-interactive commands so they don't hang waiting on stdin.
 

@@ -24,6 +24,7 @@ Plan: https://claude.ai/code/artifact/1b6a0188-feca-4e2f-ae48-16f768b3524b
 | LXC 120 stonesage | 192.168.1.167:8888 | StoneSage cockpit (+ :8080 redirect, HTTPS for mic) |
 | LXC 121 voice | 192.168.1.121 | Whisper :8200 / :10300, Kokoro :8300, Piper :10200 |
 | LXC 116 couchdb | 192.168.1.230:5984 | Obsidian LiveSync |
+| LXC 128 frigate (on pve) | 192.168.1.150 | Frigate 0.18.0 (Docker): UI :8971 (auth), API :5000 (LAN), go2rtc :1984/:8554/:8555 |
 
 ## LLM engines (VM 102)
 GPU pinning is done by `Environment=GGML_VK_VISIBLE_DEVICES=N` in each unit, so every unit says
@@ -64,6 +65,26 @@ Native tool calling works on 8001: this llama.cpp build enables `--jinja` by def
 | valkey | running |
 | pve-watchdog (LXC 120) | running, armed (power-cycles pve via Kasa plug .109 after 120 s of all probes failing). Probes pve .222 + VM 102; source `server setup/watchdog/` (live md5 dd0555a3…, 2026-09-23). Tokens from `/etc/stonesage/secrets.env` |
 | stonesage + stonesage-ws (LXC 120) | running; `/api/health/all` live since 13:05. `stonesage-ws` only polls loop status, makes no LLM calls |
+
+VM 102 memory 26000 -> 22528 MB on 2026-09-24 (room for Frigate on pve; pre-change conf `/root/102.conf.bak-2026-09-24-frigate`
+on pve). VM 102 ignores ACPI shutdown (no guest agent): power it off from inside (`sudo systemctl poweroff`), not `qm shutdown`.
+Boot race found on that reboot: llama-coordinator started 1 s before amdgpu had the 6750 XT up and silently ran on CPU
+(0.8 tok/s, /health still 200). Fix: `/usr/local/bin/wait-for-gpus.sh` (repo `server setup/vm-setup/`) as ExecStartPre via
+drop-in `<unit>.service.d/wait-gpus.conf` on llama-coordinator, llama-worker, llama-embed, vision-server. Waits until Vulkan
+sees as many AMD GPUs as the PCI bus has (max 90 s).
+
+## Frigate (Phase 3, LXC 128 on pve, 2026-09-24)
+Unprivileged Debian 13 LXC, 4 cores, 3 GB, 64 GB, `dev0: /dev/dri/renderD128` (UHD 770). Docker (Debian packages), compose
+in `/opt/frigate`; repo `server setup/frigate/` (docker-compose.yml, config.yml with `version: 0.18-0` so Frigate does not
+rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tapo camera account, HA user `frigate` for MQTT).
+- Detector: OpenVINO on GPU, SSDLite MobileNet v2, 5.4 ms/inference; iGPU ~2.4 % with one camera; Frigate ~0.9 GB RAM.
+- MQTT to Mosquitto on HA (.82:1883), `frigate/available online` verified.
+- Cameras: kitchen_living_room (C260 .146; stream2 h264 1280x720 detect at 5 fps, stream1 HEVC 4K record, alerts 7 d,
+  detections 3 d, snapshots 14 d). Driveway TCW90 (.228) is solar and has no RTSP server (554 closed): stays in
+  wildlife_sentry. TC82 battery cams (.214, .130) stay on the Tapo push path.
+- Tapo locks the RTSP login out after repeated failures: stop Frigate before retrying a bad password.
+- Still open (Phase 3): presence service from Frigate MQTT events, camera_look via Frigate snapshots, go2rtc WebRTC in the
+  StoneSage camera tab, commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,
