@@ -60,7 +60,7 @@ Native tool calling works on 8001: this llama.cpp build enables `--jinja` by def
 | llama-coordinator / worker / embed / vision-server | running |
 | cluster-mcp (:8765) | running. Thinking loop no longer auto-starts (`AUTONOMOUS_AUTOSTART=1` to enable); stopped at cycle 1717. Repo and live `mcp_server.py` reconciled 13:15 (md5 e0f0f82b…). Reads `HASS_*` from `/etc/stonesage/secrets.env` |
 | agent-assembly (:8766) | stopped + disabled 2026-09-23 (code kept) |
-| wildlife-sentry | running; canonical source is `server setup/cluster-bridge/wildlife_sentry_daemon.py` |
+| wildlife-sentry | running; canonical source is `server setup/cluster-bridge/wildlife_sentry_daemon.py` (live = repo since 2026-09-24). Reads `HASS_*` from `/etc/stonesage/secrets.env` via drop-in `wildlife-sentry.service.d/secrets.conf`; the live script had the HA token hardcoded until then (pre-change copy `/opt/cluster-bridge/wildlife_sentry_daemon.py.bak-2026-09-24`, 600: delete after rotating) |
 | valkey | running |
 | pve-watchdog (LXC 120) | running, armed (power-cycles pve via Kasa plug .109 after 120 s of all probes failing). Probes pve .222 + VM 102; source `server setup/watchdog/` (live md5 dd0555a3…, 2026-09-23). Tokens from `/etc/stonesage/secrets.env` |
 | stonesage + stonesage-ws (LXC 120) | running; `/api/health/all` live since 13:05. `stonesage-ws` only polls loop status, makes no LLM calls |
