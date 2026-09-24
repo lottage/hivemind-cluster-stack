@@ -17,7 +17,7 @@
   },
   "homeassistant": {
     "url": "http://192.168.1.82:8123",
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxx"
+    "token": "YOUR_HA_LONG_LIVED_TOKEN"
   },
   "proxmox": {
     "host": "192.168.1.245",
