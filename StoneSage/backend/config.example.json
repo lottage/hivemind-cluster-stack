@@ -64,5 +64,22 @@
   },
   "kavita": {
     "url": "http://192.168.1.124:5000"
+  },
+  "project_phase": 2,
+  "engine_profiles": {
+    "courage_default": {
+      "description": "Coordinator + worker on the inference host. Unlisted engines are left alone.",
+      "targets": {
+        "engine:coordinator": { "model": "/opt/models/qwen3-14b-q4_k_m.gguf" },
+        "engine:worker": { "model": "/opt/models/qwen2.5-coder-3b-instruct-q5_k_m.gguf" }
+      }
+    },
+    "edge_gated_example": {
+      "description": "Only applies once project_phase >= min_phase. model: a key from /api/loader/library?node=lmstudio:<id>.",
+      "min_phase": 4,
+      "targets": {
+        "lmstudio:rog_ally_x": { "model": null, "ctx_per_slot": 8192 }
+      }
+    }
   }
 }

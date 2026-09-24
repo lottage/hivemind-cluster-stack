@@ -113,6 +113,14 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
 - Apply: diff of the unit, token-checked apply, backup `<unit>.bak-loader-<ts>`, restart, /health + /props check,
   automatic rollback. `--metrics`, `--slots`, `--props` cannot be removed (StoneSage reads them). Not yet exercised on a
   live engine (first real apply is John's).
+- Engine Profiles (live 2026-09-24, `backend/engine_profiles.py`, routes `/api/engine-profiles[/job|/apply]`, strip at the
+  top of the Model Loader): named "which model on which target" bundles from `config.json engine_profiles`, applied one
+  target at a time through the loader's preview + apply (so the same backup/rollback). A profile only touches the
+  targets it lists; sizing it leaves out is copied from the live engine; a target already running the model is skipped;
+  a failing target does not stop the rest (job status `partial`). `min_phase` gates a profile on `config.json project_phase`
+  (live: 2). Profiles live: `courage_default` (= current layout, shows "live"), `ally_coding` (no model picked yet),
+  `ally_agents_free` (min_phase 4). Verified live with a no-op apply of `courage_default` (both targets skipped, no restart).
+  Live config pre-change: `/opt/stonesage/backend/config.json.bak-engine-profiles-20260924-080452` on LXC 120.
 
 ## Known issues
 - Qdrant (2026-09-24): the two `home_automation_registry` device-map points were corrected in place (backup
@@ -148,7 +156,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 179 tests, 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 189 tests, 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.
