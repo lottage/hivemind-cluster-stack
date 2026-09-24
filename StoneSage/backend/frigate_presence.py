@@ -113,6 +113,25 @@ class FrigatePresence:
             }
         return out
 
+    # ------------------------------------------------------- camera look ----
+    def in_view_now(self, camera: str) -> List[Dict[str, Any]]:
+        """Objects Frigate is tracking on this camera right now, asked at call time (~0.1 s) rather than
+        trusted from memory, where a dropped websocket could leave an event open forever."""
+        with urllib.request.urlopen(f"{self.url}/api/events?camera={camera}&in_progress=1&limit=20", timeout=3) as r:
+            events = json.load(r)
+        out = []
+        for ev in events:
+            if ev.get("end_time") or ev.get("false_positive") or _score(ev) < self.min_score:
+                continue
+            out.append({"label": ev.get("label"), "name": self.identify(ev), "score": round(_score(ev), 2),
+                        "for_s": int(max(0.0, self.clock() - (ev.get("start_time") or self.clock())))})
+        return out
+
+    def latest_frame(self, camera: str, height: int = 448) -> bytes:
+        """Frigate's newest decoded frame for the camera (~0.1 s, local), instead of an HA snapshot (~1.5 s)."""
+        with urllib.request.urlopen(f"{self.url}/api/{camera}/latest.jpg?h={height}", timeout=3) as r:
+            return r.read()
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             active = [{"name": r["name"], "camera": r["camera"], "label": r["label"]} for r in self.active.values()]
@@ -168,6 +187,18 @@ class FrigatePresence:
             logger.warning(f"Frigate presence bootstrap failed: {e}")
         self._thread = threading.Thread(target=lambda: asyncio.run(self._listen()), name="frigate-presence", daemon=True)
         self._thread.start()
+
+
+def describe_in_view(objects: List[Dict[str, Any]]) -> str:
+    """'Kylo (dog, in view 40 s), a person (not identified, 5 s)' for Courage; household names where known."""
+    parts = []
+    for o in objects:
+        who = o.get("name")
+        if who and who != UNKNOWN_PERSON:
+            parts.append(f"{who.capitalize()} ({o.get('label')}, in view {o.get('for_s', 0)} s)")
+        else:
+            parts.append(f"a {o.get('label')} (not identified, in view {o.get('for_s', 0)} s)")
+    return ", ".join(parts)
 
 
 def merge_locations(hub: Dict[str, Dict[str, Any]], frigate: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

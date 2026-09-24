@@ -71,6 +71,29 @@ class TestIngest(unittest.TestCase):
         self.assertIsNone(p.handle_message(json.dumps({"topic": "stats", "payload": "{}"})))
 
 
+class TestCameraLook(unittest.TestCase):
+    def _fake_urlopen(self, events):
+        import io
+        from unittest import mock
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = io.BytesIO(json.dumps(events).encode())
+        return mock.patch("frigate_presence.urllib.request.urlopen", return_value=resp)
+
+    def test_in_view_now_filters_ended_low_and_false_positive(self):
+        events = [ev("live", "dog", NOW - 40), ev("done", "cat", NOW - 90, end=NOW - 60),
+                  ev("weak", "person", NOW - 5, score=0.4), ev("fp", "person", NOW - 5, false_positive=True),
+                  ev("anon", "person", NOW - 5)]
+        with self._fake_urlopen(events):
+            objs = fp().in_view_now("kitchen_living_room")
+        self.assertEqual([(o["name"], o["for_s"]) for o in objs], [("kylo", 40), ("someone", 5)])
+
+    def test_describe_in_view_names_known_and_hedges_unknown(self):
+        from frigate_presence import describe_in_view
+        text = describe_in_view([{"label": "dog", "name": "kylo", "for_s": 40},
+                                 {"label": "person", "name": "someone", "for_s": 5}])
+        self.assertEqual(text, "Kylo (dog, in view 40 s), a person (not identified, in view 5 s)")
+
+
 class TestMerge(unittest.TestCase):
     def test_newest_source_wins_per_identity(self):
         hub = {"austin": {"minutes_ago": 12.0, "camera": "Kitchen/Living"}, "kylo": {"minutes_ago": 30.0}}

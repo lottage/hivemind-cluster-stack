@@ -68,7 +68,8 @@
   "frigate": {
     "url": "http://192.168.1.150:5000",
     "identities": { "cat": "luna", "dog": "kylo" },
-    "min_score": 0.7
+    "min_score": 0.7,
+    "cameras": { "camera.kitchen_living_room_hd_stream": "kitchen_living_room" }
   },
   "project_phase": 2,
   "engine_profiles": {

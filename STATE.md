@@ -90,8 +90,15 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   `_courage_presence()` merges Frigate over the hub per identity (newest wins) on every read. Status:
   `GET /api/frigate/presence`. Verified live: "Where's Kylo?" answered in 5.4 s from a 4.5-min-old Frigate sighting (no
   camera look). In memory only (no Valkey keys or HA sensors from Frigate yet).
-- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), camera_look via Frigate snapshots, go2rtc WebRTC
-  in the StoneSage camera tab, commentary engine, HA Frigate integration.
+- camera_look via Frigate (live 2026-09-24, `_courage_camera_look` in server.py, `config.json frigate.cameras` maps HA
+  entity -> Frigate camera): asks Frigate what is in view (`/api/events?in_progress=1`, ~0.1 s), names it, and runs the
+  VLM on Frigate's `latest.jpg` (~0.1 s) instead of an HA snapshot (~1.5 s). The VLM is skipped only for presence_now's
+  stale-sighting look (`people_only=True`) when Frigate sees nobody. camera_look itself always runs the VLM: a live eval
+  showed Qwen3-14B does not reliably ask for a "full" look on object questions (package, stove), and Frigate only tracks
+  people/dogs/cats, so a skipped look would answer wrong. Frigate unreachable -> old HA snapshot path.
+  Live: object question 5.3 s end to end; tool choice unchanged (42/42, 41/42).
+- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), go2rtc WebRTC in the StoneSage camera tab,
+  commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,

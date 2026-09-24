@@ -2398,9 +2398,10 @@ def _select_camera_for_query(user_query: str) -> Tuple[str, str]:
         return "camera.back_yard_hd_stream_direct", "Back Yard"
     return "camera.kitchen_living_room_hd_stream", "Kitchen/Living Room"
 
-def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "") -> Optional[str]:
-    """Capture a single frame from a camera and run vision analysis with retry for GPU recovery."""
-    img_bytes = hass.get_camera_snapshot(cam_eid)
+def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "",
+                          img_bytes: Optional[bytes] = None) -> Optional[str]:
+    """Run vision analysis on one frame (fetched from HA unless the caller passes one) with retry for GPU recovery."""
+    img_bytes = img_bytes or hass.get_camera_snapshot(cam_eid)
     if not img_bytes:
         return None
 
@@ -2595,6 +2596,28 @@ def _courage_presence() -> Dict[str, Any]:
     return {**state, "locations": merge_locations(state.get("locations") or {}, fp.locations())}
 
 
+def _courage_camera_look(cam_eid: str, cam_name: str, people_only: bool = False) -> Optional[str]:
+    """Courage's camera looks. For a camera Frigate watches (config.json frigate.cameras: HA entity -> Frigate
+    camera) the frame is Frigate's latest (~0.1 s, vs ~1.5 s for an HA snapshot) and Frigate's tracked objects
+    are named first. The VLM is skipped only for people_only looks (presence_now) when Frigate sees nobody:
+    a camera_look question may be about anything, and Frigate only tracks people, dogs and cats.
+    Other cameras, or Frigate unreachable: the HA snapshot + VLM path as before."""
+    fp = get_frigate_presence()
+    fcam = ((load_config().get("frigate") or {}).get("cameras") or {}).get(cam_eid)
+    if fp and fcam:
+        try:
+            from frigate_presence import describe_in_view
+            objects = fp.in_view_now(fcam)
+            if not objects and people_only:
+                return f"Frigate, live on {cam_name}: no people, dogs or cats in view right now."
+            seen = describe_in_view(objects) or "no people, dogs or cats"
+            desc = _analyze_single_frame(cam_eid, cam_name, img_bytes=fp.latest_frame(fcam))
+            return f"Frigate, live on {cam_name}: {seen}." + (f" Vision: {desc}" if desc else "")
+        except Exception as e:
+            logger.warning(f"Frigate camera_look on {cam_name} failed, falling back to HA snapshot: {e}")
+    return _analyze_single_frame(cam_eid, cam_name)
+
+
 def _courage_runs_on() -> Optional[str]:
     """Courage's own model and GPU from the live profile, e.g. 'Qwen3 14B on an AMD Radeon RX 6750 XT'."""
     prof = system_profile.get_profile(load_config())
@@ -2637,7 +2660,7 @@ def get_courage_agent():
                 ha_states=lambda domain: hass.get_states(domain),
                 ha_call=lambda domain, service, data: hass.call_service(domain, service, data),
                 presence=_courage_presence,
-                camera_look=lambda eid, name: _analyze_single_frame(eid, name),
+                camera_look=_courage_camera_look,
                 camera_scan=scan_camera_presets,
                 memory_search=_courage_memory_search,
                 notify=_courage_notify,
