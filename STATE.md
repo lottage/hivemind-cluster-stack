@@ -68,8 +68,13 @@ Native tool calling works on 8001: this llama.cpp build enables `--jinja` by def
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,
 a `cluster.hardware.vision` card was added, and 3 `aevu-test-gen2` test cards were removed. The seed text lives in
-`server setup/cluster-bridge/amem_engine.py` (re-seeded when `cluster-mcp` starts) and
-`harness/data_fabric/valkey_amem.py` (core cards). Update both when hardware changes.
+`server setup/cluster-bridge/amem_engine.py` and `harness/data_fabric/valkey_amem.py` (core cards; `core_topology` is
+built from the live system profile). Update both when hardware changes.
+`amem_engine.py` seeds only when an `AMEMEngine` is constructed, and its only caller is the disabled Assembly Hall, so
+`cluster-mcp` restarts do NOT re-seed. To apply seed edits on VM 102:
+`cd /opt/cluster-bridge && /opt/cluster-env/bin/python3 -c 'from amem_engine import AMEMEngine; AMEMEngine()'`.
+Done 2026-09-23 20:13 for the node-IP fix (`cluster.topology.management_vip` now says pve .222 / bigserv .245;
+previous engine at `/opt/cluster-bridge/amem_engine.py.bak-2026-09-23-nodeips`). No card mentions .229 any more.
 Pre-change backup of all 250 cards: `_backups/valkey_cards_backup_2026-09-23.jsonl` (gitignored; old engine at
 `/opt/cluster-bridge/amem_engine.py.bak-2026-09-23`).
 85 `agent_contract` cards (agent reproduction) and ~110 `curated_*` cards (thinking loop) remain untouched.
@@ -95,6 +100,9 @@ Hardware, model and engine labels are no longer written in code. Sources, in ord
   named models that are no longer loaded. Still hardcoded (shelved, not extended): Citadel 3D, trainer/HF browser, thinking-loop topics.
 
 ## Known issues
+- `config.json` `network_devices` (LXC 120 and the workstation copy) still says pve = 192.168.1.229 and
+  bigserv = 192.168.1.82 (real: .222 / .245). No code reads it; fix by hand. The Qdrant device-map document from
+  `backup_to_qdrant.py` has the old IPs until that script is re-run.
 - `ws_broker.py` banner text still describes the old topology.
 - `thinking_state.json` on VM 102 still says `is_running: true` (written before the old process was killed); the live
   `autonomous_thinking_status` tool correctly reports false.

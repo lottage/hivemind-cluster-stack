@@ -203,7 +203,7 @@ class AgentDNAManager:
                     )
                 },
                 "amem_facts": [
-                    "Node 2 'bigserv' (192.168.1.82) runs Home Assistant OS, NAS, and container services.",
+                    "Node 2 'bigserv' (192.168.1.245) runs Home Assistant OS (VM 103, 192.168.1.82), NAS, and container services.",
                     "StoneSage cockpit is hosted on LXC 120 (192.168.1.167:8888) with redirect on :8080."
                 ],
                 "autonomy_goals": [

@@ -350,7 +350,8 @@ def backup_project():
             "title": "Homelab Static IP & IoT Hardware Device Map",
             "content": (
                 "Complete Hardware Device & Static DHCP Mapping:\n"
-                "- Hypervisors: pve (192.168.1.229), bigserv (192.168.1.82)\n"
+                "- Hypervisors: pve (192.168.1.222), bigserv (192.168.1.245, Proxmox API :8006)\n"
+                "- Home Assistant OS: VM 103 on bigserv (192.168.1.82:8123)\n"
                 "- AI Stack: ubu VM 102 (192.168.1.105), qdrant LXC 117 (192.168.1.112:6333)\n"
                 "- Media & Automation LXCs: kavita (192.168.1.124:5000), jellyfin (192.168.1.180:8096), immich (192.168.1.238:9000), "
                 "freshrss (192.168.1.212:80), qbittorrent (192.168.1.169:8090), flaresolverr (192.168.1.159:8191), docker (192.168.1.204:9443)\n"

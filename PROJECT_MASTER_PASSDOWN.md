@@ -19,11 +19,11 @@ All local infrastructure is deployed across Proxmox VE Datacenter `home` on two 
 
 | Host / VM / LXC | IP Address | Port(s) | Role & Service Description | Authentication / Credentials |
 | :--- | :--- | :--- | :--- | :--- |
-| **Proxmox Cluster VIP** | `https://192.168.1.245` | `:8006` | Central Datacenter PVE 9.2 API daemon managing `pve` & `bigserv` | Header: `PVEAPIToken=USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
-| **Node 1: `pve`** | `192.168.1.229` | `:8006` | Physical Host 1: Intel i7-12700K, 32GB RAM, Dual AMD GPUs | SSH: `austin@192.168.1.229` |
+| **Proxmox Cluster API** | `https://192.168.1.245` | `:8006` | PVE 9.2 API for `pve` & `bigserv` (served by bigserv) | Header: `PVEAPIToken=USER@pam!TOKENID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| **Node 1: `pve`** | `192.168.1.222` | `:8006` | Physical Host 1: Intel i7-12700K, 32GB RAM, Dual AMD GPUs | SSH: no key installed yet; use the API |
 | **VM 102: `ubu`** | `192.168.1.105` | `:8001`<br>`:8002`<br>`:8003`<br>`:8004`<br>`:6379`<br>`:8765`<br>`:8766` | **Dual-GPU & Multimodal Compute Host (Ubuntu 24.04)**:<br>• `:8001` Coordinator: `Ornith-1.5-9B-Instruct` (Q8_0) on RX 6750 XT 12GB (`Vulkan0`)<br>• `:8002` Worker: `Ornith-1.5-9B-Instruct` (Q4_K_M) on RX 6600 XT 8GB (`Vulkan1`)<br>• `:8003` Embedder: `bge-large-en-v1.5` (F16) on RX 6600 XT 8GB (`Vulkan1`)<br>• `:8004` **Vision Server**: `Gemma-4-E4B-it-Q8_0` + `mmproj` (CPU 12 cores) for 24/7 camera analysis<br>• `:6379` **Valkey 9.0.4 In-RAM Store**: Sub-ms A-MEM atomic working memory & tag index<br>• `:8765` **Cluster MCP Bridge & Autonomous Engine**: Starlette SSE/JSON-RPC daemon<br>• `:8766` **Sovereign Agent Assembly Hall**: Multi-channel real-time agent streaming fabric<br>• **`wildlife-sentry.service`**: FaunaSentinel 24/7 autonomous perception & Re-ID daemon | SSH: `austin@192.168.1.105`<br>Local model endpoints use standard OpenAI-compatible API (`/v1/chat/completions`) |
 | **LXC 117: `qdrant`** | `192.168.1.112` | `:6333` | Dedicated Vector Database (1024-dim Cosine, 6 active collections) | No auth required on local LAN |
-| **Node 2: `bigserv`** | `192.168.1.82` | `:8006` | Physical Host 2: Core homelab application & storage server | SSH: `austin@192.168.1.82` |
+| **Node 2: `bigserv`** | `192.168.1.245` | `:8006` | Physical Host 2: Core homelab application & storage server | SSH: no key installed yet; use the API |
 | **VM 103: `haos-17.3`** | `192.168.1.82` | `:8123` | Home Assistant OS (Matter, Zigbee, Nest Thermostat, Smart Plugs) | Bearer Token in `StoneSage/backend/config.json` |
 | **LXC 116: `obsidian-live-sync`**| `192.168.1.230` | `:5984` | Apache CouchDB (Obsidian LiveSync server for encrypted notes) | Credentials: see local `config.json` / `/etc/stonesage/secrets.env` (never in docs) |
 | **LXC 120: `stonesage`** | `192.168.1.167` | `:8080`<br>`:8086` | 24/7 StoneSage Cockpit server (`:8080`) and WebSocket Broker (`:8086`) | APK download: `http://192.168.1.167:8080/stonesage.apk` |
@@ -326,7 +326,7 @@ Diagnosed and fixed a 10-minute freeze in the background rumination manager:
    - If a token fails with HTTP 403 `Permission check failed (..., Sys.Audit)`, either add an explicit ACL permission under *Datacenter -> Permissions* (Path `/`, Role `Administrator` or `PVEAuditor`, Propagate enabled) OR re-create the token with "Privilege Separation" unchecked.
 
 6. **Proxmox Cluster API Host Binding**:
-   - Direct calls to `192.168.1.229:8006` or `192.168.1.82:8006` time out. All cluster operations must target the cluster VIP `https://192.168.1.245:8006`.
+   - Use `https://192.168.1.245:8006` (bigserv) for all cluster API operations, node telemetry and guest inventories. `192.168.1.82` is the Home Assistant OS VM, not a Proxmox node; pve is `192.168.1.222` (both per the Proxmox `/cluster/status` API, 2026-09-23).
 
 7. **Windows OpenSSH Trailing Slash Escaping Invariant**:
    - When invoking `scp.exe` or `ssh.exe` from Windows PowerShell or Python, never end a quoted Windows directory path with a trailing backslash (e.g., `"C:\dest\"`). The trailing `\"` escapes the quote in OpenSSH, causing `Invalid argument` errors. Always strip trailing slashes (e.g., `$dir.TrimEnd('\').TrimEnd('/')`).
@@ -577,7 +577,7 @@ Located at [`StoneSage/frontend/citadel3d/`](file:///c:/Users/johna/OneDrive/Doc
 # PART 11: PVE HARDWARE FENCING WATCHDOG & PARALLEL ROCM 10 STACK
 
 ## 11.1 Out-of-Band Hardware Watchdog (`pve-watchdog.service`)
-- **Deployment**: Runs on Node 2 (`bigserv` / LXC 120 `192.168.1.167`), monitoring Node 1 (`pve` `192.168.1.229`).
+- **Deployment**: Runs on Node 2 (`bigserv` / LXC 120 `192.168.1.167`), monitoring Node 1 (`pve` `192.168.1.222`).
 - **Control Vector**: TP-Link Kasa KP125 smart plug (`192.168.1.109:9999`) via raw local TCP port 9999 XOR protocol (zero cloud dependency, < 10ms execution).
 - **The 5 Invariants**:
   1. Multi-vector probe (host ping/SSH, VM 102 ping/SSH, and PVE cluster API status).

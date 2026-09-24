@@ -5,7 +5,7 @@ color 02
 echo =====================================================================
 echo   StoneSage Homelab Command Center + AI Cognitive Cockpit
 echo   Dual-GPU Cluster: 14B Coordinator (:8001) + 3B Worker (:8002)
-echo   Proxmox Nodes: pve (192.168.1.229) and bigserv (192.168.1.82)
+echo   Proxmox Nodes: pve (192.168.1.222) and bigserv (192.168.1.245)
 echo   Home Assistant: http://192.168.1.82:8123
 echo =====================================================================
 echo.

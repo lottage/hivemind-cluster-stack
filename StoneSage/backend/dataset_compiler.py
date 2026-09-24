@@ -30,9 +30,9 @@ os.makedirs(DATASETS_DIR, exist_ok=True)
 
 # Standard Grounded Endpoints
 VALID_HOSTS = {
-    "192.168.1.245": "Proxmox Cluster VIP (:8006)",
-    "192.168.1.222": "Node 1 PVE Compute Host",
-    "192.168.1.82": "Node 2 Bigserv Application Host",
+    "192.168.1.245": "Node 2 bigserv Application Host, Proxmox API (:8006)",
+    "192.168.1.222": "Node 1 pve Compute Host",
+    "192.168.1.82": "VM 103 Home Assistant OS (:8123)",
     "192.168.1.105": "VM 102 inference host (:8001, :8002, :8003, :8765, :8766)",
     "192.168.1.112": "LXC 117 Qdrant Vector Brain (:6333)",
     "192.168.1.167": "LXC 120 StoneSage Cockpit (:8080)",
@@ -283,7 +283,7 @@ class DatasetCompiler:
             "MANDATORY CURATION RULES:\n"
             "1. ELIMINATE ALL HALLUCINATIONS: If the input contains non-existent Python libraries, invalid CLI flags, "
             "fake API parameters, or flawed mathematical logic, you must rewrite it into authentic, verifiable code.\n"
-            "2. HOMELAB GROUNDING: Ensure all network targets match reality: Proxmox VIP is 192.168.1.245:8006, "
+            "2. HOMELAB GROUNDING: Ensure all network targets match reality: Proxmox API is 192.168.1.245:8006, "
             "PVE compute host is 192.168.1.222, Bigserv is 192.168.1.245, HA OS is 192.168.1.82, GPU host is 192.168.1.105 (ports 8001/8002/8003), "
             "Qdrant is 192.168.1.112:6333, Home Assistant is 192.168.1.82:8123, StoneSage is 192.168.1.167:8080.\n"
             "3. NO LENIENCY BIAS: Do not give passing scores to hollow cheerleading or boilerplate.\n"

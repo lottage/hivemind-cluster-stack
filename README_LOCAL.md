@@ -6,7 +6,7 @@
 > **Workspace**: [`c:/Users/johna/OneDrive/Documents/.ai`](file:///c:/Users/johna/OneDrive/Documents/.ai)  
 > **Obsidian Vault**: `C:\Users\johna\OneDrive\Documents\obsidian\`  
 > **Host LAN IP**: `192.168.1.132` (Windows Harness Host)  
-> **Cluster VIP**: `https://192.168.1.245:8006` (Proxmox VE 9.2 API)  
+> **Cluster API**: `https://192.168.1.245:8006` (Proxmox VE 9.2 API, served by bigserv)  
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## 2. Complete Local Infrastructure & Endpoint Directory
 
-### Node 1: `pve` (`192.168.1.229` - Intel i7-12700K, 32GB RAM, Dual AMD GPUs)
+### Node 1: `pve` (`192.168.1.222` - Intel i7-12700K, 32GB RAM, Dual AMD GPUs)
 
 Power-fenced via TP-Link Kasa KP125 (`192.168.1.109:9999`).
 
@@ -59,9 +59,9 @@ SSH: `ssh root@192.168.1.112`
 
 ---
 
-### Node 2: `bigserv` (`192.168.1.82` - Application, Media & Storage Node)
+### Node 2: `bigserv` (`192.168.1.245` - Application, Media & Storage Node)
 
-SSH: `ssh root@192.168.1.82`
+SSH: `ssh root@192.168.1.245` (no key installed yet; use the API)
 
 | Host / VM / Container | IP Address | Port | Description |
 | :--- | :--- | :--- | :--- |
@@ -189,7 +189,7 @@ python -m unittest discover -s pipeline-gguf-trainer/tests -p "test_*.py"
 
 1. **Unquantized KV Cache Priority**: If weights and uncompressed F16 KV cache fit within VRAM, never quantize KV. Ornith-1.5-9B on `:8002` runs at 8,192 context with unquantized F16 KV cache (`-ctk f16 -ctv f16`) using 6.8 GB of 8.0 GB VRAM.
 2. **Vulkan Device Naming**: Always use `--device Vulkan0` and `--device Vulkan1`. Never pass integer device indexes.
-3. **Proxmox Cluster VIP**: All API telemetry calls must target `https://192.168.1.245:8006`. Never query physical node IPs directly.
+3. **Proxmox Cluster API**: All API telemetry calls target `https://192.168.1.245:8006` (bigserv). `192.168.1.82` is the Home Assistant OS VM, not a Proxmox node.
 4. **BGE Context Limit (< 512 Tokens)**: Port `:8003` accepts chunks under 1,000 characters. Exceeding 512 tokens causes HTTP 500.
 5. **Vision Server 640px Pre-Resizing**: Always pre-resize camera frames with Lanczos interpolation to max 640px before calling `:8004`. Reduces latency from 31 seconds to 3.8 seconds.
 6. **Zero-Leak Secret Policy**: Never commit credentials to git. All examples in docs must use synthetic dummy strings.

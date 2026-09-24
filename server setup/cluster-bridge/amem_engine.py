@@ -250,7 +250,7 @@ class AMEMEngine:
         core_atoms = [
             (
                 "cluster.topology.management_vip",
-                "Proxmox Datacenter 'home' unified API VIP is https://192.168.1.245:8006 managing physical nodes pve (192.168.1.229) and bigserv (192.168.1.82).",
+                "Proxmox Datacenter 'home' has two physical nodes: pve (192.168.1.222) and bigserv (192.168.1.245). The cluster API is https://192.168.1.245:8006 (served by bigserv).",
                 ["proxmox", "pve", "bigserv", "cluster", "vip", "management", "api", "topology"],
                 "cluster"
             ),

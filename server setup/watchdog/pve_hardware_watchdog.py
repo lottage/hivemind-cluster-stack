@@ -3,7 +3,7 @@
 PVE Hardware Watchdog & Out-of-Band Power Cycler (Fencing Daemon)
 Runs 24/7 on Node 2 (LXC 120 'stonesage' @ 192.168.1.167 on bigserv).
 
-Monitors Node 1 ('pve' @ 192.168.1.229) and compute VM 102 ('ubu' @ 192.168.1.105)
+Monitors Node 1 ('pve' @ 192.168.1.222) and compute VM 102 ('ubu' @ 192.168.1.105)
 using a triangulated multi-vector probing matrix. When 100% frozen/unresponsive
 for >= 120 continuous seconds, power-cycles the TP-Link Kasa KP125 smart plug ('Server' @ 192.168.1.109)
 via local TCP :9999 (8-second off duration to discharge motherboard/PSU capacitors).
@@ -25,7 +25,7 @@ import urllib.error
 from datetime import datetime
 
 # Default Network Topology Configuration
-PVE_HOST_IP = "192.168.1.229"        # Physical Node 1 (pve)
+PVE_HOST_IP = "192.168.1.222"        # Physical Node 1 (pve)
 PVE_SSH_PORT = 22
 VM102_IP = "192.168.1.105"           # Dual AMD GPU compute host VM (ubu)
 VM102_SSH_PORT = 22
