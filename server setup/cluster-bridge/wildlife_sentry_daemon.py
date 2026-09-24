@@ -98,8 +98,9 @@ CAMERAS = [
         "keywords": ["driveway", "front door", "front"],
         "is_wildlife_primary": False,
         "is_battery": True,
+        "power": "solar",      # TCW90: battery + solar panel, no RTSP; timer polls allowed (see solar_poll_interval)
         "battery_sensor": "sensor.driveway_front_door_battery",
-        "poll_interval": 1800  # 30 minutes baseline safety check
+        "poll_interval": 300   # base interval at a healthy charge
     },
     {
         "id": "camera.kitchen_living_room_hd_stream",
@@ -113,6 +114,18 @@ CAMERAS = [
     }
 ]
 
+def solar_poll_interval(level: Optional[int], base: float) -> Optional[float]:
+    """How often a solar-charged camera may be woken for a timer snapshot.
+
+    level: battery percent from HA (None if the sensor could not be read).
+    base:  the camera's poll_interval, meant for a healthy charge (driveway: 300 s).
+    Returns seconds between snapshots, or None to stop timer polling (push alerts still work).
+    Each wake costs the camera a few seconds of Wi-Fi and encoder power; the panel refills it by day.
+    """
+    # TODO: battery-dependent policy (John, later). Until then: the base interval. Not deployed yet.
+    return base
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [WildlifeSentry] %(message)s"
@@ -125,6 +138,7 @@ class WildlifeSentryDaemon:
         self.last_frames: Dict[str, Image.Image] = {}
         self.last_sightings: Dict[str, float] = {}             # Cooldown tracker
         self.last_polled: Dict[str, float] = {}                # Per-camera schedule tracker
+        self.battery_cache: Dict[str, Tuple[float, Optional[int]]] = {}  # sensor -> (read at, level)
         self.camera_backoffs: Dict[str, float] = {}            # Per-camera error backoff tracker
         self.last_notification_triggers: Dict[str, float] = {} # Debounce tracker
         self.last_notification_post_times: Dict[str, int] = {}  # Timestamp tracker for active notifications
@@ -219,6 +233,24 @@ class WildlifeSentryDaemon:
         except Exception:
             pass
         return None
+
+    def _battery_cached(self, battery_sensor: Optional[str], max_age: float = 600) -> Optional[int]:
+        """get_battery_level() at most once per max_age seconds per sensor (the main loop ticks every few seconds)."""
+        if not battery_sensor:
+            return None
+        read_at, level = self.battery_cache.get(battery_sensor, (0.0, None))
+        if time.time() - read_at > max_age:
+            level = self.get_battery_level(battery_sensor)
+            self.battery_cache[battery_sensor] = (time.time(), level)
+        return level
+
+    def periodic_interval(self, cam: Dict[str, Any]) -> Optional[float]:
+        """Seconds between timer snapshots for this camera, or None to never wake it on a timer."""
+        if not cam.get("is_battery"):
+            return cam.get("poll_interval", 1800)
+        if cam.get("power") != "solar":
+            return None  # ZERO-DRAIN rule: plain battery cams wake only on a hardware push
+        return solar_poll_interval(self._battery_cached(cam.get("battery_sensor")), cam.get("poll_interval", 300))
 
     def fetch_camera_snapshot(self, entity_id: str) -> Optional[bytes]:
         backoff_until = getattr(self, "camera_backoffs", {}).get(entity_id, 0)
@@ -1569,12 +1601,11 @@ class WildlifeSentryDaemon:
             entity_id = cam["id"]
             cam_name = cam["name"]
             
-            # ZERO-DRAIN BATTERY RULE: Battery cameras NEVER wake up on periodic timers.
-            # They stay in ultra-low-power Wi-Fi deep sleep until an actual hardware push notification arrives.
-            if cam.get("is_battery"):
+            # ZERO-DRAIN BATTERY RULE: plain battery cameras NEVER wake up on periodic timers; they stay in
+            # deep sleep until a hardware push arrives. Solar cameras get a battery-dependent interval.
+            interval = self.periodic_interval(cam)
+            if interval is None:
                 continue
-
-            interval = cam.get("poll_interval", 1800)
             last_time = self.last_polled.get(entity_id, 0)
             if now - last_time < interval:
                 continue

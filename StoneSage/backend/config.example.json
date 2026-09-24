@@ -65,6 +65,11 @@
   "kavita": {
     "url": "http://192.168.1.124:5000"
   },
+  "frigate": {
+    "url": "http://192.168.1.150:5000",
+    "identities": { "cat": "luna", "dog": "kylo" },
+    "min_score": 0.7
+  },
   "project_phase": 2,
   "engine_profiles": {
     "courage_default": {

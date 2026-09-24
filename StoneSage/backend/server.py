@@ -2557,7 +2557,22 @@ def _courage_refresh_presence() -> None:
         _courage_presence_cache["refreshing"] = False
 
 
-def _courage_presence() -> Dict[str, Any]:
+_frigate_presence = None
+
+
+def get_frigate_presence():
+    """Live Frigate sightings (backend/frigate_presence.py), or None when config.json has no frigate.url."""
+    global _frigate_presence
+    if _frigate_presence is None:
+        fcfg = load_config().get("frigate") or {}
+        if not fcfg.get("url"):
+            return None
+        from frigate_presence import FrigatePresence
+        _frigate_presence = FrigatePresence(fcfg["url"], fcfg.get("identities"), fcfg.get("min_score", 0.7))
+    return _frigate_presence
+
+
+def _courage_hub_presence() -> Dict[str, Any]:
     """Presence hub state. A fresh read takes ~1.4 s, so serve a cached copy and refresh it in the background."""
     age = time.time() - _courage_presence_cache["at"]
     if _courage_presence_cache["state"] is not None and age < 60:
@@ -2567,6 +2582,17 @@ def _courage_presence() -> Dict[str, Any]:
         return _courage_presence_cache["state"]
     _courage_refresh_presence()
     return _courage_presence_cache["state"] or {}
+
+
+def _courage_presence() -> Dict[str, Any]:
+    """Hub state with Frigate's live sightings merged in per identity (newest wins). Merged on every read,
+    never into the hub cache: Frigate's view is seconds old, the hub's up to a minute."""
+    state = _courage_hub_presence()
+    fp = get_frigate_presence()
+    if not fp:
+        return state
+    from frigate_presence import merge_locations
+    return {**state, "locations": merge_locations(state.get("locations") or {}, fp.locations())}
 
 
 def _courage_runs_on() -> Optional[str]:
@@ -3540,6 +3566,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             sample_id = query.get("id", [""])[0]
             self.send_json(trainer_client.get_dossier(sample_id=sample_id))
+            return
+
+        elif path == "/api/frigate/presence":
+            fp = get_frigate_presence()
+            self.send_json({"ok": bool(fp), **(fp.status() if fp else {"error": "config.json has no frigate.url"})})
             return
 
         elif path == "/api/presence/status":
@@ -8372,6 +8403,8 @@ if __name__ == "__main__":
     # Warm Courage's presence cache so the first question doesn't pay the ~1.4 s presence read
     threading.Thread(target=_courage_refresh_presence, daemon=True, name="courage-presence-warmup").start()
     threading.Thread(target=get_courage_agent, daemon=True, name="courage-agent-warmup").start()  # starts the phone-approval listener
+    if get_frigate_presence():
+        threading.Thread(target=_frigate_presence.start, daemon=True, name="frigate-presence-start").start()
     try:
         server = http.server.ThreadingHTTPServer((host, port), StoneSageHandler)
     except OSError as e:

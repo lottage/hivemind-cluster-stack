@@ -83,8 +83,15 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   detections 3 d, snapshots 14 d). Driveway TCW90 (.228) is solar and has no RTSP server (554 closed): stays in
   wildlife_sentry. TC82 battery cams (.214, .130) stay on the Tapo push path.
 - Tapo locks the RTSP login out after repeated failures: stop Frigate before retrying a bad password.
-- Still open (Phase 3): presence service from Frigate MQTT events, camera_look via Frigate snapshots, go2rtc WebRTC in the
-  StoneSage camera tab, commentary engine, HA Frigate integration.
+- Presence service (live 2026-09-24, `StoneSage/backend/frigate_presence.py`): StoneSage listens to Frigate's websocket
+  (`ws://192.168.1.150:5000/ws`, same payloads as MQTT; no credentials) and replays `/api/events?limit=100` on start.
+  Identity: Frigate sub_label (face) wins, else `config.json frigate.identities` (cat -> luna, dog -> kylo); a person
+  without a face match is "someone" (card: "A person, not identified"). An event without end_time = "in view now".
+  `_courage_presence()` merges Frigate over the hub per identity (newest wins) on every read. Status:
+  `GET /api/frigate/presence`. Verified live: "Where's Kylo?" answered in 5.4 s from a 4.5-min-old Frigate sighting (no
+  camera look). In memory only (no Valkey keys or HA sensors from Frigate yet).
+- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), camera_look via Frigate snapshots, go2rtc WebRTC
+  in the StoneSage camera tab, commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,
@@ -177,7 +184,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 189 tests, 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 197 tests, 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

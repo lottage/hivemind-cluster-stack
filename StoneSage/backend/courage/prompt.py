@@ -23,6 +23,8 @@ WHO = ("Austin", "Savannah", "Luna", "Kylo")
 def _ago(minutes: Optional[float]) -> str:
     if minutes is None:
         return "no recent sighting"
+    if minutes == 0:
+        return "in view now"
     if minutes < 1:
         return "seen just now"
     if minutes < 90:
@@ -42,6 +44,10 @@ def build_presence_card(state: Optional[Dict[str, Any]], now: Optional[datetime]
             lines.append(f"- {name}: {_ago(loc.get('minutes_ago'))}" + (f" on {where}" if where else ""))
         else:
             lines.append(f"- {name}: no recent sighting")
+    anon = locations.get("someone")  # Frigate saw a person it could not put a name to
+    if anon and (anon.get("minutes_ago") or 0) <= 30:
+        where = anon.get("camera")
+        lines.append(f"- A person, not identified: {_ago(anon.get('minutes_ago'))}" + (f" on {where}" if where else ""))
     return "\n".join(lines)
 
 
