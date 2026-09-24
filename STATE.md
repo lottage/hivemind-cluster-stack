@@ -99,6 +99,18 @@ Hardware, model and engine labels are no longer written in code. Sources, in ord
 - Preset "cluster mode" switching (`switch_cluster_mode.py`) is retired (HTTP 410): it rewrote units unreviewed and its presets
   named models that are no longer loaded. Still hardcoded (shelved, not extended): Citadel 3D, trainer/HF browser, thinking-loop topics.
 
+## Model Loader (Engine Studio → Engine Console → 🚀 MODEL LOADER, 2026-09-23)
+Replaces the old "Parameters & Sampling" and "VRAM Sizer & Models" tabs (their HTML is still in index.html, hidden,
+until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + `engine_options.py`, routes `/api/loader/*`.
+- Targets: every engine on the inference host (embedder locked) and every LM Studio node in `harness_instances`.
+- Library per node: GGUF headers on VM 102; LM Studio `/api/v1/models` on edge nodes.
+- Options: every flag of the installed llama-server build, parsed from its `--help` (220 options; re-read when the build
+  changes); LM Studio's 8 load fields, found by probing its strict validator. Limits narrowed to the model and hardware.
+- Memory plan against the chosen GPU(s) or unified RAM; calibrated by the live fdinfo figure when the model is already loaded.
+- Apply: diff of the unit, token-checked apply, backup `<unit>.bak-loader-<ts>`, restart, /health + /props check,
+  automatic rollback. `--metrics`, `--slots`, `--props` cannot be removed (StoneSage reads them). Not yet exercised on a
+  live engine (first real apply is John's).
+
 ## Known issues
 - `config.json` `network_devices` (LXC 120 and the workstation copy) still says pve = 192.168.1.229 and
   bigserv = 192.168.1.82 (real: .222 / .245). No code reads it; fix by hand. The Qdrant device-map document from

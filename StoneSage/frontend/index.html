@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
 
   <link rel="stylesheet" id="xterm-css-link" href="/vendor/xterm/xterm.css?v=4.0.4">
-  <link rel="stylesheet" href="/style.css?v=4.0.9">
+  <link rel="stylesheet" href="/style.css?v=4.3.1">
 
   <!-- xterm.js Terminal Engine -->
   <script id="xterm-core-script" src="/vendor/xterm/xterm.js?v=4.0.4"></script>
@@ -468,8 +468,7 @@
             <!-- Console Sub-Navigation -->
             <div class="econsole-subnav" style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
               <button type="button" class="econsole-subnav-btn active" data-layer="dashboard">[📊 DASHBOARD]</button>
-              <button type="button" class="econsole-subnav-btn" data-layer="params">[⚙️ PARAMETERS &amp; SAMPLING]</button>
-              <button type="button" class="econsole-subnav-btn" data-layer="sizer">[🧮 VRAM SIZER &amp; MODELS]</button>
+              <button type="button" class="econsole-subnav-btn" data-layer="loader" style="color:var(--term-text-bright);">[🚀 MODEL LOADER]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="debug">[🔍 PLAYGROUND &amp; DEBUG]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="logs">[📜 SYSTEM LOGS]</button>
             </div>
@@ -493,7 +492,12 @@
               </div>
             </div>
 
-            <!-- Sub-Layer: Parameter Editor & Sampling Profiles -->
+            <!-- Sub-Layer: Model Loader (js/model_loader.js; replaces the parameter editor and VRAM sizer) -->
+            <div class="econsole-layer" id="econsole-layer-loader" style="display:none;">
+              <div id="model-loader-root"></div>
+            </div>
+
+            <!-- Sub-Layer: Parameter Editor & Sampling Profiles (retired: no nav button; kept until the old scripts are removed) -->
             <div class="econsole-layer" id="econsole-layer-params" style="display:none;">
               <div class="harness-card-title" style="margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                 <span>⚙️ PARAMETER EDITOR &amp; SAMPLING PROFILES — Live Model Tuning</span>
@@ -2334,7 +2338,7 @@
     </div>
 
   <!-- Core StoneSage Runtime & Modules -->
-  <script type="module" src="/js/app.js?v=4.1.3"></script>
+  <script type="module" src="/js/app.js?v=4.3.0"></script>
   <script type="module" src="/js/studio3d.js?v=4.0.6"></script>
 </body>
 </html>

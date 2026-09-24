@@ -113,6 +113,9 @@ function switchConsoleSublayer(layerId) {
   if (btn) btn.classList.add('active');
   if (pane) pane.style.display = 'block';
 
+  const tabs = document.getElementById('econsole-engine-tabs');
+  if (tabs) tabs.style.display = layerId === 'loader' ? 'none' : 'flex';  // the loader has its own target picker
+  if (layerId === 'loader' && typeof window.openModelLoader === 'function') window.openModelLoader();
   if (layerId === 'dashboard') pollAllEngines();
   if (layerId === 'params') renderParameterEditor();
   if (layerId === 'sizer' && typeof window.recalculateHardwareCapacity === 'function') {

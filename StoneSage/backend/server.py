@@ -567,6 +567,7 @@ from dataset_compiler import DatasetCompiler
 from trainer_client import TrainerClient
 import health as service_health
 import system_profile
+import model_loader
 from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -3424,6 +3425,26 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         elif path == "/api/health/all":
             fresh = "fresh=1" in (parsed.query or "")
             self.send_json(service_health.check_all(load_config(), use_cache=not fresh))
+            return
+
+        elif path.startswith("/api/loader/"):
+            # Model Loader (backend/model_loader.py): targets, per-node libraries, job progress
+            q = urllib.parse.parse_qs(parsed.query or "")
+            fresh = q.get("fresh", ["0"])[0] == "1"
+            try:
+                if path == "/api/loader/state":
+                    self.send_json(model_loader.get_state(fresh=fresh))
+                elif path == "/api/loader/library":
+                    self.send_json(model_loader.get_library(q.get("node", ["host:inference"])[0], fresh=fresh))
+                elif path == "/api/loader/options":
+                    gpus = [int(x) for x in q.get("gpus", [""])[0].split(",") if x.strip().isdigit()]
+                    self.send_json(model_loader.get_options(q.get("target", [""])[0], q.get("model", [""])[0], gpus or None))
+                elif path == "/api/loader/job":
+                    self.send_json(model_loader.get_job(q.get("id", [""])[0]))
+                else:
+                    self.send_json({"ok": False, "error": "unknown loader route"}, 404)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
             return
 
         elif path == "/api/system/profile":
@@ -6968,6 +6989,15 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 answers = body.get("answers", {})
                 synthesis = cluster.synthesize_answers(prompt, answers)
                 self.send_json({"ok": True, "synthesis": synthesis})
+                return
+
+            elif path in ("/api/loader/plan", "/api/loader/preview", "/api/loader/apply"):
+                try:
+                    fn = {"/api/loader/plan": model_loader.plan, "/api/loader/preview": model_loader.preview,
+                          "/api/loader/apply": model_loader.apply}[path]
+                    self.send_json(fn(body))
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
                 return
 
             elif path == "/api/cluster/mode/switch":
