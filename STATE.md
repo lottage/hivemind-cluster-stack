@@ -104,7 +104,26 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   24 fps, audio + video. `config.json frigate.go2rtc_url`.
   Residents & Pets now reads the merged hub + Frigate view (`/api/presence/status` = `_courage_presence()`); Frigate
   sightings show their event snapshot via `GET /api/frigate/snapshot/<event_id>` and an extra "Someone" card.
-- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), commentary engine, HA Frigate integration.
+- LIVE tab tiles (2026-09-25, `backend/camera_ui.py`, `config.json camera_ui` keyed by HA camera entity): kitchen =
+  WebRTC (Frigate sub stream); driveway TCW90 = WebRTC from go2rtc `tapo://` (port 8800, TP-Link cloud password as
+  `FRIGATE_TAPO_CLOUD_PASSWORD` on LXC 128; not a Frigate camera, so go2rtc only opens it while someone watches; HA's
+  HLS for it failed ~half the time: "Error muxing first keyframe"); side/back yard = snapshot + Refresh, at most one
+  camera wake per `min_refresh_s` (180 s; driveway 60 s), frames shrunk to 640 px. PTZ arrows + presets on kitchen and
+  driveway via HA `button.<ptz>_move_*` / `select.<ptz>_move_to_preset`, preset names read live from HA (driveway's is
+  "Driveway " with a trailing space; `camera_scan` now uses HA's spelling too). Driveway camera clock is hours off.
+  **Open:** WebRTC fails from John's phone over https :8443 (signalling OK, ICE fails; desktop connects). The page now
+  posts browser ICE stats on failure to `POST /api/cameras/webrtc-report` (logged as "WebRTC failed from ..."). The
+  temporary `go2rtc: log: webrtc: debug` in Frigate's config produced no log lines; remove it once this is solved.
+- Presence corrections (2026-09-25, `backend/presence_corrections.py`, cards in Residents & Pets): "✗ Wrong" and
+  "Correct as ▾" (+ New profile). Frigate sightings: false_positive / sub_label; correcting to a person moves that event's
+  face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).
+  Sentry sightings: `wildlife_admin.py` on VM 102 (/opt/cluster-bridge, args on stdin) renames the snapshot prefix or
+  moves it to `wildlife/rejected/`, logs `wildlife/corrections.jsonl`; a person correction also uploads the snapshot to
+  Frigate's face library. Profiles = `wildlife/known_entities.json` (backup per write); the sentry re-reads it on change,
+  the hub matches the activity log by snapshot timestamp so renames keep camera/activity. Identity key everywhere:
+  `norm_name` ('Aunt May' -> 'aunt-may'). Deployed; no real correction made yet (first one is John's).
+  Solar driveway timer polling stays OFF (`solar_poll_interval` returns None) until John picks thresholds.
+- Still open (Phase 3): commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,

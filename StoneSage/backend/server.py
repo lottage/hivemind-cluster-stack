@@ -2482,8 +2482,11 @@ def scan_camera_presets(cam_eid: str, cam_name: str) -> Optional[str]:
         return _analyze_single_frame(cam_eid, cam_name)
 
     preset_entity = ptz_config["preset_entity"]
-    presets = ptz_config["presets"]
-    default_preset = ptz_config.get("default_preset", presets[0])
+    # HA's own spelling wins over the registry: the driveway preset is "Driveway " (trailing space) in HA,
+    # so selecting the registry's "Driveway" failed silently
+    live_opts = ((hass.get_state(preset_entity) or {}).get("attributes") or {}).get("options") or []
+    presets = live_opts or ptz_config["presets"]
+    default_preset = next((p for p in presets if p.strip() == ptz_config.get("default_preset", "").strip()), presets[0])
     now_str = datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p EST")
 
     scan_results = []
@@ -2571,6 +2574,39 @@ def get_frigate_presence():
         from frigate_presence import FrigatePresence
         _frigate_presence = FrigatePresence(fcfg["url"], fcfg.get("identities"), fcfg.get("min_score", 0.7))
     return _frigate_presence
+
+
+def _presence_corrections():
+    from presence_corrections import PresenceCorrections
+    pcfg = load_config().get("presence") or {}
+    return PresenceCorrections(pcfg.get("ssh", "austin@192.168.1.105"),
+                               pcfg.get("admin_script", "/opt/cluster-bridge/wildlife_admin.py"),
+                               (load_config().get("frigate") or {}).get("url", ""))
+
+
+def _invalidate_presence() -> None:
+    """After a correction or new profile: the next presence read (cards, Courage) goes back to the source."""
+    _courage_presence_cache["at"] = 0.0
+    try:
+        from harness.core.home_presence_hub import home_presence_hub
+        home_presence_hub.invalidate()
+    except Exception:
+        pass
+
+
+def _webrtc_streams(cfg: Dict[str, Any]) -> Dict[str, str]:
+    """HA camera entity -> go2rtc stream the LIVE tab may play: Frigate cameras (their sub stream) plus
+    camera_ui entries that name a go2rtc stream directly. Only streams go2rtc actually has ({} if unreachable)."""
+    fcfg = cfg.get("frigate") or {}
+    cams = dict(fcfg.get("cameras") or {})
+    cams.update({e: c["go2rtc"] for e, c in (cfg.get("camera_ui") or {}).items() if c.get("go2rtc")})
+    try:
+        from frigate_presence import live_cameras
+        by_cam = {c["id"]: c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list(cams.values()))}
+    except Exception as e:
+        logger.warning(f"go2rtc unreachable: {e}")
+        return {}
+    return {entity: by_cam[cam] for entity, cam in cams.items() if cam in by_cam}
 
 
 def _courage_hub_presence() -> Dict[str, Any]:
@@ -3596,6 +3632,13 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"ok": bool(fp), **(fp.status() if fp else {"error": "config.json has no frigate.url"})})
             return
 
+        elif path == "/api/presence/profiles":
+            try:
+                self.send_json(_presence_corrections().profiles())
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, 502)
+            return
+
         elif path == "/api/presence/status":
             try:
                 self.send_json({"ok": True, "data": _courage_presence()})  # hub + Frigate, same view Courage has
@@ -3604,14 +3647,56 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/cameras/live":
-            # Cameras the LIVE tab can play over WebRTC (Frigate cameras with a go2rtc stream)
-            fcfg = load_config().get("frigate") or {}
+            # Tiles for the LIVE tab (camera_ui.py): WebRTC via Frigate/go2rtc, HLS via HA, or snapshot; PTZ presets
+            import camera_ui
+            cfg = load_config()
+            self.send_json({"ok": True, "cameras": camera_ui.list_cameras(cfg, hass.get_state, _webrtc_streams(cfg))})
+            return
+
+        elif path == "/api/cameras/snapshot":
+            import camera_ui
+            q = urllib.parse.parse_qs(parsed.query or "")
+            entity, force = q.get("entity", [""])[0], q.get("force", ["0"])[0] == "1"
             try:
-                from frigate_presence import live_cameras
-                cams = live_cameras(fcfg.get("go2rtc_url", ""), list((fcfg.get("cameras") or {}).values()))
-                self.send_json({"ok": True, "cameras": cams})
+                img, age = camera_ui.snapshot(entity, load_config(), hass.get_camera_snapshot, force=force)
+            except KeyError:
+                self.send_json({"ok": False, "error": "unknown camera"}, 404)
+                return
+            if not img:
+                self.send_json({"ok": False, "error": "camera did not answer"}, 504)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(img)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Snapshot-Age", str(int(age)))
+            self.end_headers()
+            self.wfile.write(img)
+            return
+
+        elif path.startswith("/api/cameras/hls/"):
+            # HA's HLS stream through StoneSage (same origin: no CORS, and HTTPS pages can play it)
+            import camera_ui
+            ha_path = camera_ui.hls_proxy_path(path[len("/api/cameras/hls/"):])
+            if not ha_path:
+                self.send_json({"ok": False, "error": "not an HLS path"}, 400)
+                return
+            url = hass.base_url.rstrip("/") + ha_path + (f"?{parsed.query}" if parsed.query else "")
+            try:
+                with urllib.request.urlopen(url, timeout=30) as r:  # LL-HLS playlist requests may block until a part is ready
+                    data, ctype, cenc = r.read(), r.headers.get("Content-Type", ""), r.headers.get("Content-Encoding")
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                if cenc:
+                    self.send_header("Content-Encoding", cenc)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+            except urllib.error.HTTPError as e:
+                self.send_json({"ok": False, "error": f"HA {e.code}"}, e.code)
             except Exception as e:
-                self.send_json({"ok": False, "error": f"go2rtc unreachable: {e}", "cameras": []})
+                self.send_json({"ok": False, "error": str(e)}, 502)
             return
 
         elif path.startswith("/api/frigate/snapshot/"):
@@ -7125,13 +7210,67 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
                 return
 
+            elif path in ("/api/presence/correct", "/api/presence/profiles"):
+                # Residents & Pets: "✗ Wrong" / "Correct as" on a sighting, and "+ New profile" (presence_corrections.py)
+                pc = _presence_corrections()
+                try:
+                    if path == "/api/presence/profiles":
+                        res = pc.add_profile(body)
+                    else:
+                        res = pc.correct(body.get("source", ""), body.get("ref", ""), body.get("action", ""), body.get("name", ""))
+                        fp = get_frigate_presence()
+                        if res.get("ok") and body.get("source") == "frigate" and fp:
+                            fp.apply_correction(body["ref"], res.get("name") if body.get("action") == "relabel" else None)
+                    if res.get("ok"):
+                        _invalidate_presence()
+                    self.send_json(res, 200 if res.get("ok") else 400)
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 502)
+                return
+
+            elif path == "/api/cameras/webrtc-report":
+                # Browser-side ICE diagnostics after a failed WebRTC stream (presence_garden.js reportIceFailure)
+                r = body or {}
+                logger.warning("WebRTC failed from %s (%s) on %s: ua=%s | local=%s | remote=%s | pairs=%s",
+                               self.client_address[0], str(r.get("page"))[:60], str(r.get("stream"))[:60],
+                               str(r.get("ua"))[:160], r.get("local"), r.get("remote"), r.get("pairs"))
+                self.send_json({"ok": True})
+                return
+
+            elif path == "/api/cameras/ptz":
+                # PTZ is free for Courage and John (CLAUDE.md); names and presets are checked against HA
+                import camera_ui
+                try:
+                    kind, eid, option = camera_ui.ptz_command(body.get("entity", ""), load_config(), body.get("action", ""),
+                                                              body.get("preset", ""), hass.get_state)
+                    res = hass.press_button(eid) if kind == "button" else hass.select_option(eid, option)
+                    self.send_json({"ok": bool(res.get("ok", True)), "done": eid, "error": res.get("error")})
+                except ValueError as e:
+                    self.send_json({"ok": False, "error": str(e)}, 400)
+                return
+
+            elif path == "/api/cameras/hls":
+                # Start HA's HLS stream for a camera marked live: "hls" and hand back a StoneSage-proxied playlist URL
+                import camera_ui
+                cfg = load_config()
+                entity = body.get("entity", "")
+                if (camera_ui.camera_entries(cfg).get(entity) or {}).get("live") != "hls":
+                    self.send_json({"ok": False, "error": "camera is not an HLS camera"}, 400)
+                    return
+                try:
+                    ha_url = camera_ui.ha_hls_url(hass.base_url, cfg["homeassistant"]["token"], entity)
+                    self.send_json({"ok": True, "url": "/api/cameras/hls/" + ha_url[len("/api/hls/"):]})
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"HA stream: {e}"}, 502)
+                return
+
             elif path == "/api/cameras/webrtc":
                 # WebRTC signalling relay to go2rtc; only streams the LIVE tab lists are allowed
                 fcfg = load_config().get("frigate") or {}
                 stream = body.get("stream", "")
                 try:
-                    from frigate_presence import live_cameras, webrtc_answer
-                    allowed = {c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list((fcfg.get("cameras") or {}).values()))}
+                    from frigate_presence import webrtc_answer
+                    allowed = set(_webrtc_streams(load_config()).values())
                     if stream not in allowed:
                         self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
                         return

@@ -16,6 +16,70 @@ export async function fetchPresenceState() {
   }
 }
 
+// Identity key shared with the backend (frigate_presence.norm_name, wildlife_admin.prefix): 'Aunt May' -> 'aunt-may'
+const normName = (n) => n.trim().toLowerCase().replace(/ /g, '-').replace(/'/g, '').replace(/[^a-z0-9-]/g, '');
+
+async function postJSON(url, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return res.json();
+}
+
+// "✗ Wrong" / "Correct as" on a card, and the "+ New profile" form. Corrections go back to where the sighting came
+// from (Frigate event or sentry snapshot); correcting to a person also trains Frigate's face recognition.
+function bindCorrections(grid) {
+  const form = document.getElementById('presence-new-profile');
+  let pending = null;  // the card waiting for a new profile to be created
+
+  const apply = async (row, action, name) => {
+    const note = document.createElement('span');
+    note.style.cssText = 'font-size:0.68rem; color:var(--term-accent-gold);';
+    note.textContent = 'saving…';
+    row.replaceChildren(note);
+    const res = await postJSON('/api/presence/correct', { source: row.dataset.src, ref: row.dataset.ref, action, name });
+    const trained = res.faces_trained ? ` · ${res.faces_trained} face(s) learned` : res.face_registered === true ? ' · face learned' : '';
+    note.textContent = res.ok ? (action === 'reject' ? 'hidden' : `now ${name}${trained}`) : `error: ${res.error}`;
+    if (res.ok) setTimeout(fetchPresenceState, 800);
+  };
+
+  grid.onchange = (e) => {
+    const sel = e.target.closest('select[data-correct]');
+    if (!sel || !sel.value) return;
+    const row = sel.closest('[data-src]');
+    if (sel.value === '__new__') {
+      pending = row;
+      form.style.display = 'block';
+      document.getElementById('np-name').focus();
+      sel.value = '';
+      return;
+    }
+    if (confirm(`This sighting shown as ${row.dataset.shown} is really ${sel.value}?`)) apply(row, 'relabel', sel.value);
+    else sel.value = '';
+  };
+  grid.onclick = async (e) => {
+    const rej = e.target.closest('button[data-correct="reject"]');
+    if (rej) {
+      const row = rej.closest('[data-src]');
+      if (confirm(`Hide this sighting of ${row.dataset.shown}? (It is kept aside, not deleted.)`)) apply(row, 'reject', '');
+      return;
+    }
+    if (e.target.id === 'np-cancel') { form.style.display = 'none'; pending = null; return; }
+    if (e.target.id !== 'np-save') return;
+    const kind = document.getElementById('np-kind').value;
+    const extra = document.getElementById('np-extra').value.trim();
+    const body = { name: document.getElementById('np-name').value.trim(), kind,
+                   traits: document.getElementById('np-traits').value.trim(),
+                   [kind === 'person' ? 'role' : 'species']: extra };
+    const status = document.getElementById('np-status');
+    status.textContent = 'saving…';
+    const res = await postJSON('/api/presence/profiles', body);
+    if (!res.ok) { status.textContent = `error: ${res.error}`; return; }
+    form.style.display = 'none';
+    if (pending) await apply(pending, 'relabel', res.profile.name);
+    pending = null;
+    fetchPresenceState();
+  };
+}
+
 export function renderPresence(data) {
   if (!data) return;
 
@@ -28,8 +92,10 @@ export function renderPresence(data) {
     const allEntities = [...(known.people || []), ...(known.pets || [])];
     if (locs.someone) allEntities.push({ name: 'Someone', role: 'Person Frigate could not identify' });
 
+    const profileNames = [...(known.people || []), ...(known.pets || [])].map((e) => e.name);
+
     allEntities.forEach(ent => {
-      const key = ent.name.toLowerCase();
+      const key = normName(ent.name);
       const loc = locs[key];
       const isOnline = loc && loc.minutes_ago < 60;
       const statusBadge = loc && loc.minutes_ago === 0
@@ -49,6 +115,18 @@ export function renderPresence(data) {
       const lastSeen = !loc ? 'Unknown'
         : loc.last_seen || new Date(loc.mtime * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       const via = loc && loc.source === 'frigate' ? ' · Frigate' : '';
+      // Correction controls: only for a sighting that has an image to judge
+      const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
+        : loc && loc.snapshot ? ['sentry', loc.snapshot] : null;
+      const correct = !src ? '' : `
+          <div style="display:flex; gap:4px; margin-top:4px;" data-src="${src[0]}" data-ref="${src[1]}" data-shown="${ent.name}">
+            <button type="button" class="preset-btn" style="padding:1px 6px; font-size:0.68rem;" data-correct="reject" title="Not a real sighting of ${ent.name}: hide it">✗ Wrong</button>
+            <select class="form-input" style="flex:1; font-size:0.68rem; padding:1px 2px;" data-correct="relabel">
+              <option value="">Correct as…</option>
+              ${profileNames.filter((n) => n !== ent.name).map((n) => `<option value="${n}">${n}</option>`).join('')}
+              <option value="__new__">+ New profile…</option>
+            </select>
+          </div>`;
 
       html += `
         <div style="background:var(--term-bg); border:1px solid var(--term-border-dim); border-radius:4px; padding:8px;">
@@ -58,11 +136,26 @@ export function renderPresence(data) {
           </div>
           <div style="font-size:0.72rem; color:var(--term-text-muted); margin-top:2px;">${ent.role || ent.breed || ent.species}</div>
           ${snapshotImg}
-          <div style="font-size:0.68rem; color:var(--term-text-muted); margin-top:4px;">Last: ${lastSeen}${loc && loc.camera ? ` · ${loc.camera}` : ''}${via}</div>
+          <div style="font-size:0.68rem; color:var(--term-text-muted); margin-top:4px;">Last: ${lastSeen}${loc && loc.camera ? ` · ${loc.camera}` : ''}${via}</div>${correct}
         </div>
       `;
     });
-    locContainer.innerHTML = html;
+    locContainer.innerHTML = html + `
+      <div id="presence-new-profile" style="display:none; grid-column:1/-1; background:var(--term-bg); border:1px dashed var(--term-accent-gold); border-radius:4px; padding:8px; font-size:0.74rem;">
+        <b>New recognition profile</b>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
+          <input class="form-input" id="np-name" placeholder="Name" maxlength="30" style="flex:1; min-width:110px;">
+          <select class="form-input" id="np-kind"><option value="person">Person</option><option value="pet">Pet</option></select>
+          <input class="form-input" id="np-extra" placeholder="Role (e.g. Visitor) / species (e.g. cat)" style="flex:1; min-width:140px;">
+        </div>
+        <input class="form-input" id="np-traits" placeholder="Looks like… (helps the vision model, e.g. tall, grey beard, red jacket)" maxlength="300" style="width:100%; margin-top:6px;">
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button type="button" class="preset-btn" id="np-save">[Save &amp; apply]</button>
+          <button type="button" class="preset-btn" id="np-cancel">[Cancel]</button>
+          <span id="np-status" style="color:var(--term-text-muted); align-self:center;"></span>
+        </div>
+      </div>`;
+    bindCorrections(locContainer);
   }
 
   // Render Appliance Status
@@ -93,14 +186,22 @@ export function renderPresence(data) {
 }
 
 // ------------------------------------------------------------ live cameras ----
-// WebRTC from go2rtc on the Frigate host. StoneSage only relays the SDP offer/answer (/api/cameras/webrtc);
-// the video flows straight from go2rtc to the browser, so this also works when StoneSage is on HTTPS.
+// One tile per camera in config.json camera_ui (backend/camera_ui.py):
+//   webrtc   Frigate/go2rtc. StoneSage only relays the SDP offer/answer; video flows go2rtc -> browser.
+//   hls      Home Assistant's own stream (solar driveway), proxied through StoneSage; the browser plays HLS natively.
+//   snapshot still frame with a refresh button; the server keeps battery cameras to one wake per min_refresh_s.
+// PTZ cameras get arrows and their HA presets.
 const livePeers = [];
+const liveVideos = [];
 
 function stopLive() {
   while (livePeers.length) {
     const pc = livePeers.pop();
     try { pc.close(); } catch (e) { /* already closed */ }
+  }
+  while (liveVideos.length) {  // HLS: stop fetching so HA ends the stream (~30 s later)
+    const v = liveVideos.pop();
+    v.pause(); v.removeAttribute('src'); v.load();
   }
   const grid = document.getElementById('presence-live-grid');
   if (grid) grid.innerHTML = '';
@@ -115,15 +216,43 @@ function iceGathered(pc, ms = 1500) {
   });
 }
 
-async function playStream(video, status, stream) {
+function setStatus(status, text, live = false) {
+  status.textContent = text;
+  status.style.color = live ? '#22c55e' : 'var(--term-text-muted)';
+}
+
+// When a stream fails, send the browser's own ICE view to StoneSage's log (candidate types and pair states):
+// the only place that shows why one device connects and another does not.
+async function reportIceFailure(pc, stream, status) {
+  try {
+    const all = [];
+    (await pc.getStats()).forEach((s) => all.push(s));
+    const byId = Object.fromEntries(all.map((s) => [s.id, s]));
+    const cand = (c) => (c ? `${c.candidateType}/${c.protocol} ${c.address || c.ip || '?'}:${c.port}` : '?');
+    const report = {
+      stream, ua: navigator.userAgent, page: location.origin,
+      local: all.filter((s) => s.type === 'local-candidate').map(cand),
+      remote: all.filter((s) => s.type === 'remote-candidate').map(cand),
+      pairs: all.filter((s) => s.type === 'candidate-pair').map((p) =>
+        `${cand(byId[p.localCandidateId])} -> ${cand(byId[p.remoteCandidateId])}: ${p.state} req=${p.requestsSent || 0} resp=${p.responsesReceived || 0}`),
+    };
+    status.title = report.pairs.join('\n') || 'no candidate pairs';
+    await fetch('/api/cameras/webrtc-report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(report),
+    });
+  } catch (e) { /* diagnostics only */ }
+}
+
+async function playWebRTC(video, status, stream) {
   const pc = new RTCPeerConnection();
   livePeers.push(pc);
   const media = new MediaStream();
   video.srcObject = media;
   pc.ontrack = (e) => media.addTrack(e.track);
   pc.onconnectionstatechange = () => {
-    status.textContent = { connected: '● LIVE', failed: 'connection failed', disconnected: 'reconnecting…' }[pc.connectionState] || pc.connectionState;
-    status.style.color = pc.connectionState === 'connected' ? '#22c55e' : 'var(--term-text-muted)';
+    const s = pc.connectionState;
+    setStatus(status, { connected: '● LIVE', failed: 'connection failed', disconnected: 'reconnecting…' }[s] || s, s === 'connected');
+    if (s === 'failed') reportIceFailure(pc, stream, status);
   };
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -138,6 +267,68 @@ async function playStream(video, status, stream) {
   await pc.setRemoteDescription(json.answer);
 }
 
+async function playHLS(video, status, entity) {
+  if (!video.canPlayType('application/vnd.apple.mpegurl')) throw new Error('this browser cannot play HLS');
+  setStatus(status, 'waking camera…');
+  const res = await fetch('/api/cameras/hls', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'stream failed');
+  liveVideos.push(video);
+  video.addEventListener('playing', () => setStatus(status, '● LIVE (HA)', true));
+  video.addEventListener('error', () => setStatus(status, 'stream ended'));
+  video.src = json.url;
+  await video.play().catch(() => { /* autoplay rules: muted video still starts on its own */ });
+}
+
+async function loadSnapshot(img, status, entity, force) {
+  setStatus(status, force ? 'waking camera…' : 'loading…');
+  const res = await fetch(`/api/cameras/snapshot?entity=${encodeURIComponent(entity)}${force ? '&force=1' : ''}`);
+  if (!res.ok) { setStatus(status, (await res.json().catch(() => ({}))).error || `HTTP ${res.status}`); return; }
+  const age = parseInt(res.headers.get('X-Snapshot-Age') || '0', 10);
+  if (img.dataset.blob) URL.revokeObjectURL(img.dataset.blob);
+  img.dataset.blob = URL.createObjectURL(await res.blob());
+  img.src = img.dataset.blob;
+  setStatus(status, age < 5 ? 'snapshot · just now' : `snapshot · ${age < 120 ? age + ' s' : Math.round(age / 60) + ' min'} old`);
+}
+
+async function ptz(entity, action, preset, status) {
+  setStatus(status, action === 'preset' ? `moving to ${preset.trim()}…` : `moving ${action}…`);
+  const res = await fetch('/api/cameras/ptz', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity, action, preset }),
+  });
+  const json = await res.json();
+  setStatus(status, json.ok ? 'moved' : `PTZ: ${json.error}`);
+}
+
+function tileHTML(c, i) {
+  const media = c.live === 'snapshot'
+    ? `<img id="cam-img-${i}" alt="${c.name}" style="width:100%; aspect-ratio:16/9; object-fit:cover; display:block; background:#000;">`
+    : `<video id="cam-vid-${i}" autoplay muted playsinline style="width:100%; aspect-ratio:16/9; display:block; background:#000;" title="Click to toggle sound"></video>`;
+  const btn = 'class="preset-btn" style="padding:2px 8px; font-size:0.72rem;"';
+  const ptzHTML = !c.ptz ? '' : `
+    <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; padding:4px 6px; background:var(--term-bg); border-top:1px dashed var(--term-border-dim);">
+      <button type="button" ${btn} data-cam="${i}" data-ptz="left" title="Pan left">◀</button>
+      <button type="button" ${btn} data-cam="${i}" data-ptz="up" title="Tilt up">▲</button>
+      <button type="button" ${btn} data-cam="${i}" data-ptz="down" title="Tilt down">▼</button>
+      <button type="button" ${btn} data-cam="${i}" data-ptz="right" title="Pan right">▶</button>
+      ${(c.ptz.presets || []).map((p) => `<button type="button" ${btn} data-cam="${i}" data-ptz="preset" data-preset="${p.replace(/"/g, '&quot;')}">${p.trim()}</button>`).join('')}
+    </div>`;
+  const refresh = c.live === 'snapshot'
+    ? `<button type="button" ${btn} data-cam="${i}" data-refresh="1" title="${c.min_refresh_s ? `Battery camera: at most one new frame every ${Math.round(c.min_refresh_s / 60)} min` : 'New snapshot'}">⟳ Refresh</button>` : '';
+  return `
+    <div style="background:#000; border:1px solid var(--term-border-dim); border-radius:4px; overflow:hidden;">
+      ${media}
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:4px 6px; font-size:0.72rem; background:var(--term-bg);">
+        <span style="font-weight:bold; color:var(--term-text-bright);">${c.name}</span>
+        <span style="display:flex; gap:6px; align-items:center;">
+          <span id="cam-status-${i}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>${refresh}
+        </span>
+      </div>${ptzHTML}
+    </div>`;
+}
+
 async function startLive() {
   const grid = document.getElementById('presence-live-grid');
   if (!grid) return;
@@ -148,24 +339,26 @@ async function startLive() {
     cams = (await (await fetch('/api/cameras/live')).json()).cameras || [];
   } catch (e) { /* shown below */ }
   if (!cams.length) {
-    grid.innerHTML = '<div style="color:var(--term-text-muted); font-size:0.75rem;">No live cameras (Frigate/go2rtc unreachable?).</div>';
+    grid.innerHTML = '<div style="color:var(--term-text-muted); font-size:0.75rem;">No cameras configured (config.json camera_ui).</div>';
     return;
   }
-  grid.innerHTML = cams.map((c) => `
-    <div style="background:#000; border:1px solid var(--term-border-dim); border-radius:4px; overflow:hidden;">
-      <video id="live-${c.id}" autoplay muted playsinline style="width:100%; aspect-ratio:16/9; display:block; background:#000;" title="Click to toggle sound"></video>
-      <div style="display:flex; justify-content:space-between; padding:4px 6px; font-size:0.72rem; background:var(--term-bg);">
-        <span style="font-weight:bold; color:var(--term-text-bright); text-transform:capitalize;">${c.name}</span>
-        <span id="live-status-${c.id}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>
-      </div>
-    </div>`).join('') + `
-    <div style="font-size:0.68rem; color:var(--term-text-muted); align-self:end;">Battery and solar cameras (side yard, back yard, driveway) have no live stream; their sightings are under Residents &amp; Pets.</div>`;
-  for (const c of cams) {
-    const video = document.getElementById(`live-${c.id}`);
-    const status = document.getElementById(`live-status-${c.id}`);
+  grid.innerHTML = cams.map(tileHTML).join('');
+  grid.onclick = (e) => {
+    const b = e.target.closest('[data-cam]');
+    if (!b) return;
+    const i = +b.dataset.cam;
+    const status = document.getElementById(`cam-status-${i}`);
+    if (b.dataset.refresh) return loadSnapshot(document.getElementById(`cam-img-${i}`), status, cams[i].entity, true);
+    if (b.dataset.ptz) return ptz(cams[i].entity, b.dataset.ptz, b.dataset.preset || '', status);
+  };
+  cams.forEach((c, i) => {
+    const status = document.getElementById(`cam-status-${i}`);
+    if (c.live === 'snapshot') { loadSnapshot(document.getElementById(`cam-img-${i}`), status, c.entity, false); return; }
+    const video = document.getElementById(`cam-vid-${i}`);
     video.addEventListener('click', () => { video.muted = !video.muted; });
-    playStream(video, status, c.stream).catch((e) => { status.textContent = e.message; });
-  }
+    const play = c.live === 'webrtc' ? playWebRTC(video, status, c.stream) : playHLS(video, status, c.entity);
+    play.catch((e) => setStatus(status, e.message));
+  });
 }
 
 export function showPresenceTab(which) {

@@ -72,6 +72,12 @@
     "min_score": 0.7,
     "cameras": { "camera.kitchen_living_room_hd_stream": "kitchen_living_room" }
   },
+  "camera_ui": {
+    "camera.kitchen_living_room_hd_stream": { "name": "Kitchen/Living Room", "live": "webrtc", "ptz": "kitchen_living_room" },
+    "camera.driveway_front_door_hd_stream_direct": { "name": "Driveway/Front Door", "live": "webrtc", "go2rtc": "driveway_front_door", "ptz": "driveway_front_door", "min_refresh_s": 60 },
+    "camera.side_yard_hd_stream_direct": { "name": "Side Yard", "live": "snapshot", "min_refresh_s": 180 },
+    "camera.back_yard_hd_stream_direct": { "name": "Back Yard", "live": "snapshot", "min_refresh_s": 180 }
+  },
   "project_phase": 2,
   "engine_profiles": {
     "courage_default": {

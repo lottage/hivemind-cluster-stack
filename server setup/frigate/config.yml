@@ -34,6 +34,12 @@ go2rtc:                        # one connection per camera; Frigate, HA and Ston
       - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream1"
     kitchen_living_room_sub:
       - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream2"
+    # Solar TCW90: no RTSP, so Tapo's own protocol (port 8800) with the TP-Link cloud password.
+    # Not a Frigate camera: go2rtc only connects while the StoneSage LIVE tab is watching (saves the battery).
+    driveway_front_door:
+      - "tapo://{FRIGATE_TAPO_CLOUD_PASSWORD}@192.168.1.228"
+  log:                         # TEMPORARY (2026-09-24): debug WebRTC from the phone over HTTPS; remove after
+    webrtc: debug
   webrtc:
     candidates:
       - 192.168.1.150:8555     # LXC 128 static address
@@ -42,6 +48,10 @@ go2rtc:                        # one connection per camera; Frigate, HA and Ston
 detect:
   enabled: true
   fps: 5
+
+face_recognition:              # trained from StoneSage corrections (Residents & Pets "Correct as"), 2026-09-25
+  enabled: true
+  model_size: small            # CPU-friendly; "large" wants a GPU
 
 objects:
   track: [person, dog, cat]

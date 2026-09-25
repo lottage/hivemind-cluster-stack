@@ -27,11 +27,17 @@ logger = logging.getLogger("StoneSage.FrigatePresence")
 UNKNOWN_PERSON = "someone"
 
 
+def norm_name(name: str) -> str:
+    """Identity key used everywhere (presence locations, sentry snapshot prefix, UI cards): 'Aunt May' -> 'aunt-may'.
+    Same rule as prefix() in server setup/cluster-bridge/wildlife_admin.py."""
+    return re.sub(r"[^a-z0-9-]", "", name.strip().lower().replace(" ", "-").replace("'", ""))
+
+
 def _sub_label_name(sub_label: Any) -> Optional[str]:
     """Frigate sends sub_label as "Austin" or ["Austin", 0.93] depending on version and source."""
     if isinstance(sub_label, (list, tuple)) and sub_label:
         sub_label = sub_label[0]
-    return sub_label.strip().lower() if isinstance(sub_label, str) and sub_label.strip() else None
+    return norm_name(sub_label) if isinstance(sub_label, str) and sub_label.strip() else None
 
 
 def _score(ev: Dict[str, Any]) -> float:
@@ -114,6 +120,27 @@ class FrigatePresence:
                 "snapshot_url": f"{self.url}/api/events/{r['event_id']}/snapshot.jpg" if r["has_snapshot"] else None,
             }
         return out
+
+    def apply_correction(self, event_id: str, name: Optional[str]) -> None:
+        """Mirror a correction John made in the UI: name=None drops the sighting (rejected), else re-files it
+        under that identity. Frigate gets the same correction through its API; this keeps memory in step."""
+        with self._lock:
+            for store in (self.latest, self.active):
+                for key, rec in list(store.items()):
+                    if rec["event_id"] != event_id:
+                        continue
+                    if store is self.latest:
+                        del store[key]
+                    if name is None:
+                        store.pop(key, None)
+                        continue
+                    new = dict(rec, name=norm_name(name))
+                    if store is self.latest:
+                        cur = store.get(new["name"])
+                        if cur is None or new["seen_at"] >= cur["seen_at"]:
+                            store[new["name"]] = new
+                    else:
+                        store[key] = new
 
     # ------------------------------------------------------- camera look ----
     def in_view_now(self, camera: str) -> List[Dict[str, Any]]:
