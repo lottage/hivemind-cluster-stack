@@ -2799,6 +2799,43 @@ def _courage_speak(message: str, room: str = "kitchen") -> Dict[str, Any]:
     return hass.call_service("notify", service, {"message": message, "data": {"type": "announce"}})
 
 
+def _stonesage_data_dir() -> str:
+    return os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+
+
+def setup_boost() -> None:
+    """Boost (free extra inference, backend/boost). Home terms: family, pets and camera names count as home content."""
+    import boost
+    from courage.tools import CAMERAS, PEOPLE
+    terms = tuple(PEOPLE) + tuple(c["name"] for c in CAMERAS.values()) + tuple(k.replace("_", " ") for k in CAMERAS)
+    boost.configure(load_config, _stonesage_data_dir(), home_terms=terms)
+
+
+def _boost_router():
+    import boost
+    return boost.get_router()
+
+
+def _courage_think_harder(question: str, kind: str = "general") -> Dict[str, Any]:
+    """Courage's think_harder tool: a free bigger model through Boost. Never falls back to :8001 (that's Courage)."""
+    r = _boost_router()
+    if r is None or not r.enabled("courage"):
+        return {"ok": False, "error": "Boost is off for Courage"}
+    res = r.complete([{"role": "system", "content": "Answer accurately and concisely, in under 200 words. Say so if you are unsure."},
+                      {"role": "user", "content": question}], "courage", declared=kind, max_tokens=900,
+                     temperature=0.3, allow_local=False)
+    if not res.get("ok"):
+        return {"ok": False, "error": "no bigger brain free right now: " + "; ".join((res.get("skipped") or []) + (res.get("tried") or []))[:300]}
+    msg = ((res["data"].get("choices") or [{}])[0].get("message") or {})
+    answer = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+    return {"ok": bool(answer), "answer": answer, "source": f"{res['label']} ({res['model']})"}
+
+
+def _courage_boost_available() -> bool:
+    r = _boost_router()
+    return bool(r and r.enabled("courage"))
+
+
 def get_courage_agent():
     """The shared Courage agent (pending approvals live on it, so there must be exactly one)."""
     global _courage_agent
@@ -2814,6 +2851,8 @@ def get_courage_agent():
                 memory_search=_courage_memory_search,
                 notify=_courage_notify,
                 speak=_courage_speak,
+                think_harder=_courage_think_harder,
+                think_harder_available=_courage_boost_available,
             )
             url = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1")
             _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence,
@@ -3341,6 +3380,144 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.flush()
         else:
             self.send_json({"model": model, "created_at": now, "message": message, "done": True, "done_reason": "stop"})
+
+    # ---- Boost: free extra inference (backend/boost) -------------------------------------
+    def _from_lan(self) -> bool:
+        ip = self.client_address[0]
+        return ip.startswith("192.168.1.") or ip in ("127.0.0.1", "::1")
+
+    def _frontier_client(self):
+        from boost.frontier import FrontierClient
+        fcfg = (load_config().get("boost") or {}).get("frontier") or {}
+        return FrontierClient(fcfg.get("url", "http://192.168.1.105:8770")), fcfg
+
+    def _handle_boost_get(self, path: str, query: Dict[str, List[str]]) -> None:
+        r = _boost_router()
+        if r is None:
+            self.send_json({"ok": False, "error": "Boost is not configured"}, 503)
+            return
+        if path == "/api/boost/status":
+            self.send_json({"ok": True, **r.status()})
+        elif path == "/api/boost/models":
+            pid = (query.get("provider") or [""])[0]
+            p = r.providers().get(pid)
+            if not p:
+                self.send_json({"ok": False, "error": f"unknown provider '{pid}'"}, 404)
+                return
+            self.send_json({"ok": True, "provider": pid, "configured": p.models,
+                            "live": r.live_models(p, refresh=bool(query.get("refresh")))})
+        elif path == "/api/boost/v1/models":
+            # first entry = what LlamaClient picks when it polls /models: the harness is a background loop
+            data = [{"id": f"boost:{sfc}", "object": "model", "owned_by": "stonesage"} for sfc in ("loops", "workspaces", "chat")]
+            for pid, p in r.providers().items():
+                for mid in p.models:
+                    data.append({"id": f"boost:{pid}/{mid}", "object": "model", "owned_by": pid})
+            self.send_json({"object": "list", "data": data})
+        elif path == "/api/boost/frontier/health":
+            client, fcfg = self._frontier_client()
+            self.send_json({"enabled": bool(fcfg.get("enabled")), **client.health()})
+        elif path == "/api/boost/frontier/jobs":
+            client, _ = self._frontier_client()
+            self.send_json(client.jobs())
+        elif path.startswith("/api/boost/frontier/jobs/"):
+            client, _ = self._frontier_client()
+            self.send_json(client.job(path.rsplit("/", 1)[-1]))
+        else:
+            self.send_json({"ok": False, "error": "not found"}, 404)
+
+    def _handle_boost_post(self, path: str, body: Dict[str, Any]) -> None:
+        r = _boost_router()
+        if r is None:
+            self.send_json({"ok": False, "error": "Boost is not configured"}, 503)
+            return
+        if path == "/api/boost/settings":
+            allowed = {"enabled", "surfaces", "priority", "loop_share", "home_terms", "providers", "frontier", "timeout_s"}
+            upd = {k: v for k, v in body.items() if k in allowed}
+            for pid, spec in list((upd.get("providers") or {}).items()):
+                if isinstance(spec, dict) and not str(spec.get("api_key") or "").strip():
+                    spec.pop("api_key", None)   # empty = keep the stored key; keys are never sent back
+            import config_mask
+            cfg = load_config()
+            cfg.setdefault("boost", {})
+            deep_update(cfg["boost"], config_mask.drop_masked(upd))
+            save_config(cfg)
+            self.send_json({"ok": True, **r.status()})
+        elif path == "/api/boost/test":
+            pid = body.get("provider", "")
+            res = r.complete([{"role": "user", "content": "Reply with the single word: ready"}], "chat",
+                             max_tokens=400, temperature=0, pinned=pid or None, allow_local=False)
+            t0 = res.get("data") or {}
+            text = (((t0.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()[:200]
+            self.send_json({"ok": res.get("ok", False), "provider": res.get("provider"), "model": res.get("model"),
+                            "reply": text, "tried": res.get("tried"), "skipped": res.get("skipped")})
+        elif path == "/api/boost/v1/chat/completions":
+            self._boost_proxy(r, body)
+        elif path == "/api/boost/frontier/jobs":
+            client, fcfg = self._frontier_client()
+            if not fcfg.get("enabled"):
+                self.send_json({"ok": False, "error": "frontier worker is off (boost.frontier.enabled)"}, 403)
+                return
+            self.send_json(client.submit(body.get("engine", "claude"), body.get("task", ""), body.get("repo"),
+                                         body.get("ref"), home_terms=r.home_terms()))
+        else:
+            self.send_json({"ok": False, "error": "not found"}, 404)
+
+    def _boost_proxy(self, r, body: Dict[str, Any]) -> None:
+        """OpenAI-compatible endpoint for the harness and other LAN clients. Keys stay on this host.
+
+        model: "boost" | "boost:<surface>" | "boost:<provider>[/<model>]". Class: X-Boost-Class header or body
+        "boost_class" (default: code for loops/workspaces, general otherwise). Falls back to the local coordinator."""
+        if not self._from_lan():
+            self.send_json({"error": {"message": "LAN only"}}, 403)
+            return
+        model = str(body.get("model") or "boost")
+        spec = model.split(":", 1)[1] if model.startswith("boost:") else ""
+        surface, pinned = ("chat", None)
+        if spec in ("chat", "courage", "loops", "workspaces"):
+            surface = spec
+        elif spec:
+            pinned = spec
+        if not r.enabled(surface):
+            self.send_json({"error": {"message": f"Boost is off for {surface}", "type": "boost_disabled"}}, 403)
+            return
+        declared = self.headers.get("X-Boost-Class") or body.get("boost_class") or \
+            ("code" if surface in ("loops", "workspaces") else "general")
+        kw = dict(tools=body.get("tools"), max_tokens=min(int(body.get("max_tokens") or 1024), 8192),
+                  temperature=float(body.get("temperature", 0.5)), pinned=pinned, allow_local=True,
+                  extra={k: body[k] for k in ("top_p", "stop", "tool_choice", "response_format") if k in body})
+        if not body.get("stream"):
+            res = r.complete(body.get("messages") or [], surface, declared, **kw)
+            if not res.get("ok"):
+                self.send_json({"error": {"message": res.get("error"), "tried": res.get("tried"), "skipped": res.get("skipped")}}, 503)
+                return
+            payload = json.dumps(res["data"]).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("X-Boost-Provider", res["provider"])
+            self.send_header("X-Boost-Model", res["model"])
+            self.send_header("X-Boost-Tier", res["tier"])
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        res = r.open_stream(body.get("messages") or [], surface, declared, **kw)
+        if not res.get("ok"):
+            self.send_json({"error": {"message": res.get("error"), "tried": res.get("tried"), "skipped": res.get("skipped")}}, 503)
+            return
+        import boost
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Boost-Provider", res["provider"])
+        self.send_header("X-Boost-Model", res["model"])
+        self.send_header("X-Boost-Tier", res["tier"])
+        self.end_headers()
+        try:
+            for line in boost.iter_sse(res["response"]):
+                self.wfile.write((line.rstrip("\n") + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def send_json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
@@ -3990,7 +4167,12 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/config":
-            self.send_json(load_config())
+            import config_mask
+            self.send_json(config_mask.mask(load_config()))
+            return
+
+        elif path.startswith("/api/boost"):
+            self._handle_boost_get(path, urllib.parse.parse_qs(parsed.query))
             return
 
         elif path == "/api/services/status":
@@ -6335,7 +6517,13 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(trainer_client.feed_passdown())
                 return
 
+            elif path.startswith("/api/boost"):
+                self._handle_boost_post(path, body)
+                return
+
             elif path == "/api/config":
+                import config_mask
+                body = config_mask.drop_masked(body)
                 cfg = load_config()
                 deep_update(cfg, body)
                 # Auto-parse proxmox token_value if provided
@@ -6712,53 +6900,61 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         messages.insert(0, {"role": "system", "content": agent_system_prompt})
 
                 memory_badges = []
-                try:
-                    has_sys = any(m.get("role") == "system" for m in messages)
+                # Boost (free cloud sources): no A-MEM, workspace or hardware grounding is injected here. Home context
+                # may only reach some tiers, and stream_chat's router decides the tier after the final egress scan.
+                boost_target = str(target).lower().startswith("boost")
+                if boost_target:
+                    params = dict(params, boost_surface="workspaces" if ws_path else "chat")
+                    if not any(m.get("role") == "system" for m in messages):
+                        messages.insert(0, {"role": "system", "content": "You are StoneSage AI, a homelab and coding copilot. Be concise and accurate."})
+                if not boost_target:
                     try:
-                        from harness.core.context_fabric import context_fabric
-                        if ws_path:
-                            from harness.core.openclaw_engine import openclaw_engine
-                            project_agent = openclaw_engine.load_project_agent(ws_path)
-                            if project_agent:
-                                agent_id = project_agent.get("agent_id", agent_id)
-                                compiled_sp = openclaw_engine.compile_agent_system_prompt(ws_path, user_query=user_query)
-                                if has_sys:
-                                    for m in messages:
-                                        if m.get("role") == "system":
-                                            m["content"] = compiled_sp + "\n\n" + m.get("content", "")
-                                            break
-                                else:
-                                    messages.insert(0, {"role": "system", "content": compiled_sp})
-                                    has_sys = True
+                        has_sys = any(m.get("role") == "system" for m in messages)
+                        try:
+                            from harness.core.context_fabric import context_fabric
+                            if ws_path:
+                                from harness.core.openclaw_engine import openclaw_engine
+                                project_agent = openclaw_engine.load_project_agent(ws_path)
+                                if project_agent:
+                                    agent_id = project_agent.get("agent_id", agent_id)
+                                    compiled_sp = openclaw_engine.compile_agent_system_prompt(ws_path, user_query=user_query)
+                                    if has_sys:
+                                        for m in messages:
+                                            if m.get("role") == "system":
+                                                m["content"] = compiled_sp + "\n\n" + m.get("content", "")
+                                                break
+                                    else:
+                                        messages.insert(0, {"role": "system", "content": compiled_sp})
+                                        has_sys = True
 
-                        if not has_sys:
-                            dyn_sp = context_fabric.compile_dynamic_turn(user_query=user_query, agent_id=agent_id if agent_id != "coordinator" else None)
-                            messages.insert(0, {"role": "system", "content": dyn_sp})
-                            has_sys = True
-                        else:
-                            try:
-                                from harness.data_fabric.valkey_amem import valkey_amem
-                                amem_atom = valkey_amem.format_injection_header(user_query)
-                                if amem_atom:
-                                    memory_badges.append("A-MEM: In-RAM Working Memory")
-                                    for m in messages:
-                                        if m.get("role") == "system":
-                                            m["content"] = m.get("content", "") + f"\n\n{amem_atom}"
-                                            break
-                            except Exception:
-                                pass
-                    except (ImportError, ModuleNotFoundError):
-                        if not has_sys:
-                            messages.insert(0, {
-                                "role": "system",
-                                "content": "You are StoneSage AI, an uncensored, high-precision homelab cognitive assistant and expert coder."
-                            })
-                except Exception as ex:
-                    logger.debug(f"Dynamic prompt injection error: {ex}")
+                            if not has_sys:
+                                dyn_sp = context_fabric.compile_dynamic_turn(user_query=user_query, agent_id=agent_id if agent_id != "coordinator" else None)
+                                messages.insert(0, {"role": "system", "content": dyn_sp})
+                                has_sys = True
+                            else:
+                                try:
+                                    from harness.data_fabric.valkey_amem import valkey_amem
+                                    amem_atom = valkey_amem.format_injection_header(user_query)
+                                    if amem_atom:
+                                        memory_badges.append("A-MEM: In-RAM Working Memory")
+                                        for m in messages:
+                                            if m.get("role") == "system":
+                                                m["content"] = m.get("content", "") + f"\n\n{amem_atom}"
+                                                break
+                                except Exception:
+                                    pass
+                        except (ImportError, ModuleNotFoundError):
+                            if not has_sys:
+                                messages.insert(0, {
+                                    "role": "system",
+                                    "content": "You are StoneSage AI, an uncensored, high-precision homelab cognitive assistant and expert coder."
+                                })
+                    except Exception as ex:
+                        logger.debug(f"Dynamic prompt injection error: {ex}")
 
                 # Real-time hardware sensory, wildlife ledger and Home Assistant grounding
                 try:
-                    hw_context = ground_hardware_context(agent_id, user_query)
+                    hw_context = "" if boost_target else ground_hardware_context(agent_id, user_query)
                     if hw_context:
                         if "Thermostat" in hw_context:
                             memory_badges.append("Hardware: Nest Thermostat Live Telemetry")
@@ -8800,6 +8996,10 @@ if __name__ == "__main__":
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     # Warm Courage's presence cache so the first question doesn't pay the ~1.4 s presence read
     threading.Thread(target=_courage_refresh_presence, daemon=True, name="courage-presence-warmup").start()
+    try:
+        setup_boost()
+    except Exception as e:
+        logger.warning(f"Boost setup failed: {e}")
     threading.Thread(target=get_courage_agent, daemon=True, name="courage-agent-warmup").start()  # starts the phone-approval listener
     if get_frigate_presence():
         threading.Thread(target=_frigate_presence.start, daemon=True, name="frigate-presence-start").start()

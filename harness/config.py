@@ -174,6 +174,13 @@ class FleetConfig:
                 node_id="local_workstation", name=ws.get("name", "Workstation"),
                 base_url=os.environ.get("WORKSTATION_URL", ws.get("url", "").rstrip("/") + "/v1"),
                 role="workstation", slots=1, device_name=(ws.get("hardware") or {}).get("device", ""))
+        # Boost: free cloud sources behind StoneSage's OpenAI-compatible proxy (keys stay on StoneSage).
+        # `/node use boost` in the CLI; model id boost:loops so it counts against the background share.
+        boost_cfg = self.stonesage_cfg.get("boost") or {}
+        if boost_cfg.get("enabled") and (boost_cfg.get("surfaces") or {}).get("loops"):
+            ss_url = os.environ.get("STONESAGE_URL", boost_cfg.get("stonesage_url", "http://192.168.1.167:8888")).rstrip("/")
+            self.nodes["boost"] = NodeEndpoint(node_id="boost", name="Boost (free cloud pool)", base_url=ss_url + "/api/boost/v1",
+                                               role="boost", slots=1, device_name="free cloud pool", active_model="boost:loops")
         self.active_node_id: str = "node1_primary"
 
     def stonesage_profile(self) -> Dict[str, Any]:
