@@ -133,6 +133,14 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   (`person.austin` GPS; Savannah has no HA tracker, so camera sightings within 90 min); driveway battery-gated
   (daylight and >= 60 % -> 15 min, else hourly, < 30 % never). A camera moved by hand is left alone for 5 min.
   Routes: `GET /api/patrol/status`, `GET /api/patrol/frame?entity=&i=`, `POST /api/patrol/run {entity}`.
+  Sweeps skip the first step after the left end stop (`skip_steps` 1: the driveway looks into the house wall at 0 deg),
+  so frames start at pan 30. Patrol sightings have Wrong / Correct as too (logged to `data/patrol_corrections.jsonl`;
+  a person correction uploads the frame to Frigate's face library). Last sweep times: `data/patrol_state.json`.
+- Life360 (2026-09-25): HACS custom integration pnbruckner/ha-life360 (HA's built-in one was removed in 2024.2),
+  installed and logged in by John. Trackers `device_tracker.life360_savannah_karisny`, `device_tracker.life360_austin_lott`
+  (extended family trackers exist, deliberately not used). New `person.savannah` (Life360); `person.austin` gained the
+  Life360 tracker next to phone + tablet. Pre-change person list: `_backups/ha_persons_backup_2026-09-25.json`.
+  The patrol's "resident home" check uses `person.<name>` first, so Savannah is no longer inferred from cameras.
 - Presence corrections (2026-09-25, `backend/presence_corrections.py`, cards in Residents & Pets): "✗ Wrong" and
   "Correct as ▾" (+ New profile). Frigate sightings: false_positive / sub_label; correcting to a person moves that event's
   face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).
