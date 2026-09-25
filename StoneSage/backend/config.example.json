@@ -86,5 +86,21 @@
         "lmstudio:rog_ally_x": { "model": null, "ctx_per_slot": 8192 }
       }
     }
+  },
+  "boost": {
+    "enabled": false,
+    "surfaces": { "chat": false, "courage": false, "loops": false, "workspaces": false },
+    "priority": ["groq", "cloudflare", "gemini", "zen", "openrouter"],
+    "loop_share": 0.5,
+    "home_terms": [],
+    "timeout_s": 60,
+    "providers": {
+      "groq": { "api_key": "" },
+      "cloudflare": { "account_id": "", "api_key": "" },
+      "gemini": { "api_key": "" },
+      "zen": { "api_key": "" },
+      "openrouter": { "api_key": "" }
+    },
+    "frontier": { "enabled": false, "url": "http://192.168.1.105:8770" }
   }
 }

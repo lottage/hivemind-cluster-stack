@@ -1,0 +1,32 @@
+[Unit]
+Description=Frontier worker: runs tasks through John's Claude Code / Gemini CLI subscriptions (Boost)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=frontier
+Group=frontier
+WorkingDirectory=/srv/frontier
+# FRONTIER_WORKER_TOKEN only; deliberately NOT /etc/stonesage/secrets.env (the CLIs must never see HASS_TOKEN)
+EnvironmentFile=/etc/frontier-worker/token.env
+Environment="FRONTIER_BIND=192.168.1.105"
+Environment="FRONTIER_PORT=8770"
+Environment="FRONTIER_DAILY_JOBS=10"
+Environment="FRONTIER_TIMEOUT_S=1200"
+Environment="HOME=/home/frontier"
+Environment="PATH=/home/frontier/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 /opt/cluster-bridge/frontier_worker.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/srv/frontier /home/frontier
+ProtectKernelTunables=true
+ProtectControlGroups=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

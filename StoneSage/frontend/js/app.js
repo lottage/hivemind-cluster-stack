@@ -15,6 +15,7 @@ import { initEngineStudio } from './engine_studio.js';
 import { initEngineConsole } from './engine_console.js';
 import { initProfile } from './profile.js';
 import './model_loader.js';
+import './boost.js';
 
 // Early window modal helpers so click handlers are bound immediately
 window.openModelModal = function() {

@@ -150,6 +150,23 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `ally_agents_free` (min_phase 4). Verified live with a no-op apply of `courage_default` (both targets skipped, no restart).
   Live config pre-change: `/opt/stonesage/backend/config.json.bak-engine-profiles-20260924-080452` on LXC 120.
 
+## Boost: free extra inference (branch `boost-free`, 2026-09-24, NOT deployed yet)
+`StoneSage/backend/boost/` pools free cloud sources behind one router. Local :8001 stays the default and the last fallback.
+- Sources (free tiers, no card): Groq and Cloudflare Workers AI (tier `no_training`), Gemini API free, OpenCode Zen free models,
+  OpenRouter `:free` (tier `training`), plus opt-in edge nodes (`harness_instances[].boost: true`, tier `local`).
+  Limits are defaults in `boost/providers.py`, overridable in `config.json boost.providers`; 429s set cooldowns.
+- Egress (John's tiered rule): home text only to `local`/`no_training`; `training` gets general/code only; pictures and
+  secrets never leave. A deterministic scan (`boost/egress.py`) raises the class (HA entity ids, LAN IPs, family/pet/camera
+  names, tokens). Boost chat gets no A-MEM, hardware grounding, RAG or tool registry.
+- Surfaces, each off by default (`config.json boost.surfaces`): chat (topbar model menu "⚡ Boost"), courage (`think_harder`
+  tool), loops (harness `/node use boost` via the LAN-only proxy `/api/boost/v1/chat/completions`), workspaces.
+  `boost.loop_share` (0.5) caps background use of each daily quota. UI: Engine Console → ⚡ BOOST.
+- Frontier worker (`server setup/cluster-bridge/frontier_worker.py`, unit `frontier-worker.service`, VM 102 :8770): John's
+  Claude Code / Gemini CLI logins run tasks in scratch clones and return a diff; 10 jobs/engine/day; no MCP, scrubbed env.
+  Not installed yet (needs the CLIs installed and John's own login as user `frontier`).
+- `GET /api/config` now masks secret fields (`backend/config_mask.py`); POSTs ignore masked values.
+- Keys: `/etc/stonesage/secrets.env` on LXC 120 (drop-in `server setup/stonesage.service.d/secrets.conf`) or config.json.
+
 ## Known issues
 - Qdrant (2026-09-24): the two `home_automation_registry` device-map points were corrected in place (backup
   `_backups/qdrant_registry_points_backup_2026-09-24.json`). Do NOT re-run `backup_to_qdrant.py`: it upserts with random
