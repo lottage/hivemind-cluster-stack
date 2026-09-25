@@ -121,15 +121,87 @@ class TurnTrace:
                 "steps": self.steps, "final": _short(self.final, TEXT), "triggers": self.triggers}
 
 
+def _label(v: Any) -> str:
+    """A Prometheus label value: escaped, and short (a label is an index, not a log line)."""
+    return str(v if v is not None else "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")[:80]
+
+
+class TraceMetrics:
+    """Counters over every record written since StoneSage started, in Prometheus text format (GET /metrics on
+    StoneSage, scraped by Prometheus on LXC 129). They reset on a restart; Prometheus' rate() allows for that."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.records: Dict[tuple, int] = {}      # (kind, outcome)
+        self.triggers: Dict[tuple, int] = {}     # (kind, trigger)
+        self.seconds: Dict[str, List[float]] = {}  # kind -> [sum, count]
+        self.boost: Dict[tuple, int] = {}        # (provider, class, outcome)
+        self.frames: Dict[str, int] = {}         # patrol camera -> frames taken
+        self.tools: Dict[tuple, int] = {}        # (tool, ok)
+
+    def add(self, rec: Dict[str, Any]) -> None:
+        kind = rec.get("kind", "courage")
+        with self._lock:
+            k = (kind, rec.get("outcome"))
+            self.records[k] = self.records.get(k, 0) + 1
+            for t in rec.get("triggers") or []:
+                self.triggers[(kind, t)] = self.triggers.get((kind, t), 0) + 1
+            if isinstance(rec.get("ms"), (int, float)):
+                acc = self.seconds.setdefault(kind, [0.0, 0])
+                acc[0] += rec["ms"] / 1000
+                acc[1] += 1
+            if kind == "boost":
+                b = (rec.get("provider") or "none", rec.get("class"), rec.get("outcome"))
+                self.boost[b] = self.boost.get(b, 0) + 1
+            if kind == "patrol":
+                self.frames[rec.get("camera")] = self.frames.get(rec.get("camera"), 0) + int(rec.get("frames") or 0)
+            for st in rec.get("steps") or []:
+                if "tool" in st:
+                    t = (st["tool"], "true" if st.get("ok") else "false")
+                    self.tools[t] = self.tools.get(t, 0) + 1
+
+    def text(self) -> str:
+        out: List[str] = []
+
+        def family(name: str, help_: str, kind: str, rows) -> None:
+            out.append(f"# HELP {name} {help_}")
+            out.append(f"# TYPE {name} {kind}")
+            for labels, value in rows:
+                lab = ",".join(f'{k}="{_label(v)}"' for k, v in labels)
+                out.append(f"{name}{{{lab}}} {value}")
+
+        with self._lock:
+            family("stonesage_trace_records_total", "Trace records (Courage turns, Boost calls, patrol sweeps).", "counter",
+                   [((("kind", k), ("outcome", o)), n) for (k, o), n in sorted(self.records.items(), key=str)])
+            family("stonesage_trace_triggers_total", "Escalation triggers recorded (nothing acts on them yet).", "counter",
+                   [((("kind", k), ("trigger", t)), n) for (k, t), n in sorted(self.triggers.items(), key=str)])
+            family("stonesage_trace_duration_seconds", "Time per record: a Courage turn, a Boost call, a sweep.", "summary", [])
+            for k, (total, count) in sorted(self.seconds.items()):
+                out.append(f'stonesage_trace_duration_seconds_sum{{kind="{_label(k)}"}} {round(total, 3)}')
+                out.append(f'stonesage_trace_duration_seconds_count{{kind="{_label(k)}"}} {count}')
+            family("stonesage_boost_calls_total", "Boost calls by answering source, content class and outcome.", "counter",
+                   [((("provider", p), ("class", c), ("outcome", o)), n) for (p, c, o), n in sorted(self.boost.items(), key=str)])
+            family("stonesage_patrol_frames_total", "Frames taken by patrol sweeps.", "counter",
+                   [((("camera", c),), n) for c, n in sorted(self.frames.items(), key=str)])
+            family("stonesage_courage_tool_calls_total", "Courage tool calls by tool and whether they succeeded.", "counter",
+                   [((("tool", t), ("ok", ok)), n) for (t, ok), n in sorted(self.tools.items(), key=str)])
+        return "\n".join(out) + "\n"
+
+
 class TraceLog:
-    """Append-only JSONL with size rotation; reads for the StoneSage trace view."""
+    """Append-only JSONL with size rotation; reads for the StoneSage trace view; counters for Prometheus."""
 
     def __init__(self, path: str, max_bytes: int = MAX_BYTES):
         self.path, self.max_bytes = path, max_bytes
         self._lock = threading.Lock()
+        self.metrics = TraceMetrics()
 
     def write(self, rec: Dict[str, Any]) -> None:
         line = json.dumps(rec, ensure_ascii=False, default=str) + "\n"
+        try:
+            self.metrics.add(rec)
+        except Exception:
+            pass  # counters must never break a turn either
         with self._lock:
             try:
                 if os.path.exists(self.path) and os.path.getsize(self.path) + len(line) > self.max_bytes:

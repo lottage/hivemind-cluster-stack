@@ -1,0 +1,37 @@
+# Recording rules for the StoneSage stack (live: /etc/prometheus/stonesage_rules.yml on LXC 129).
+# Built from docs/handoff-2026-09-25-stack-limits/prometheus_idle_rules.yml, corrected against the live stack
+# (REVIEW.md there): GPU counters come from VM 102 labelled by PCI slot (not card index), llama-server's metric is
+# llamacpp:requests_processing (with a colon), and both GPUs carry two engines each.
+#
+# "Idle" is not "free": both GPUs are nearly full of loaded models. stonesage:stack_idle only says nothing is
+# running; a fine-tune window still means stopping engines (Courage offline) through the Model Loader.
+
+groups:
+  - name: stonesage_idle
+    interval: 30s
+    rules:
+      # Per GPU, averaged over 5 min so one tool call does not count as busy
+      - record: stonesage:gpu_busy_percent:avg5m
+        expr: avg_over_time(stonesage_gpu_busy_percent[5m])
+
+      - record: stonesage:gpu_vram_used_ratio
+        expr: stonesage_gpu_vram_used_bytes / stonesage_gpu_vram_total_bytes
+
+      # Per engine: 1 when no request was in progress at any scrape of the last 5 min
+      - record: stonesage:engine_idle
+        expr: max_over_time(llamacpp:requests_processing[5m]) == bool 0
+
+      # The whole stack: every GPU under 10 % busy AND every scraped engine idle, for 5 min. 1 = idle, 0 = busy.
+      - record: stonesage:stack_idle
+        expr: |
+          (max(stonesage:gpu_busy_percent:avg5m) < bool 10)
+          * min(stonesage:engine_idle)
+
+  - name: stonesage_trace
+    interval: 30s
+    rules:
+      # Rates of what the trace records, per hour, for the watch face and escalation thresholds later
+      - record: stonesage:trace_records:rate1h
+        expr: sum by (kind, outcome) (increase(stonesage_trace_records_total[1h]))
+      - record: stonesage:trace_triggers:rate1h
+        expr: sum by (kind, trigger) (increase(stonesage_trace_triggers_total[1h]))

@@ -187,6 +187,18 @@ class TestLog(unittest.TestCase):
         self.assertEqual(s["tools"]["presence_now"], len(recent))
         self.assertIn("step_cap", s["outcomes"])
 
+    def test_prometheus_counters(self):
+        log = TraceLog(os.path.join(tempfile.mkdtemp(), "trace.jsonl"))
+        log.write({"kind": "courage", "outcome": "answered", "ms": 1500, "triggers": ["nudged"],
+                   "steps": [{"tool": "presence_now", "ok": True}, {"tool": "ha_call", "ok": False}]})
+        log.write({"kind": "patrol", "outcome": "done", "camera": 'Drive "front"', "frames": 5, "ms": 50000, "triggers": []})
+        text = log.metrics.text()
+        self.assertIn('stonesage_trace_records_total{kind="courage",outcome="answered"} 1', text)
+        self.assertIn('stonesage_trace_triggers_total{kind="courage",trigger="nudged"} 1', text)
+        self.assertIn('stonesage_courage_tool_calls_total{tool="ha_call",ok="false"} 1', text)
+        self.assertIn('stonesage_patrol_frames_total{camera="Drive \\"front\\""} 5', text)   # quotes escaped
+        self.assertIn('stonesage_trace_duration_seconds_sum{kind="patrol"} 50.0', text)
+
     def test_kind_filter(self):
         log = TraceLog(os.path.join(tempfile.mkdtemp(), "trace.jsonl"))
         log.write({"kind": "courage", "at": 1.0, "outcome": "answered"})

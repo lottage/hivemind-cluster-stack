@@ -1,0 +1,6 @@
+[Unit]
+Description=Write GPU busy % and VRAM for node_exporter (StoneSage metrics, plan Phase 6)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/gpu_metrics.sh

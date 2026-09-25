@@ -3981,6 +3981,16 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "reflexes": learned.items if learned else {}})
             return
 
+        elif path == "/metrics":
+            # Prometheus (LXC 129 scrapes this): counters from the trace since StoneSage started (courage/trace.py)
+            body = get_trace_log().metrics.text().encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         elif path in ("/api/courage/trace", "/api/courage/trace/summary"):
             # The trace (courage/trace.py): Courage turns, Boost calls, patrol sweeps; newest first, or counts.
             # ?kind=courage|boost|patrol narrows both.

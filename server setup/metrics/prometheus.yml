@@ -1,0 +1,45 @@
+# Prometheus on LXC 129 "metrics" (bigserv, 192.168.1.151), plan Phase 6 step 3, installed 2026-09-25.
+# Live copy: /etc/prometheus/prometheus.yml (Debian package prometheus 2.53). Retention: /etc/default/prometheus.
+# UI: http://192.168.1.151:9090 (LAN only, no auth, like the other stack services).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/stonesage_rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Host metrics. VM 102 also carries stonesage_gpu_* from gpu_metrics.sh (textfile collector), labelled by PCI slot.
+  - job_name: node
+    static_configs:
+      - targets: ["192.168.1.105:9100"]
+        labels: {host: "vm102"}
+      - targets: ["localhost:9100"]
+        labels: {host: "metrics"}
+
+  # llama-server engines on VM 102 (llamacpp:* metrics; the colon is part of the name). The embedder on :8003 runs
+  # without --metrics; add it through the Model Loader to scrape it too.
+  - job_name: llama
+    static_configs:
+      - targets: ["192.168.1.105:8001"]
+        labels: {engine: "coordinator"}
+      - targets: ["192.168.1.105:8002"]
+        labels: {engine: "worker"}
+      - targets: ["192.168.1.105:8004"]
+        labels: {engine: "vision"}
+
+  # Frigate 0.18's own Prometheus endpoint: camera fps, detector inference speed, iGPU use, storage.
+  - job_name: frigate
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["192.168.1.150:5000"]
+
+  # StoneSage: counters from the trace (Courage turns, Boost calls, patrol sweeps, triggers), backend/courage/trace.py.
+  - job_name: stonesage
+    static_configs:
+      - targets: ["192.168.1.167:8888"]

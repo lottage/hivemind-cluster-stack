@@ -25,6 +25,7 @@ Plan: https://claude.ai/code/artifact/1b6a0188-feca-4e2f-ae48-16f768b3524b
 | LXC 121 voice | 192.168.1.121 | Whisper :8200 / :10300, Kokoro :8300, Piper :10200 |
 | LXC 116 couchdb | 192.168.1.230:5984 | Obsidian LiveSync |
 | LXC 128 frigate (on pve) | 192.168.1.150 | Frigate 0.18.0 (Docker): UI :8971 (auth), API :5000 (LAN), go2rtc :1984/:8554/:8555 |
+| LXC 129 metrics (on bigserv) | 192.168.1.151 | Prometheus 2.53 :9090 (LAN, no auth), 90-day retention; node_exporter :9100 |
 
 ## LLM engines (VM 102)
 GPU pinning is done by `Environment=GGML_VK_VISIBLE_DEVICES=N` in each unit, so every unit says
@@ -188,6 +189,22 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   HLS mode, its routes and playHLS are removed. Boost's home terms are looked up per call (5 min cache, never shrinks):
   household/pet/camera names + every recognition profile + all 13 Life360 circle names (full, first, last).
 - Still open (Phase 3): commentary engine, HA Frigate integration.
+
+## Metrics (Phase 6 step 3, 2026-09-25)
+LXC 129 "metrics" on bigserv (Debian 13, unprivileged, 2 cores, 1 GB, 16 GB on local-lvm, static .151, onboot, SSH key
+only). Prometheus from Debian packages; config and rules in repo `server setup/metrics/` (live `/etc/prometheus/`,
+package default kept as `prometheus.yml.bak-debian-default`; retention via `/etc/default/prometheus` ARGS).
+Scrapes every 15 s: llama :8001/:8002/:8004 (`llamacpp:*`; the embedder :8003 runs without `--metrics`), Frigate
+`/api/metrics`, StoneSage `/metrics` (trace counters: records by kind/outcome, triggers, durations, Boost calls by
+source/class, patrol frames, Courage tool calls; reset on StoneSage restart), node_exporter on VM 102 and on LXC 129.
+VM 102: `prometheus-node-exporter` (Ubuntu package) + `gpu_metrics.sh` (`/usr/local/bin`, `gpu-metrics.timer` every
+15 s) writing `stonesage_gpu_busy_percent` / `_vram_used_bytes` / `_vram_total_bytes` labelled by PCI slot + lspci name.
+Recording rules (`stonesage_rules.yml`): `stonesage:gpu_busy_percent:avg5m`, `stonesage:gpu_vram_used_ratio`,
+`stonesage:engine_idle`, `stonesage:stack_idle` (every GPU < 10 % for 5 min AND every scraped engine idle),
+`stonesage:trace_records:rate1h`, `stonesage:trace_triggers:rate1h`. First reading: stack idle, VRAM 93 % (6750 XT) and
+86 % (6600) used: idle is not free (a fine-tune still means stopping engines).
+bigserv notes seen while creating it: storage `local` is 99.97 % full (8 MB free: templates/ISOs/backups there), and
+local-lvm is overcommitted (558 GiB of thin volumes on a 475 GiB pool; 43 % actually used).
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,
