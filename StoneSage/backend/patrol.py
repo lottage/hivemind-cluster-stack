@@ -25,6 +25,11 @@ MANUAL_HOLD_S = 300          # a hand-moved camera is not swept for this long
 LEFT_END_MOVES = 3           # 3 x 120 deg left: past the end stop of any Tapo pan range
 
 
+def _key(name: str) -> str:
+    """Identity key, same rule as frigate_presence.norm_name: 'Aunt May' -> 'aunt-may'."""
+    return re.sub(r"[^a-z0-9-]", "", (name or "").strip().lower().replace(" ", "-").replace("'", ""))
+
+
 def frames_differ(a: Optional[bytes], b: Optional[bytes], threshold: float = 3.0) -> bool:
     """Mean absolute difference (0-255 scale) of small grayscale thumbnails. After a pan step the view shifts a lot;
     at the end stop the camera does not move and consecutive frames are nearly identical."""
@@ -155,6 +160,8 @@ class Patrol:
         pcfg = self._pcfg()
         ptz, step, max_frames = cam["ptz"], int(pcfg.get("step_deg", 30)), int(pcfg.get("max_frames", 9))
         settle = float(pcfg.get("settle_s", 3))
+        # Steps to skip after the left end stop: there the driveway camera looks straight into the house wall.
+        skip = int(cam.get("skip_steps", pcfg.get("skip_steps", 1)))
         profiles = self._profile_names()
         st = self.state.setdefault(entity, {})
         st["busy"] = True
@@ -166,8 +173,12 @@ class Patrol:
                 self.ha.press_button(f"button.{ptz}_move_left")
                 self.sleep(settle + 1)
             self.ha.call_service("number", "set_value", {"entity_id": f"number.{ptz}_movement_angle", "value": step})
+            for _ in range(skip):
+                self.ha.press_button(f"button.{ptz}_move_right")
+                self.sleep(settle)
             prev = None
             for i in range(max_frames):
+                pan = (i + skip) * step
                 self.sleep(settle)
                 frame = self.frame_fn(cam["frames"])
                 if frame is None:
@@ -176,10 +187,10 @@ class Patrol:
                     break                                    # did not move: right end stop
                 frames.append(frame)
                 prev = frame
-                names = self._look(cam, frame, i * step, profiles)
+                names = self._look(cam, frame, pan, profiles)
                 if names:
-                    seen_log.append({"pan": i * step, "seen": names})
-                    self._record(entity, cam, names, len(frames) - 1, i * step)
+                    seen_log.append({"pan": pan, "seen": names})
+                    self._record(entity, cam, names, len(frames) - 1, pan)
                 if i < max_frames - 1:
                     self.ha.press_button(f"button.{ptz}_move_right")
         finally:
@@ -189,7 +200,7 @@ class Patrol:
             with self._lock:
                 self.frames[entity] = frames
             last = self.clock()
-            st.update(busy=False, last=last, frames=len(frames), seen=seen_log,
+            st.update(busy=False, last=last, frames=len(frames), seen=seen_log, first_pan=skip * step, step=step,
                       next=last + st["interval_s"] if st.get("interval_s") else None)
             self._save_state()
         return {"frames": len(frames), "seen": seen_log}
@@ -211,9 +222,43 @@ class Patrol:
         now = self.clock()
         with self._lock:
             for n in names:
-                key = re.sub(r"[^a-z0-9-]", "", n.strip().lower().replace(" ", "-").replace("'", ""))
-                self.sightings[key] = {"seen_at": now, "entity": entity, "camera": cam.get("name", entity),
-                                       "frame": frame_idx, "pan": pan}
+                self.sightings[_key(n)] = {"seen_at": now, "entity": entity, "camera": cam.get("name", entity),
+                                           "frame": frame_idx, "pan": pan}
+
+    # ----------------------------------------------------------- corrections ----
+    def correct(self, ref: str, shown: str, action: str, name: str = "") -> Dict[str, Any]:
+        """A correction from a Residents & Pets card. ref = '<entity>|<frame>' of the sighting shown as `shown`.
+        Reject drops it; relabel re-files it under `name` (newest sighting per identity still wins). Returns the
+        frame bytes too, so the caller can teach Frigate's face library when `name` is a person."""
+        entity, _, idx = (ref or "").rpartition("|")
+        if not entity or not idx.isdigit():
+            return {"ok": False, "error": "bad patrol sighting ref"}
+        old = _key(shown)
+        with self._lock:
+            rec = self.sightings.get(old)
+            if not rec or rec["entity"] != entity or rec["frame"] != int(idx):
+                return {"ok": False, "error": "that sighting has been replaced by a newer sweep"}
+            del self.sightings[old]
+            if action == "relabel":
+                new = _key(name)
+                cur = self.sightings.get(new)
+                if cur is None or rec["seen_at"] >= cur["seen_at"]:
+                    self.sightings[new] = rec
+        self._log_correction({"source": "patrol", "entity": entity, "pan": rec["pan"], "shown": shown,
+                              "action": action, "name": name or None})
+        return {"ok": True, "name": name or None, "frame": self.frame(entity, int(idx))}
+
+    def _log_correction(self, entry: Dict[str, Any]) -> None:
+        """Append-only record next to the state file (tuning data for the patrol's vision prompt later)."""
+        if not self.state_path:
+            return
+        import os
+        entry["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            with open(os.path.join(os.path.dirname(self.state_path), "patrol_corrections.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
 
     def _profile_names(self) -> List[str]:
         ents = (self.presence_fn() or {}).get("known_entities") or {}
@@ -226,6 +271,7 @@ class Patrol:
             items = list(self.sightings.items())
         return {k: {"minutes_ago": round((now - v["seen_at"]) / 60, 1), "mtime": v["seen_at"], "camera": v["camera"],
                     "doing": f"seen on patrol (pan {v['pan']} deg)", "source": "patrol",
+                    "patrol_ref": f"{v['entity']}|{v['frame']}",
                     "snapshot_url": f"/api/patrol/frame?entity={v['entity']}&i={v['frame']}"} for k, v in items}
 
     def frame(self, entity: str, i: int) -> Optional[bytes]:
@@ -240,7 +286,7 @@ class Patrol:
             st = self.state.get(entity, {})
             out[entity] = {"name": cam.get("name", entity), "busy": st.get("busy", False), "last": st.get("last"),
                            "next": st.get("next"), "skip": st.get("skip"), "frames": st.get("frames", 0),
-                           "seen": st.get("seen", [])}
+                           "seen": st.get("seen", []), "first_pan": st.get("first_pan", 0), "step": st.get("step", 30)}
         return {"enabled": bool(self._pcfg().get("enabled")), "cameras": out}
 
     # ------------------------------------------------------------------ loop ----

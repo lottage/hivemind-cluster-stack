@@ -7359,6 +7359,18 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     if path == "/api/presence/profiles":
                         res = pc.add_profile(body)
+                    elif body.get("source") == "patrol":
+                        # Patrol sightings live in the patrol's memory; a person correction also trains Frigate faces
+                        action, name = body.get("action", ""), body.get("name", "")
+                        if action == "relabel":
+                            name = pc._canonical(name) or ""
+                        if action not in ("reject", "relabel") or (action == "relabel" and not name):
+                            res = {"ok": False, "error": "unknown profile (add it first)" if action == "relabel" else "bad action"}
+                        else:
+                            res = get_patrol().correct(body.get("ref", ""), body.get("shown", ""), action, name)
+                            frame = res.pop("frame", None)
+                            if res.get("ok") and action == "relabel" and frame and pc._is_person(name):
+                                res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")
                     else:
                         res = pc.correct(body.get("source", ""), body.get("ref", ""), body.get("action", ""), body.get("name", ""))
                         fp = get_frigate_presence()

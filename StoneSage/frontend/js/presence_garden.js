@@ -35,7 +35,7 @@ function bindCorrections(grid) {
     note.style.cssText = 'font-size:0.68rem; color:var(--term-accent-gold);';
     note.textContent = 'saving…';
     row.replaceChildren(note);
-    const res = await postJSON('/api/presence/correct', { source: row.dataset.src, ref: row.dataset.ref, action, name });
+    const res = await postJSON('/api/presence/correct', { source: row.dataset.src, ref: row.dataset.ref, shown: row.dataset.shown, action, name });
     const trained = res.faces_trained ? ` · ${res.faces_trained} face(s) learned` : res.face_registered === true ? ' · face learned' : '';
     note.textContent = res.ok ? (action === 'reject' ? 'hidden' : `now ${name}${trained}`) : `error: ${res.error}`;
     if (res.ok) setTimeout(fetchPresenceState, 800);
@@ -118,6 +118,7 @@ export function renderPresence(data) {
       const via = loc && loc.source === 'frigate' ? ' · Frigate' : loc && loc.source === 'patrol' ? ' · patrol' : '';
       // Correction controls: only for a sighting that has an image to judge
       const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
+        : loc && loc.source === 'patrol' && loc.patrol_ref ? ['patrol', loc.patrol_ref]
         : loc && loc.snapshot ? ['sentry', loc.snapshot] : null;
       const correct = !src ? '' : `
           <div style="display:flex; gap:4px; margin-top:4px;" data-src="${src[0]}" data-ref="${src[1]}" data-shown="${ent.name}">
@@ -403,7 +404,7 @@ async function renderPatrol(cams) {
     const when = p.busy ? 'sweeping now…' : `last ${hhmm(p.last)} · ${p.frames} frames${saw.length ? ` · saw ${[...new Set(saw)].join(', ')}` : ''}`;
     const next = !st.enabled ? 'patrol off' : p.skip ? p.skip : p.next ? `next ${hhmm(p.next)}` : '';
     const thumbs = Array.from({ length: p.frames || 0 }, (_, k) =>
-      `<img src="/api/patrol/frame?entity=${encodeURIComponent(c.entity)}&i=${k}&t=${p.last}" loading="lazy" style="height:34px; border:1px solid var(--term-border-dim);" title="pan ${k * 30}°">`).join('');
+      `<img src="/api/patrol/frame?entity=${encodeURIComponent(c.entity)}&i=${k}&t=${p.last}" loading="lazy" style="height:34px; border:1px solid var(--term-border-dim);" title="pan ${(p.first_pan || 0) + k * (p.step || 30)}°">`).join('');
     box.innerHTML = `🛡️ Patrol: ${when} · ${next}
       <button type="button" class="preset-btn" data-cam="${i}" data-patrol="1" style="padding:0 6px; font-size:0.66rem;" ${p.busy ? 'disabled' : ''}>Sweep now</button>
       ${thumbs ? `<div style="display:flex; gap:2px; overflow-x:auto; margin-top:3px;">${thumbs}</div>` : ''}`;

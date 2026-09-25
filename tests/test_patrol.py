@@ -90,8 +90,9 @@ class TestSweep(unittest.TestCase):
     def test_sweep_starts_at_left_end_stops_at_right_end_and_returns_home(self):
         p, cam = self.make()
         res = p.sweep("camera.kitchen", KITCHEN)
-        self.assertEqual(res["frames"], 9)                          # 0..240 deg = 9 positions, then the end stop
-        self.assertEqual(cam.calls[:3], ["button.kitchen_move_left"] * 3)
+        self.assertEqual(res["frames"], 8)                          # 30..240 deg (0 deg = wall is skipped), then the end stop
+        self.assertEqual(cam.calls[:4], ["button.kitchen_move_left"] * 3 + ["button.kitchen_move_right"])
+        self.assertEqual(p.status()["cameras"]["camera.kitchen"]["first_pan"], 30)
         self.assertEqual(cam.calls[-1], "select.kitchen_move_to_preset=Living Room")
         self.assertEqual(cam.angle, 15)                             # step size restored
         self.assertEqual(set(p.locations()), {"kylo"})              # unknown names from the VLM are dropped
@@ -109,6 +110,18 @@ class TestSweep(unittest.TestCase):
                        clock=lambda: 1100.0, sleep=lambda s: None, state_path=path)
         self.assertEqual(p2.state["camera.kitchen"]["last"], 1000.0)
         self.assertEqual(p2.due("camera.kitchen", KITCHEN), "waiting")   # 100 s after the sweep, not due again
+
+    def test_corrections_on_patrol_sightings(self):
+        p, _ = self.make()
+        p.sweep("camera.kitchen", KITCHEN)
+        ref = p.locations()["kylo"]["patrol_ref"]
+        self.assertFalse(p.correct(ref, "Luna", "reject")["ok"])            # not what that card showed
+        res = p.correct(ref, "Kylo", "relabel", "Aunt May")
+        self.assertTrue(res["ok"] and res["frame"])                         # frame handed back for face training
+        self.assertEqual(set(p.locations()), {"aunt-may"})
+        self.assertTrue(p.correct(p.locations()["aunt-may"]["patrol_ref"], "Aunt May", "reject")["ok"])
+        self.assertEqual(p.locations(), {})
+        self.assertFalse(p.correct("garbage", "Kylo", "reject")["ok"])
 
     def test_frigate_camera_skips_vision_when_nobody_is_in_view(self):
         p, _ = self.make(in_view=False)

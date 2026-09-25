@@ -120,9 +120,13 @@ class PresenceCorrections:
         snap = self._admin("snapshot", {"file": file})
         if not snap.get("ok"):
             return f"failed: {snap.get('error')}"
+        return self.register_face_image(base64.b64decode(snap["jpeg_b64"]), name, file)
+
+    def register_face_image(self, jpeg: bytes, name: str, filename: str = "correction.jpg") -> Any:
+        """Any corrected frame (sentry snapshot, patrol frame) into the person's Frigate face library."""
         boundary = uuid.uuid4().hex
-        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file}\"\r\n"
-                f"Content-Type: image/jpeg\r\n\r\n").encode() + base64.b64decode(snap["jpeg_b64"]) + f"\r\n--{boundary}--\r\n".encode()
+        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
+                f"Content-Type: image/jpeg\r\n\r\n").encode() + jpeg + f"\r\n--{boundary}--\r\n".encode()
         try:
             res = self.http("POST", f"/api/faces/{urllib.parse.quote(name)}/register", body, f"multipart/form-data; boundary={boundary}")
             return bool(res.get("success", True))
