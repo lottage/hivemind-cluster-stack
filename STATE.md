@@ -136,7 +136,8 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   kitchen 90/130/170/210 (4 frames; 30 and 60 are ceiling), driveway 70/110/150/190/230 (5 frames; John: 30 is
   unnecessary, 270 is housing).
   Vision model gets each frame (kitchen only when Frigate tracks someone) and names known profiles (JSON, names
-  checked); sightings merge into presence as source "patrol". Kitchen pauses while Austin or Savannah is home
+  checked); sightings merge into presence as source "patrol". Kitchen paused while Austin or Savannah was home
+  until 2026-09-25, when John dropped that (`quiet_when_home` removed from config: the motors are quiet enough)
   (`person.austin` GPS; Savannah has no HA tracker, so camera sightings within 90 min); driveway battery-gated
   (daylight and >= 60 % -> 15 min, else hourly, < 30 % never). A camera moved by hand is left alone for 5 min, and a
   sweep in progress stops before its next move when John presses a PTZ button or Courage's camera_scan takes the camera
