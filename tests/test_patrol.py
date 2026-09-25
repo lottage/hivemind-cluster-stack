@@ -64,7 +64,7 @@ class FakeCamera:
         self.pos = max(0, min(240, self.pos + step))
         return {"ok": True}
 
-    def call_service(self, domain, service, data):
+    def call_service(self, domain, service, data, timeout=4):
         if data.get("entity_id", "").endswith("movement_angle"):
             self.angle = data["value"]
         if service == "save_preset":
@@ -75,7 +75,7 @@ class FakeCamera:
             self.presets.pop(data["preset"], None)
         return {"ok": True}
 
-    def select_option(self, eid, option):
+    def select_option(self, eid, option, timeout=4):
         self.calls.append(f"{eid}={option}")
         if option in self.presets:
             self.pos = self.presets[option]
@@ -173,7 +173,7 @@ class TestSweep(unittest.TestCase):
         started = []
         import threading
         real_sweep = p._sweep
-        p._sweep = lambda e, c, pr=None: started.append(e)          # "Sweep now" claims, thread records the start
+        p._sweep = lambda e, c, pr=None, reason="scheduled": started.append((e, reason))   # thread records the start
         self.assertTrue(p.run_now("camera.kitchen")["ok"])
         self.assertFalse(p.run_now("camera.kitchen")["ok"])          # second press refused
         self.assertEqual(p.due("camera.kitchen", KITCHEN), "sweeping")
@@ -181,7 +181,7 @@ class TestSweep(unittest.TestCase):
         for t in threading.enumerate():
             if t is not threading.current_thread() and t.daemon:
                 t.join(1)
-        self.assertEqual(started, ["camera.kitchen"])
+        self.assertEqual(started, [("camera.kitchen", "manual")])     # traced as a manual sweep
         p._sweep = real_sweep
 
     def test_manual_move_mid_sweep_stops_it_where_john_left_it(self):

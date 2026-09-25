@@ -2628,7 +2628,7 @@ def _patrol_vision(frame: bytes, where: str, profiles: List[Dict[str, str]]) -> 
         return parse_vision_json(text)
     except Exception as e:
         logger.warning(f"patrol vision on {where}: {e}")
-        return {"seen": []}
+        return {"seen": [], "error": f"{type(e).__name__}: {e}"[:200]}   # counted in the patrol's trace
 
 
 def get_patrol():
@@ -2640,7 +2640,20 @@ def get_patrol():
                          (lambda cam: fp.in_view_now(cam)) if fp else (lambda cam: [{"label": "unknown"}]),
                          _courage_presence,  # includes the patrol's own sightings: Savannah seen on patrol = home
                          state_path=os.path.join(ROOT_DIR, "data", "patrol_state.json"))
+        _patrol.on_sweep = get_trace_log().write
     return _patrol
+
+
+_trace_log = None
+
+
+def get_trace_log():
+    """The one trace (courage/trace.py) that Courage turns, Boost calls and patrol sweeps all write to."""
+    global _trace_log
+    if _trace_log is None:
+        from courage.trace import TraceLog
+        _trace_log = TraceLog(os.path.join(_stonesage_data_dir(), "courage_trace.jsonl"))
+    return _trace_log
 
 
 def _presence_corrections():
@@ -2917,7 +2930,8 @@ def _boost_home_terms() -> frozenset:
 def setup_boost() -> None:
     """Boost (free extra inference, backend/boost). Home terms are looked up per call (_boost_home_terms)."""
     import boost
-    boost.configure(load_config, _stonesage_data_dir(), home_terms=_boost_home_terms)
+    boost.configure(load_config, _stonesage_data_dir(), home_terms=_boost_home_terms,
+                    on_call=lambda rec: get_trace_log().write(rec))   # every Boost call, metadata only
 
 
 def _boost_router():
@@ -2969,8 +2983,7 @@ def get_courage_agent():
             from courage.reflex import LearnedReflexes
             data_dir = os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
             _courage_agent.learned = LearnedReflexes(os.path.join(data_dir, "courage_reflexes.json"))
-            from courage.trace import TraceLog
-            _courage_agent.trace_log = TraceLog(os.path.join(data_dir, "courage_trace.jsonl"))  # one line per turn
+            _courage_agent.trace_log = get_trace_log()  # one line per turn, shared with Boost and the patrol
             # approvals by actionable phone notification (Yes / No buttons), for Home Assistant conversations by default
             ha_cfg = config.get("homeassistant", {})
             phone = COURAGE_PHONES.get("austin")
@@ -3969,18 +3982,22 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path in ("/api/courage/trace", "/api/courage/trace/summary"):
-            # Courage's per-turn trace (courage/trace.py): recent turns newest first, or counts over the last hours
-            log = getattr(get_courage_agent(), "trace_log", None)
+            # The trace (courage/trace.py): Courage turns, Boost calls, patrol sweeps; newest first, or counts.
+            # ?kind=courage|boost|patrol narrows both.
+            log = get_trace_log()
             q = urllib.parse.parse_qs(parsed.query or "")
+            kind = q.get("kind", [""])[0] or None
             try:
+                if kind not in (None, "courage", "boost", "patrol"):
+                    raise ValueError(kind)
                 if path.endswith("/summary"):
                     hours = min(24 * 30, max(0.1, float(q.get("hours", ["24"])[0])))
-                    self.send_json({"ok": True, "summary": log.summary(hours) if log else {}})
+                    self.send_json({"ok": True, "summary": log.summary(hours, kind=kind)})
                 else:
                     limit = min(500, max(1, int(q.get("limit", ["50"])[0])))
-                    self.send_json({"ok": True, "turns": log.recent(limit) if log else []})
+                    self.send_json({"ok": True, "turns": log.recent(limit, kind)})
             except ValueError:
-                self.send_json({"ok": False, "error": "bad limit/hours"}, 400)
+                self.send_json({"ok": False, "error": "bad limit/hours/kind"}, 400)
             return
 
         elif path == "/api/system/profile":

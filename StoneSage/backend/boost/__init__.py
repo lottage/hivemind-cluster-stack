@@ -21,12 +21,14 @@ _setup: Dict[str, Any] = {}
 
 
 def configure(config_fn: Callable[[], Dict[str, Any]], data_dir: Optional[str],
-              home_terms: Union[Iterable[str], Callable[[], Iterable[str]]] = ()) -> None:
-    """home_terms: fixed names, or a function read on every call (profiles and family change while running)."""
+              home_terms: Union[Iterable[str], Callable[[], Iterable[str]]] = (),
+              on_call: Optional[Callable[[Dict[str, Any]], None]] = None) -> None:
+    """home_terms: fixed names, or a function read on every call (profiles and family change while running).
+    on_call: receives one metadata-only record per call (the StoneSage trace); set on every router made here."""
     global _router
     with _lock:
         _setup.update(config_fn=config_fn, data_dir=data_dir,
-                      home_terms=home_terms if callable(home_terms) else tuple(home_terms))
+                      home_terms=home_terms if callable(home_terms) else tuple(home_terms), on_call=on_call)
         _router = None
 
 
@@ -36,6 +38,7 @@ def get_router() -> Optional[BoostRouter]:
     with _lock:
         if _router is None and _setup:
             _router = BoostRouter(_setup["config_fn"], _setup["data_dir"], home_terms=_setup["home_terms"])
+            _router.on_call = _setup.get("on_call")
         return _router
 
 

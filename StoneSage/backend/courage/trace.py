@@ -1,6 +1,15 @@
 """
-A record of every Courage turn, for debugging ("why did Courage do that?") and, later, metrics and escalation
-(plan Phase 6). One JSON line per turn in data/courage_trace.jsonl:
+A record of every Courage turn, Boost call and patrol sweep, for debugging ("why did Courage do that?") and, later,
+metrics and escalation (plan Phase 6). One JSON line each in data/courage_trace.jsonl, with "kind":
+
+  courage  written by TurnTrace below (fields listed next)
+  boost    boost/router.py _report: surface, declared/effective class, kinds of home content found (never the words:
+           Boost traffic can hold home text, so no message content is kept), provider, model, ms, tokens, sources
+           that failed first; triggers all_failed, fell_through, local_fallback
+  patrol   patrol.py _trace: camera, scheduled/manual, frames and pans, why it stopped, where the camera went back to,
+           vision calls; triggers no_frames, frame_error, vision_error, return_failed, interrupted
+
+A Courage turn:
 
   at, session, user (first 300 chars), path, outcome, ms, llm {calls, ms, tokens}, steps [...], final (300 chars),
   triggers [...]
@@ -106,7 +115,7 @@ class TurnTrace:
 
     # ---- output ------------------------------------------------------------------
     def record(self) -> Dict[str, Any]:
-        return {"at": round(self.t0, 3), "session": self.session, "user": _short(self.user or "", TEXT),
+        return {"kind": "courage", "at": round(self.t0, 3), "session": self.session, "user": _short(self.user or "", TEXT),
                 "path": self.path, "outcome": self.outcome or "error", "ms": round((self.clock() - self.t0) * 1000),
                 "llm": {"calls": self.llm_calls, "ms": round(self.llm_ms), "tokens": self.tokens},
                 "steps": self.steps, "final": _short(self.final, TEXT), "triggers": self.triggers}
@@ -130,8 +139,8 @@ class TraceLog:
             except OSError:
                 pass  # tracing must never break a turn
 
-    def recent(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Newest first."""
+    def recent(self, limit: int = 50, kind: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Newest first; `kind` keeps only courage / boost / patrol records (records from before kinds = courage)."""
         out: List[Dict[str, Any]] = []
         for p in (self.path, self.path + ".1"):
             try:
@@ -141,22 +150,33 @@ class TraceLog:
                 continue
             for ln in reversed(lines):
                 try:
-                    out.append(json.loads(ln))
+                    rec = json.loads(ln)
                 except ValueError:
                     continue
+                if kind and rec.get("kind", "courage") != kind:
+                    continue
+                out.append(rec)
                 if len(out) >= limit:
                     return out
         return out
 
-    def summary(self, hours: float = 24, now: Optional[float] = None) -> Dict[str, Any]:
-        """Counts over the last `hours`: turns, outcomes, paths, triggers, latency p50/p95, tools used and failing."""
+    def summary(self, hours: float = 24, now: Optional[float] = None, kind: Optional[str] = None) -> Dict[str, Any]:
+        """Counts over the last `hours`: records, outcomes, paths, triggers, latency p50/p95, tools used and failing,
+        records per kind, Boost providers and patrol cameras."""
         since = (now or time.time()) - hours * 3600
-        recs = [r for r in self.recent(100000) if r.get("at", 0) >= since]
+        recs = [r for r in self.recent(100000, kind) if r.get("at", 0) >= since]
         out: Dict[str, Any] = {"hours": hours, "turns": len(recs), "outcomes": {}, "paths": {}, "triggers": {},
-                               "tools": {}, "tool_errors": {}}
+                               "tools": {}, "tool_errors": {}, "kinds": {}, "providers": {}, "cameras": {}}
+        def bump(table: str, key: Any) -> None:
+            if key is not None:
+                out[table][key] = out[table].get(key, 0) + 1
+
         for r in recs:
-            out["outcomes"][r.get("outcome")] = out["outcomes"].get(r.get("outcome"), 0) + 1
-            out["paths"][r.get("path")] = out["paths"].get(r.get("path"), 0) + 1
+            bump("kinds", r.get("kind", "courage"))
+            bump("outcomes", r.get("outcome"))
+            bump("paths", r.get("path"))
+            bump("providers", r.get("provider") if r.get("kind") == "boost" else None)
+            bump("cameras", r.get("camera") if r.get("kind") == "patrol" else None)
             for t in r.get("triggers", []):
                 out["triggers"][t] = out["triggers"].get(t, 0) + 1
             for s in r.get("steps", []):

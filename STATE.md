@@ -306,9 +306,18 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   escalation triggers RECORDED ONLY: tool_error, invalid_args, repeated_call, nudged, step_cap, llm_error, empty_answer.
   Routes `GET /api/courage/trace?limit=`, `GET /api/courage/trace/summary?hours=`; UI Engine Console -> 🧭 COURAGE TRACE.
   First live turns: "What's the temperature inside?" 1.5 s (2 model calls, ha_get_states 21 ms); "Where is Luna?" 4.0 s.
+  Step 2 (2026-09-25): Boost calls and patrol sweeps write to the same trace with "kind" boost / patrol (Courage turns:
+  kind courage; `?kind=` on both routes; the tab filters by kind). Boost records are metadata only: surface, declared
+  and effective class, kinds of home content found ('home:term', never the words), source, model, ms, tokens, sources
+  that failed first; triggers all_failed, fell_through, local_fallback. Patrol records: scheduled/manual, frames, pans,
+  why it stopped, where the camera went back to (start | home | failed), whether the start was saved, vision calls;
+  triggers no_frames, frame_error, vision_error, save_failed, return_failed, interrupted.
+  The first patrol record showed the scheduled driveway sweep going back to "Doors" instead of its start: HA calls had a
+  fixed 4 s timeout, too short for a sleeping solar camera saving a preset. The preset save and return now wait 20 s
+  (`patrol.PRESET_TIMEOUT_S`; `hass_client.call_service/select_option` take a timeout).
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 284 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 289 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

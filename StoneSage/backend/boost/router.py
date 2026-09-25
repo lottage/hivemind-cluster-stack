@@ -104,6 +104,9 @@ class BoostRouter:
         self.quota = QuotaBook(qpath, loop_share=self.settings().get("loop_share", 0.5), clock=clock)
         self._models: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
         self._lock = threading.Lock()
+        # The trace (courage/trace.py): one record per call, METADATA ONLY. Boost traffic can hold home text, so no
+        # message content is recorded, and home terms appear only as their kind ('home:term', never the name).
+        self.on_call: Optional[Callable[[Dict[str, Any]], None]] = None
 
     # ---- settings ------------------------------------------------------------
     def settings(self) -> Dict[str, Any]:
@@ -264,11 +267,38 @@ class BoostRouter:
             self.quota.note_error(p.id, err)
         return err
 
+    def _report(self, t0: float, surface: str, declared: str, verdict: Dict[str, Any], stream: bool,
+                res: Dict[str, Any]) -> Dict[str, Any]:
+        """Send one trace record for this call (if tracing is on) and hand `res` back unchanged."""
+        if self.on_call:
+            ok = bool(res.get("ok"))
+            usage = ((res.get("data") or {}).get("usage") or {}) if ok else {}
+            triggers = []
+            if not ok:
+                triggers.append("all_failed")
+            elif res.get("tried"):
+                triggers.append("fell_through")               # an earlier source failed first
+            if ok and res.get("provider") == "local":
+                triggers.append("local_fallback")
+            rec = {"kind": "boost", "at": round(t0, 3), "surface": surface, "declared": declared,
+                   "class": verdict["class"], "found": sorted({":".join(h.split(":")[:2]) for h in verdict.get("hits", [])}),
+                   "images": bool(verdict.get("images")), "stream": stream, "outcome": "answered" if ok else "failed",
+                   "provider": res.get("provider"), "model": res.get("model"), "tier": res.get("tier"),
+                   "ms": round((self.clock() - t0) * 1000), "tokens": usage.get("total_tokens"),
+                   "tried": [t[:160] for t in res.get("tried") or []], "skipped": len(res.get("skipped") or []),
+                   "triggers": triggers}
+            try:
+                self.on_call(rec)
+            except Exception:
+                pass  # tracing must never break a call
+        return res
+
     def complete(self, messages: List[Dict[str, Any]], surface: str, declared: str = "general",
                  tools: Optional[List[Dict[str, Any]]] = None, max_tokens: int = 800, temperature: float = 0.4,
                  pinned: Optional[str] = None, allow_local: bool = True, extra: Optional[Dict[str, Any]] = None
                  ) -> Dict[str, Any]:
         """Non-streaming completion. Returns {ok, provider, model, tier, data | error, tried, skipped}."""
+        t0 = self.clock()
         verdict = egress.classify(declared, messages, self.home_terms())
         cands, skipped = self.candidates(surface, verdict, bool(tools), _est_tokens(messages, max_tokens), pinned, allow_local)
         tried: List[str] = []
@@ -284,11 +314,13 @@ class BoostRouter:
                 usage = data.get("usage") or {}
                 if p.id != "local":
                     self.quota.record(p.id, usage.get("total_tokens") or _est_tokens(messages, 0), surface)
-                return {"ok": True, "provider": p.id, "label": p.label, "model": model, "tier": p.tier, "data": data,
-                        "class": verdict["class"], "tried": tried, "skipped": skipped}
+                return self._report(t0, surface, declared, verdict, False,
+                                    {"ok": True, "provider": p.id, "label": p.label, "model": model, "tier": p.tier,
+                                     "data": data, "class": verdict["class"], "tried": tried, "skipped": skipped})
             tried.append(f"{p.id}: {self._note_failure(p, status, headers, data)}")
-        return {"ok": False, "error": "no free source could take this call", "class": verdict["class"],
-                "tried": tried, "skipped": skipped}
+        return self._report(t0, surface, declared, verdict, False,
+                            {"ok": False, "error": "no free source could take this call", "class": verdict["class"],
+                             "tried": tried, "skipped": skipped})
 
     def open_stream(self, messages: List[Dict[str, Any]], surface: str, declared: str = "general",
                     tools: Optional[List[Dict[str, Any]]] = None, max_tokens: int = 800, temperature: float = 0.4,
@@ -297,7 +329,9 @@ class BoostRouter:
         """Streaming: try sources until one answers 200, then hand back its open response.
 
         Returns {ok, provider, model, tier, response, ...}; the caller iterates `response` and closes it.
-        Usage is recorded here with an estimate (streams rarely report token counts)."""
+        Usage is recorded here with an estimate (streams rarely report token counts). The trace's ms is the time to
+        the first answering source, not to the end of the stream."""
+        t0 = self.clock()
         verdict = egress.classify(declared, messages, self.home_terms())
         est = _est_tokens(messages, max_tokens)
         cands, skipped = self.candidates(surface, verdict, bool(tools), est, pinned, allow_local)
@@ -313,11 +347,13 @@ class BoostRouter:
             if status == 200:
                 if p.id != "local":
                     self.quota.record(p.id, est, surface)
-                return {"ok": True, "provider": p.id, "label": p.label, "model": model, "tier": p.tier,
-                        "response": resp, "class": verdict["class"], "tried": tried, "skipped": skipped}
+                return self._report(t0, surface, declared, verdict, True,
+                                    {"ok": True, "provider": p.id, "label": p.label, "model": model, "tier": p.tier,
+                                     "response": resp, "class": verdict["class"], "tried": tried, "skipped": skipped})
             tried.append(f"{p.id}: {self._note_failure(p, status, headers, resp)}")
-        return {"ok": False, "error": "no free source could take this call", "class": verdict["class"],
-                "tried": tried, "skipped": skipped}
+        return self._report(t0, surface, declared, verdict, True,
+                            {"ok": False, "error": "no free source could take this call", "class": verdict["class"],
+                             "tried": tried, "skipped": skipped})
 
     # ---- status ----------------------------------------------------------------
     def status(self) -> Dict[str, Any]:

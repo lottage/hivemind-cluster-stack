@@ -96,8 +96,9 @@ class HomeAssistantClient:
         except Exception:
             return None
 
-    def call_service(self, domain: str, service: str, service_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Call a Home Assistant service (e.g. climate.set_temperature, light.turn_on)."""
+    def call_service(self, domain: str, service: str, service_data: Dict[str, Any], timeout: float = 4) -> Dict[str, Any]:
+        """Call a Home Assistant service (e.g. climate.set_temperature, light.turn_on). HA answers when the service
+        has finished, so a slow device (a sleeping solar camera saving a preset) needs a longer timeout."""
         if not self.token:
             return {"ok": False, "error": "Home Assistant Token not configured"}
 
@@ -105,7 +106,7 @@ class HomeAssistantClient:
         payload = json.dumps(service_data).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers=self._get_headers(), method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=4) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 res = json.loads(resp.read().decode("utf-8"))
                 return {"ok": True, "result": res}
         except Exception as e:
@@ -115,9 +116,9 @@ class HomeAssistantClient:
         """Press a Home Assistant button entity (e.g. camera PTZ move buttons)."""
         return self.call_service("button", "press", {"entity_id": entity_id})
 
-    def select_option(self, entity_id: str, option: str) -> Dict[str, Any]:
+    def select_option(self, entity_id: str, option: str, timeout: float = 4) -> Dict[str, Any]:
         """Select an option on a Home Assistant select entity (e.g. camera preset)."""
-        return self.call_service("select", "select_option", {"entity_id": entity_id, "option": option})
+        return self.call_service("select", "select_option", {"entity_id": entity_id, "option": option}, timeout=timeout)
 
     def get_dashboard_summary(self) -> Dict[str, Any]:
         """Convenience method returning organized entities for the Sage & Stone dashboard."""

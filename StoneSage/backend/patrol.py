@@ -6,15 +6,15 @@ Per camera (config.json patrol.cameras, keyed by HA camera entity):
   frames        "frigate:<camera>" (Frigate's latest frame; that camera streams anyway) or "go2rtc:<stream>"
   home_preset   fallback return point: a sweep goes back to wherever the camera pointed before it (saved as a temporary
                 Tapo preset, RETURN_PRESET, deleted afterwards) and only uses home_preset if that save or return fails
-  quiet_when_home  skip sweeps while a resident is home (indoor camera: the motor is audible)
+  quiet_when_home  skip sweeps while a resident is home (off since 2026-09-25: John finds the motors quiet enough)
   battery_sensor   battery-gated schedule (solar driveway): see interval_for()
   start_deg, step_deg, max_frames   where the first frame is taken (degrees right of the left end stop), the step
                    between frames and the frame cap; each falls back to the patrol-wide value (John, 2026-09-25:
-                   kitchen 4 frames at 90..210, driveway 6 frames at 30..230, picked from full 30-degree sweeps)
+                   kitchen 4 frames at 90..210, driveway 5 frames at 70..230, picked from full 30-degree sweeps)
 
 A sweep: pan to the left end stop, turn right to start_deg, then step right by step_deg taking a frame each time until
-the picture stops changing the picture stops changing (right end stop reached) or max_frames, then return to where it pointed before. Each frame is checked by the vision model for known
-profiles (for a Frigate camera only when Frigate sees someone, to spare the GPU). Sightings go into Courage's
+the picture stops changing (right end stop reached) or max_frames, then return to where it pointed before. Each frame
+is checked by the vision model for known profiles (for a Frigate camera only when Frigate sees someone, to spare the GPU). Sightings go into Courage's
 presence like Frigate's (source "patrol"). A camera John moved by hand in the last few minutes is left alone, and
 a sweep in progress stops before its next move when John or Courage's camera_scan takes the camera (note_manual).
 One sweep per camera at a time: the scheduler and "Sweep now" both claim the camera first.
@@ -30,6 +30,8 @@ from typing import Any, Callable, Dict, List, Optional
 MANUAL_HOLD_S = 300          # a hand-moved camera is not swept for this long
 LEFT_END_MOVES = 3           # 3 x 120 deg left: past the end stop of any Tapo pan range
 DEFAULT_ANGLE = 15           # Tapo's movement angle, restored when HA does not report the camera's own value
+PRESET_TIMEOUT_S = 20        # saving / going to the return preset waits for the camera: a sleeping solar one takes > 4 s
+                             # (2026-09-25: the first scheduled 5-frame driveway sweep fell back home after HA's 4 s)
 # Temporary Tapo preset holding the pre-sweep position. HA's preset list refreshes on a save but not on a delete, so the
 # name can linger in HA after the sweep: camera_ui and camera_scan hide it (is_temp_preset).
 RETURN_PRESET = "StoneSage return"
@@ -110,6 +112,7 @@ class Patrol:
         self.manual_at: Dict[str, float] = {}
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
+        self.on_sweep: Optional[Callable[[Dict[str, Any]], None]] = None   # the trace (courage/trace.py): one record per sweep
 
     # -------------------------------------------------------------- config ----
     def _pcfg(self) -> Dict[str, Any]:
@@ -199,7 +202,8 @@ class Patrol:
             return {"frames": 0, "seen": [], "skipped": "already sweeping"}
         return self._sweep(entity, cam, presence)
 
-    def _sweep(self, entity: str, cam: Dict[str, Any], presence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _sweep(self, entity: str, cam: Dict[str, Any], presence: Optional[Dict[str, Any]] = None,
+               reason: str = "scheduled") -> Dict[str, Any]:
         """The sweep itself; the caller has claimed the camera (busy is cleared here)."""
         st = self.state.setdefault(entity, {})
         frames: List[bytes] = []
@@ -223,6 +227,8 @@ class Patrol:
             self.ha.press_button(f"button.{ptz}_move_{button}")
 
         saved = False
+        stats: Dict[str, Any] = {"vision_calls": 0, "vision_ms": 0.0, "vision_errors": 0}
+        stopped, returned, error = "max_frames", "none", None
         try:
             profiles = self._profiles(presence if presence is not None else (self.presence_fn() or {}))
             try:
@@ -230,7 +236,8 @@ class Patrol:
             except (TypeError, ValueError):
                 pass
             # Where the camera points now (John's last position, or wherever it was left) is where it goes back to
-            res = self.ha.call_service("tapo_control", "save_preset", {"entity_id": entity, "name": RETURN_PRESET})
+            res = self.ha.call_service("tapo_control", "save_preset", {"entity_id": entity, "name": RETURN_PRESET},
+                                       timeout=PRESET_TIMEOUT_S)
             saved = bool((res or {}).get("ok", True))
             self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": 120})
             for _ in range(LEFT_END_MOVES):
@@ -250,12 +257,14 @@ class Patrol:
                 self.sleep(settle)
                 frame = self.frame_fn(cam["frames"])
                 if frame is None:
+                    stopped = "frame_missing"
                     break
                 if i > 0 and not frames_differ(prev, frame):
+                    stopped = "end_stop"
                     break                                    # did not move: right end stop
                 frames.append(frame)
                 prev = frame
-                names = self._look(cam, frame, pan, profiles)
+                names = self._look(cam, frame, pan, profiles, stats)
                 if names:
                     seen_log.append({"pan": pan, "seen": names})
                     self._record(entity, cam, names, len(frames) - 1, pan)
@@ -263,14 +272,22 @@ class Patrol:
                     move("right")
         except Interrupted:
             interrupted = True                               # John/Courage has the camera: no trip home either
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"[:200]
+            raise
         finally:
             try:
                 value = int(angle_before) if float(angle_before).is_integer() else angle_before
                 self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": value})
                 if not interrupted:
-                    back = self.ha.select_option(f"select.{ptz}_move_to_preset", RETURN_PRESET) if saved else {"ok": False}
-                    if not (back or {}).get("ok", True) and cam.get("home_preset"):
-                        self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+                    back = (self.ha.select_option(f"select.{ptz}_move_to_preset", RETURN_PRESET, timeout=PRESET_TIMEOUT_S)
+                            if saved else {"ok": False})
+                    returned = "start"
+                    if not (back or {}).get("ok", True):
+                        returned = "failed"
+                        if cam.get("home_preset"):
+                            home = self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+                            returned = "home" if (home or {}).get("ok", True) else "failed"
                 # Even when the save looked failed: HA's client gives up after 4 s, the camera may still have saved it
                 self.ha.call_service("tapo_control", "delete_preset", {"entity_id": entity, "preset": RETURN_PRESET})
             finally:
@@ -280,9 +297,45 @@ class Patrol:
                 st.update(busy=False, last=last, frames=len(frames), seen=seen_log, first_pan=start, step=step,
                           interrupted=interrupted, next=last + st["interval_s"] if st.get("interval_s") else None)
                 self._save_state()
+                stats["saved"] = saved
+                self._trace(entity, cam, reason, started, last, frames, start, step, stopped, interrupted, returned,
+                            error, seen_log, stats)
         return {"frames": len(frames), "seen": seen_log, "interrupted": interrupted}
 
-    def _look(self, cam: Dict[str, Any], frame: bytes, pan: int, profiles: List[Dict[str, str]]) -> List[str]:
+    def _trace(self, entity, cam, reason, started, ended, frames, start, step, stopped, interrupted, returned, error,
+               seen_log, stats) -> None:
+        """One trace record per sweep (Engine Console -> COURAGE TRACE, kind 'patrol'). Triggers recorded only."""
+        if not self.on_sweep:
+            return
+        triggers = []
+        if not frames:
+            triggers.append("no_frames")
+        if stopped == "frame_missing":
+            triggers.append("frame_error")
+        if stats["vision_errors"]:
+            triggers.append("vision_error")
+        if not stats.get("saved", True):
+            triggers.append("save_failed")                   # could not remember the starting position
+        if returned == "failed":
+            triggers.append("return_failed")
+        if interrupted:
+            triggers.append("interrupted")
+        outcome = "error" if error else "interrupted" if interrupted else "done" if frames else "no_frames"
+        rec = {"kind": "patrol", "at": round(started, 3), "camera": cam.get("name", entity), "entity": entity,
+               "reason": reason, "outcome": outcome, "ms": round((ended - started) * 1000), "frames": len(frames),
+               "pans": [start + i * step for i in range(len(frames))], "stopped": "interrupted" if interrupted else stopped,
+               "returned": returned, "saved_start": stats.get("saved", True), "seen": seen_log,
+               "vision": {"calls": stats["vision_calls"], "ms": round(stats["vision_ms"]), "errors": stats["vision_errors"]},
+               "triggers": triggers}
+        if error:
+            rec["error"] = error
+        try:
+            self.on_sweep(rec)
+        except Exception:
+            pass  # tracing must never break the patrol
+
+    def _look(self, cam: Dict[str, Any], frame: bytes, pan: int, profiles: List[Dict[str, str]],
+              stats: Optional[Dict[str, Any]] = None) -> List[str]:
         """Known profiles in this frame. On a Frigate camera the VLM only runs when Frigate is tracking someone."""
         kind, _, name = cam["frames"].partition(":")
         if kind == "frigate":
@@ -291,7 +344,12 @@ class Patrol:
                     return []
             except Exception:
                 pass  # Frigate unreachable: look anyway
+        t = time.time()
         res = self.vision_fn(frame, f"{cam.get('name', '')} (pan {pan} deg)", profiles) or {}
+        if stats is not None:
+            stats["vision_calls"] += 1
+            stats["vision_ms"] += (time.time() - t) * 1000
+            stats["vision_errors"] += 1 if res.get("error") else 0
         valid = {p["name"].lower(): p["name"] for p in profiles}
         return [valid[n.lower()] for n in res.get("seen", []) if isinstance(n, str) and n.lower() in valid]
 
@@ -404,7 +462,7 @@ class Patrol:
         if not self._claim(entity):                    # claimed here, so the scheduler cannot start a second sweep
             return {"ok": False, "error": "already sweeping"}
         self.manual_at.pop(entity, None)
-        threading.Thread(target=self._sweep, args=(entity, cam), daemon=True).start()
+        threading.Thread(target=self._sweep, args=(entity, cam, None, "manual"), daemon=True).start()
         return {"ok": True}
 
 

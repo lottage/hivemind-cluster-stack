@@ -1,14 +1,16 @@
 /**
- * 🧭 Courage trace (Engine Studio → Engine Console → 🧭 COURAGE TRACE).
- * One row per Courage turn from backend courage/trace.py: how it was handled, how it ended, how long it took,
- * and the escalation triggers it would have fired (recorded only; nothing acts on them yet). Click a row for its
- * steps: each model call (ms, tokens, tool calls asked for) and each tool call (args, ok/error, ms).
- * Backend: GET /api/courage/trace?limit=, GET /api/courage/trace/summary?hours=
+ * 🧭 Trace (Engine Studio → Engine Console → 🧭 COURAGE TRACE), backend courage/trace.py. One row per:
+ *   Courage turn  how it was handled, how it ended, model and tool steps
+ *   Boost call    surface, egress class, which free source answered (metadata only: no message text is kept)
+ *   patrol sweep  camera, scheduled/manual, frames and pans, where the camera went back to, vision calls
+ * plus the escalation triggers each would have fired (recorded only; nothing acts on them yet). Click a row for details.
+ * Backend: GET /api/courage/trace?limit=&kind=, GET /api/courage/trace/summary?hours=&kind=
  */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const S = { turns: [], summary: null, open: new Set(), onlyFlagged: false, hours: 24, timer: null, bound: false };
+const S = { turns: [], summary: null, open: new Set(), onlyFlagged: false, hours: 24, kind: '', timer: null, bound: false };
+const KINDS = [['', 'All'], ['courage', '🐕 Courage'], ['boost', '⚡ Boost'], ['patrol', '🛡️ Patrol']];
 
 const OUTCOME = {
   answered: ['✓', 'var(--term-success, #22c55e)'],
@@ -17,6 +19,10 @@ const OUTCOME = {
   llm_error: ['✗', 'var(--term-error, #ef4444)'],
   error: ['✗', 'var(--term-error, #ef4444)'],
   abandoned: ['…', 'var(--term-text-muted)'],
+  failed: ['✗', 'var(--term-error, #ef4444)'],
+  done: ['✓', 'var(--term-success, #22c55e)'],
+  interrupted: ['⏸', 'var(--term-accent-gold, #eab308)'],
+  no_frames: ['✗', 'var(--term-error, #ef4444)'],
 };
 const TRIGGER_HELP = {
   tool_error: 'a tool returned an error',
@@ -26,6 +32,14 @@ const TRIGGER_HELP = {
   step_cap: 'ran out of steps without answering',
   llm_error: 'the coordinator on :8001 did not answer',
   empty_answer: 'the model ended with no text',
+  all_failed: 'Boost: no free source answered',
+  fell_through: 'Boost: an earlier source failed before one answered',
+  local_fallback: 'Boost: answered by the local coordinator, not a free source',
+  no_frames: 'patrol: the sweep got no frames',
+  frame_error: 'patrol: a frame could not be fetched',
+  vision_error: 'patrol: the vision model failed on a frame',
+  return_failed: 'patrol: could not go back to the starting position',
+  interrupted: 'patrol: someone took the camera mid-sweep',
 };
 
 const secs = (ms) => (ms == null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -36,20 +50,52 @@ const chip = (text, color, title = '') =>
 function renderSummary() {
   const s = S.summary;
   if (!s) return '<div style="color:var(--term-text-muted)">Loading…</div>';
-  if (!s.turns) return `<div style="color:var(--term-text-muted)">No Courage turns in the last ${s.hours} h yet.</div>`;
+  if (!s.turns) return `<div style="color:var(--term-text-muted)">Nothing recorded in the last ${s.hours} h yet.</div>`;
   const counts = (obj, colorFn, help = {}) => Object.entries(obj || {}).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => chip(`${k} ${n}`, colorFn(k), help[k] || '')).join('') || '<small>none</small>';
   return `
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px; font-size:0.74rem;">
-      <div><b>${s.turns}</b> turns · last ${s.hours} h<br><small>p50 ${secs(s.ms_p50)} · p95 ${secs(s.ms_p95)}</small></div>
+      <div><b>${s.turns}</b> records · last ${s.hours} h<br><small>p50 ${secs(s.ms_p50)} · p95 ${secs(s.ms_p95)}</small></div>
       <div>Outcomes<br>${counts(s.outcomes, (k) => (OUTCOME[k] || [0, 'var(--term-text-muted)'])[1])}</div>
       <div>Handled by<br>${counts(s.paths, () => 'var(--term-text-muted)')}</div>
       <div>Triggers (recorded only)<br>${counts(s.triggers, () => 'var(--term-error, #ef4444)', TRIGGER_HELP)}</div>
       <div>Tool errors<br>${counts(s.tool_errors, () => 'var(--term-error, #ef4444)')}</div>
+      <div>Kinds<br>${counts(s.kinds, () => 'var(--term-text-muted)')}</div>
+      ${Object.keys(s.providers || {}).length ? `<div>Boost sources<br>${counts(s.providers, () => 'var(--term-accent-gold, #eab308)')}</div>` : ''}
+      ${Object.keys(s.cameras || {}).length ? `<div>Patrol cameras<br>${counts(s.cameras, () => 'var(--term-text-muted)')}</div>` : ''}
     </div>`;
 }
 
+function renderBoost(t) {
+  return `<div style="margin:4px 0 6px 18px; font-size:0.7rem; line-height:1.5;">
+      <div>⚡ ${t.outcome === 'answered' ? `answered by <b>${esc(t.provider)}</b> (${esc(t.model)}, tier ${esc(t.tier)})` : 'no free source answered'}
+        · ${secs(t.ms)}${t.stream ? ' to first byte (stream)' : ''}${t.tokens ? ` · ${t.tokens} tokens` : ''}</div>
+      <div>Declared <b>${esc(t.declared)}</b> → class <b>${esc(t.class)}</b>${(t.found || []).length ? ` (found: ${esc(t.found.join(', '))})` : ''}${t.images ? ' · with pictures' : ''}</div>
+      ${(t.tried || []).map((x) => `<div style="color:var(--term-error,#ef4444)">failed first: ${esc(x)}</div>`).join('')}
+      <div style="color:var(--term-text-muted)">${t.skipped || 0} source(s) skipped (off, no key, over quota or not allowed for this class)</div>
+    </div>`;
+}
+
+function renderPatrol(t) {
+  const seen = (t.seen || []).map((x) => `${esc(x.seen.join(', '))} at ${x.pan}°`).join(' · ');
+  return `<div style="margin:4px 0 6px 18px; font-size:0.7rem; line-height:1.5;">
+      <div>🛡️ ${t.frames} frame(s) at ${esc((t.pans || []).join('°, '))}${(t.pans || []).length ? '°' : ''} · stopped: ${esc(t.stopped)}</div>
+      <div>Went back to: <b>${esc({ start: 'where it was', home: 'home preset', failed: 'FAILED', none: '– (not moved back)' }[t.returned] || t.returned)}</b></div>
+      <div>Vision: ${t.vision?.calls ?? 0} call(s), ${secs(t.vision?.ms)}${t.vision?.errors ? `, <span style="color:var(--term-error,#ef4444)">${t.vision.errors} failed</span>` : ''}</div>
+      <div>Seen: ${seen || 'nobody known'}</div>
+      ${t.error ? `<div style="color:var(--term-error,#ef4444)">error: ${esc(t.error)}</div>` : ''}
+    </div>`;
+}
+
+function rowText(t) {
+  if (t.kind === 'boost') return `⚡ ${esc(t.surface)} · ${esc(t.class)}${t.provider ? ` → ${esc(t.provider)}` : ''}`;
+  if (t.kind === 'patrol') return `🛡️ ${esc(t.camera)} · ${t.frames} frame(s)${(t.seen || []).length ? ` · saw ${esc([...new Set(t.seen.flatMap((x) => x.seen))].join(', '))}` : ''}`;
+  return esc(t.user);
+}
+
 function renderSteps(t) {
+  if (t.kind === 'boost') return renderBoost(t);
+  if (t.kind === 'patrol') return renderPatrol(t);
   const rows = (t.steps || []).map((s) => {
     if ('llm' in s) {
       return `<div>🧠 model ${secs(s.llm)} · ${s.tokens} tokens · ${s.calls ? `asked for ${s.calls} tool call${s.calls > 1 ? 's' : ''}` : 'answered'}</div>`;
@@ -67,9 +113,9 @@ function renderSteps(t) {
 
 function renderTurns() {
   const turns = S.onlyFlagged ? S.turns.filter((t) => (t.triggers || []).length) : S.turns;
-  if (!turns.length) return `<div style="color:var(--term-text-muted); padding:6px 0;">${S.onlyFlagged ? 'No turns with triggers.' : 'No turns recorded yet.'}</div>`;
+  if (!turns.length) return `<div style="color:var(--term-text-muted); padding:6px 0;">${S.onlyFlagged ? 'Nothing with triggers.' : 'Nothing recorded yet.'}</div>`;
   return turns.map((t) => {
-    const key = `${t.at}|${t.session}`;
+    const key = `${t.kind || 'courage'}|${t.at}|${t.session || t.entity || t.surface || ''}`;
     const [icon, color] = OUTCOME[t.outcome] || ['?', 'var(--term-text-muted)'];
     const trig = (t.triggers || []).map((x) => chip(x, 'var(--term-error, #ef4444)', TRIGGER_HELP[x] || '')).join('');
     const open = S.open.has(key);
@@ -78,8 +124,8 @@ function renderTurns() {
           <span style="color:${color}; font-weight:bold; width:1em;" title="${esc(t.outcome)}">${icon}</span>
           <span style="color:var(--term-text-muted); min-width:120px;">${when(t.at)}</span>
           <span style="min-width:62px;">${secs(t.ms)}</span>
-          <span style="color:var(--term-text-muted); min-width:70px;">${esc(t.path)}</span>
-          <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${open ? '▾' : '▸'} ${esc(t.user)}</span>
+          <span style="color:var(--term-text-muted); min-width:70px;">${esc(t.path || t.reason || (t.stream ? 'stream' : ''))}</span>
+          <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${open ? '▾' : '▸'} ${rowText(t)}</span>
           <span>${trig}</span>
         </div>
         ${open ? renderSteps(t) : ''}
@@ -92,8 +138,10 @@ function render() {
   if (!root) return;
   root.innerHTML = `
     <div class="harness-card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <span>🧭 COURAGE TRACE — every turn: path, outcome, model and tool calls, escalation triggers</span>
-      <span style="display:flex; gap:8px; align-items:center; font-size:0.72rem;">
+      <span>🧭 TRACE — Courage turns, Boost calls and patrol sweeps, with escalation triggers</span>
+      <span style="display:flex; gap:8px; align-items:center; font-size:0.72rem; flex-wrap:wrap;">
+        <span>${KINDS.map(([k, label]) => `<button type="button" class="preset-btn${S.kind === k ? ' active' : ''}" data-kind="${k}"
+          style="padding:1px 6px; font-size:0.7rem;${S.kind === k ? ' outline:1px solid var(--term-accent-gold);' : ''}">${label}</button>`).join('')}</span>
         <label><input type="checkbox" id="ctrace-flagged" ${S.onlyFlagged ? 'checked' : ''}> only turns with triggers</label>
         <select class="form-input" id="ctrace-hours" style="font-size:0.72rem; padding:1px 4px;">
           ${[1, 24, 168].map((h) => `<option value="${h}" ${S.hours === h ? 'selected' : ''}>${h === 168 ? '7 days' : `${h} h`}</option>`).join('')}
@@ -108,8 +156,8 @@ function render() {
 async function refresh() {
   try {
     const [t, s] = await Promise.all([
-      fetch('/api/courage/trace?limit=100').then((r) => r.json()),
-      fetch(`/api/courage/trace/summary?hours=${S.hours}`).then((r) => r.json()),
+      fetch(`/api/courage/trace?limit=100&kind=${S.kind}`).then((r) => r.json()),
+      fetch(`/api/courage/trace/summary?hours=${S.hours}&kind=${S.kind}`).then((r) => r.json()),
     ]);
     S.turns = t.ok ? t.turns : [];
     S.summary = s.ok ? s.summary : null;
@@ -132,6 +180,8 @@ function bind() {
       render();
       return;
     }
+    const kb = e.target.closest('[data-kind]');
+    if (kb) { S.kind = kb.dataset.kind; S.open.clear(); refresh(); return; }
     if (e.target.id === 'ctrace-refresh') refresh();
   });
   root.addEventListener('change', (e) => {

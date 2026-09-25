@@ -1,5 +1,6 @@
-"""Offline tests for Courage's per-turn trace: what gets recorded for each way a turn can go, the escalation
-triggers (recorded only), a client leaving mid-turn, rotation, and the summary counts."""
+"""Offline tests for the trace: what gets recorded for each way a Courage turn can go, the escalation triggers
+(recorded only), a client leaving mid-turn, Boost call records (metadata only: never message text or home names),
+patrol sweep records, rotation, and the summary counts per kind."""
 
 import json
 import os
@@ -102,6 +103,74 @@ class TestTriggers(unittest.TestCase):
         self.assertEqual(last(agent)["outcome"], "abandoned")
 
 
+class TestBoostRecords(unittest.TestCase):
+    def test_metadata_only_and_fallthrough(self):
+        from unittest import mock
+        from test_boost import ENV, Clock, FakeHttp, cfg, reference_policy
+        from boost.router import BoostRouter
+        recs = []
+        http = FakeHttp({"groq.com": (429, {"retry-after": "30"}, {"error": {"message": "rate limit"}})})
+        r = BoostRouter(lambda: cfg(), None, http=http, env=ENV, clock=Clock(), home_terms=("luna",))
+        r.on_call = recs.append
+        with mock.patch("boost.egress.egress_allowed", reference_policy):
+            res = r.complete([{"role": "user", "content": "Did Luna eat her dinner at 192.168.1.50?"}], "courage")
+        self.assertTrue(res["ok"])
+        rec = recs[0]
+        self.assertEqual((rec["kind"], rec["surface"], rec["outcome"], rec["class"]), ("boost", "courage", "answered", "home"))
+        self.assertEqual(rec["found"], ["home:lan_ip", "home:term"])          # kinds of home content, not the words
+        self.assertIn("fell_through", rec["triggers"])
+        self.assertTrue(rec["tried"][0].startswith("groq"))
+        text = json.dumps(rec)
+        self.assertNotIn("Luna", text)
+        self.assertNotIn("luna", text)
+        self.assertNotIn("dinner", text)
+        self.assertNotIn("192.168", text)
+
+    def test_all_failed(self):
+        from test_boost import ENV, Clock, FakeHttp, cfg
+        from boost.router import BoostRouter
+        recs = []
+        down = (503, {}, {"error": "down"})
+        r = BoostRouter(lambda: cfg(), None, http=FakeHttp({"": down}), env=ENV, clock=Clock())
+        r.on_call = recs.append
+        self.assertFalse(r.complete([{"role": "user", "content": "what is 2+2"}], "chat", allow_local=False)["ok"])
+        self.assertEqual((recs[0]["outcome"], recs[0]["triggers"]), ("failed", ["all_failed"]))
+
+
+class TestPatrolRecords(unittest.TestCase):
+    def make(self):
+        from test_patrol import TestSweep, KITCHEN
+        t = TestSweep()
+        p, cam = t.make()
+        recs = []
+        p.on_sweep = recs.append
+        return p, cam, recs, KITCHEN
+
+    def test_sweep_record(self):
+        p, cam, recs, kitchen = self.make()
+        p._sweep("camera.kitchen", kitchen, None, "manual") if p._claim("camera.kitchen") else None
+        rec = recs[0]
+        self.assertEqual((rec["kind"], rec["reason"], rec["outcome"], rec["returned"]), ("patrol", "manual", "done", "start"))
+        self.assertEqual(rec["frames"], 8)
+        self.assertEqual(rec["pans"][:2], [30, 60])
+        self.assertEqual(rec["stopped"], "end_stop")
+        self.assertEqual(rec["vision"]["calls"], 8)
+        self.assertEqual(rec["triggers"], [])
+
+    def test_return_failed_and_vision_error(self):
+        p, cam, recs, kitchen = self.make()
+        cam.save_ok = False
+        cam.select_option = lambda eid, option, timeout=4: {"ok": False, "error": "camera offline"}
+        p.vision_fn = lambda f, w, prof: {"seen": [], "error": "vision down"}
+        p.sweep("camera.kitchen", kitchen)
+        rec = recs[0]
+        self.assertEqual((rec["reason"], rec["returned"]), ("scheduled", "failed"))
+        self.assertIn("return_failed", rec["triggers"])
+        self.assertIn("save_failed", rec["triggers"])
+        self.assertFalse(rec["saved_start"])
+        self.assertIn("vision_error", rec["triggers"])
+
+
 class TestLog(unittest.TestCase):
     def test_rotation_and_summary(self):
         path = os.path.join(tempfile.mkdtemp(), "trace.jsonl")
@@ -114,8 +183,18 @@ class TestLog(unittest.TestCase):
         self.assertEqual(recent[0]["at"], 1005.0)                    # newest first, across both files
         s = log.summary(hours=1, now=1010.0)
         self.assertEqual(s["turns"], len(recent))
+        self.assertEqual(s["kinds"], {"courage": len(recent)})               # records without a kind are Courage turns
         self.assertEqual(s["tools"]["presence_now"], len(recent))
         self.assertIn("step_cap", s["outcomes"])
+
+    def test_kind_filter(self):
+        log = TraceLog(os.path.join(tempfile.mkdtemp(), "trace.jsonl"))
+        log.write({"kind": "courage", "at": 1.0, "outcome": "answered"})
+        log.write({"kind": "boost", "at": 2.0, "outcome": "failed", "provider": "groq"})
+        log.write({"kind": "patrol", "at": 3.0, "outcome": "done", "camera": "Driveway"})
+        self.assertEqual([r["kind"] for r in log.recent(10, "boost")], ["boost"])
+        s = log.summary(hours=1, now=10.0)
+        self.assertEqual((s["kinds"], s["cameras"]), ({"courage": 1, "boost": 1, "patrol": 1}, {"Driveway": 1}))
 
 
 if __name__ == "__main__":
