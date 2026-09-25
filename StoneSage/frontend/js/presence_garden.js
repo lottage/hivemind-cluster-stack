@@ -106,6 +106,7 @@ export function renderPresence(data) {
 
       // Frigate sightings carry an event id (snapshot proxied by StoneSage); sentry sightings a snapshot filename
       const snapSrc = loc && loc.source === 'frigate' && loc.event_id ? `/api/frigate/snapshot/${loc.event_id}`
+        : loc && loc.source === 'patrol' ? loc.snapshot_url
         : loc && loc.snapshot ? `/api/presence/snapshot/${loc.snapshot}` : null;
       const snapshotImg = snapSrc
         ? `<div style="margin-top:6px; border:1px solid var(--term-border-dim); border-radius:3px; overflow:hidden; max-height:90px; background:#000;">
@@ -114,7 +115,7 @@ export function renderPresence(data) {
         : `<div style="margin-top:6px; height:45px; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; font-size:0.7rem; color:var(--term-text-muted);">No snapshot</div>`;
       const lastSeen = !loc ? 'Unknown'
         : loc.last_seen || new Date(loc.mtime * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-      const via = loc && loc.source === 'frigate' ? ' · Frigate' : '';
+      const via = loc && loc.source === 'frigate' ? ' · Frigate' : loc && loc.source === 'patrol' ? ' · patrol' : '';
       // Correction controls: only for a sighting that has an image to judge
       const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
         : loc && loc.snapshot ? ['sentry', loc.snapshot] : null;
@@ -193,8 +194,10 @@ export function renderPresence(data) {
 // PTZ cameras get arrows and their HA presets.
 const livePeers = [];
 const liveVideos = [];
+let patrolTimer = null;
 
 function stopLive() {
+  clearInterval(patrolTimer);
   while (livePeers.length) {
     const pc = livePeers.pop();
     try { pc.close(); } catch (e) { /* already closed */ }
@@ -381,8 +384,30 @@ function tileHTML(c, i) {
         <span style="display:flex; gap:6px; align-items:center;">
           <span id="cam-status-${i}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>${refresh}${modes}
         </span>
-      </div>${ptzHTML}
+      </div>${ptzHTML}${c.ptz ? `<div id="cam-patrol-${i}" style="padding:3px 6px; font-size:0.68rem; color:var(--term-text-muted); background:var(--term-bg);"></div>` : ''}
     </div>`;
+}
+
+// PTZ patrol line under each PTZ tile: last sweep, what it saw, next sweep or why it waits, thumbnails, "Sweep now".
+const hhmm = (t) => (t ? new Date(t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '–');
+
+async function renderPatrol(cams) {
+  let st;
+  try { st = await (await fetch('/api/patrol/status')).json(); } catch (e) { return; }
+  cams.forEach((c, i) => {
+    const box = document.getElementById(`cam-patrol-${i}`);
+    const p = (st.cameras || {})[c.entity];
+    if (!box) return;
+    if (!p) { box.textContent = ''; return; }
+    const saw = (p.seen || []).flatMap((s) => s.seen);
+    const when = p.busy ? 'sweeping now…' : `last ${hhmm(p.last)} · ${p.frames} frames${saw.length ? ` · saw ${[...new Set(saw)].join(', ')}` : ''}`;
+    const next = !st.enabled ? 'patrol off' : p.skip ? p.skip : p.next ? `next ${hhmm(p.next)}` : '';
+    const thumbs = Array.from({ length: p.frames || 0 }, (_, k) =>
+      `<img src="/api/patrol/frame?entity=${encodeURIComponent(c.entity)}&i=${k}&t=${p.last}" loading="lazy" style="height:34px; border:1px solid var(--term-border-dim);" title="pan ${k * 30}°">`).join('');
+    box.innerHTML = `🛡️ Patrol: ${when} · ${next}
+      <button type="button" class="preset-btn" data-cam="${i}" data-patrol="1" style="padding:0 6px; font-size:0.66rem;" ${p.busy ? 'disabled' : ''}>Sweep now</button>
+      ${thumbs ? `<div style="display:flex; gap:2px; overflow-x:auto; margin-top:3px;">${thumbs}</div>` : ''}`;
+  });
 }
 
 async function startLive() {
@@ -406,7 +431,15 @@ async function startLive() {
     const status = document.getElementById(`cam-status-${i}`);
     if (b.dataset.refresh) return loadSnapshot(document.getElementById(`cam-img-${i}`), status, cams[i].entity, true);
     if (b.dataset.ptz) return ptz(cams[i].entity, b.dataset.ptz, b.dataset.preset || '', status);
+    if (b.dataset.patrol) {
+      postJSON('/api/patrol/run', { entity: cams[i].entity }).then((r) => {
+        if (!r.ok) setStatus(status, `patrol: ${r.error}`);
+        renderPatrol(cams);
+      });
+    }
   };
+  renderPatrol(cams);
+  patrolTimer = setInterval(() => renderPatrol(cams), 10000);
   grid.onchange = (e) => {
     const sel = e.target.closest('select[data-mode]');
     if (!sel) return;

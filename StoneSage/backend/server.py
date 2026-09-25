@@ -2576,6 +2576,70 @@ def get_frigate_presence():
     return _frigate_presence
 
 
+_patrol = None
+
+
+def _patrol_frame(source: str) -> Optional[bytes]:
+    """'frigate:<camera>' -> Frigate's newest frame; 'go2rtc:<stream>' -> a frame from go2rtc (wakes the camera)."""
+    kind, _, name = source.partition(":")
+    cfg = load_config()
+    try:
+        if kind == "frigate":
+            fp = get_frigate_presence()
+            return fp.latest_frame(name, 720) if fp else None
+        if kind == "go2rtc":
+            url = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
+            with urllib.request.urlopen(f"{url}/api/frame.jpeg?src={urllib.parse.quote(name)}", timeout=20) as r:
+                return r.read()
+    except Exception as e:
+        logger.warning(f"patrol frame from {source}: {e}")
+    return None
+
+
+def _patrol_vision(frame: bytes, where: str, profiles: List[str]) -> Dict[str, Any]:
+    """Ask the vision model which known profiles are in a patrol frame; JSON answer, names checked by the caller."""
+    from patrol import parse_vision_json
+    ents = (_courage_presence() or {}).get("known_entities") or {}
+    traits = {e["name"]: (e.get("traits") or e.get("species") or "")[:90] for g in ("people", "pets") for e in ents.get(g, [])}
+    who = "; ".join(f"{n}: {traits.get(n, '')}" for n in profiles)
+    img = frame
+    if Image is not None:
+        im = Image.open(io.BytesIO(frame)).convert("RGB")
+        if im.width > 640:
+            im = im.resize((640, round(im.height * 640 / im.width)))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=80)
+        img = buf.getvalue()
+    prompt = (f"Camera {where}. Known household: {who}. Which of them are visible in this frame? "
+              'Reply with JSON only: {"seen": [names from the list], "note": "one short sentence of what is in view"}. '
+              "Use an empty list if none of them is clearly visible.")
+    payload = {"model": "vision", "max_tokens": 80, "temperature": 0.1, "messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(img).decode()}},
+        {"type": "text", "text": prompt}]}]}
+    v_base = config.get("cluster", {}).get("vision_url", "http://192.168.1.105:8004/v1").rstrip("/")
+    url = v_base if v_base.endswith("/chat/completions") else f"{v_base}/chat/completions"
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            text = json.load(r)["choices"][0]["message"]["content"]
+        return parse_vision_json(text)
+    except Exception as e:
+        logger.warning(f"patrol vision on {where}: {e}")
+        return {"seen": []}
+
+
+def get_patrol():
+    global _patrol
+    if _patrol is None:
+        from patrol import Patrol
+        fp = get_frigate_presence()
+        _patrol = Patrol(load_config, hass, _patrol_frame, _patrol_vision,
+                         (lambda cam: fp.in_view_now(cam)) if fp else (lambda cam: [{"label": "unknown"}]),
+                         _courage_presence,  # includes the patrol's own sightings: Savannah seen on patrol = home
+                         state_path=os.path.join(ROOT_DIR, "data", "patrol_state.json"))
+    return _patrol
+
+
 def _presence_corrections():
     from presence_corrections import PresenceCorrections
     pcfg = load_config().get("presence") or {}
@@ -2631,7 +2695,7 @@ def _courage_hub_presence() -> Dict[str, Any]:
     return _courage_presence_cache["state"] or {}
 
 
-def _courage_presence() -> Dict[str, Any]:
+def _courage_hub_and_frigate() -> Dict[str, Any]:
     """Hub state with Frigate's live sightings merged in per identity (newest wins). Merged on every read,
     never into the hub cache: Frigate's view is seconds old, the hub's up to a minute."""
     state = _courage_hub_presence()
@@ -2640,6 +2704,15 @@ def _courage_presence() -> Dict[str, Any]:
         return state
     from frigate_presence import merge_locations
     return {**state, "locations": merge_locations(state.get("locations") or {}, fp.locations())}
+
+
+def _courage_presence() -> Dict[str, Any]:
+    """Everything Courage and the cards know: hub + Frigate + PTZ patrol sightings (newest wins per identity)."""
+    state = _courage_hub_and_frigate()
+    if _patrol is None:
+        return state
+    from frigate_presence import merge_locations
+    return {**state, "locations": merge_locations(state.get("locations") or {}, _patrol.locations())}
 
 
 def _courage_camera_look(cam_eid: str, cam_name: str, people_only: bool = False) -> Optional[str]:
@@ -3640,6 +3713,27 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         elif path == "/api/frigate/presence":
             fp = get_frigate_presence()
             self.send_json({"ok": bool(fp), **(fp.status() if fp else {"error": "config.json has no frigate.url"})})
+            return
+
+        elif path == "/api/patrol/status":
+            self.send_json({"ok": True, **get_patrol().status()})
+            return
+
+        elif path == "/api/patrol/frame":
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                img = get_patrol().frame(q.get("entity", [""])[0], int(q.get("i", ["-1"])[0]))
+            except ValueError:
+                img = None
+            if not img:
+                self.send_json({"ok": False, "error": "no such patrol frame"}, 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(img)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(img)
             return
 
         elif path == "/api/presence/profiles":
@@ -7277,6 +7371,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 502)
                 return
 
+            elif path == "/api/patrol/run":
+                self.send_json(get_patrol().run_now(body.get("entity", "")))
+                return
+
             elif path == "/api/cameras/webrtc-report":
                 # Browser-side ICE diagnostics after a failed WebRTC stream (presence_garden.js reportIceFailure)
                 r = body or {}
@@ -7292,6 +7390,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 try:
                     kind, eid, option = camera_ui.ptz_command(body.get("entity", ""), load_config(), body.get("action", ""),
                                                               body.get("preset", ""), hass.get_state)
+                    get_patrol().note_manual(body.get("entity", ""))  # John is steering: the patrol keeps out of the way
                     res = hass.press_button(eid) if kind == "button" else hass.select_option(eid, option)
                     self.send_json({"ok": bool(res.get("ok", True)), "done": eid, "error": res.get("error")})
                 except ValueError as e:
@@ -8662,6 +8761,8 @@ if __name__ == "__main__":
     threading.Thread(target=get_courage_agent, daemon=True, name="courage-agent-warmup").start()  # starts the phone-approval listener
     if get_frigate_presence():
         threading.Thread(target=_frigate_presence.start, daemon=True, name="frigate-presence-start").start()
+    if (config.get("patrol") or {}).get("enabled"):
+        get_patrol().start()  # PTZ sweeps (backend/patrol.py); checks every minute which camera is due
     try:
         server = http.server.ThreadingHTTPServer((host, port), StoneSageHandler)
     except OSError as e:
