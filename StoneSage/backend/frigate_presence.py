@@ -53,6 +53,9 @@ def camera_label(camera: str) -> str:
     return camera.replace("_", " ")
 
 
+HISTORY_PER_IDENTITY = 10   # a rejected sighting falls back to the next one of these
+
+
 class FrigatePresence:
     def __init__(self, url: str, identities: Optional[Dict[str, str]] = None, min_score: float = 0.7,
                  clock: Callable[[], float] = time.time):
@@ -60,7 +63,9 @@ class FrigatePresence:
         self.identities = {k.lower(): v.lower() for k, v in (identities or {}).items()}
         self.min_score = min_score
         self.clock = clock
-        self.latest: Dict[str, Dict[str, Any]] = {}    # identity -> newest sighting
+        self.latest: Dict[str, Dict[str, Any]] = {}    # identity -> newest sighting (= history[identity][0])
+        self.history: Dict[str, List[Dict[str, Any]]] = {}  # identity -> recent sightings, newest first
+        self.rejected: set = set()                     # event ids John marked wrong: never shown again
         self.active: Dict[str, Dict[str, Any]] = {}    # event id -> sighting, while the object is in view
         self.connected = False
         self.last_message_at: Optional[float] = None
@@ -79,7 +84,7 @@ class FrigatePresence:
 
     def ingest(self, ev: Dict[str, Any]) -> Optional[str]:
         """One Frigate event (REST record or the websocket 'after' object). Returns the identity it updated."""
-        if not ev or not ev.get("id") or ev.get("false_positive"):
+        if not ev or not ev.get("id") or ev.get("false_positive") or ev["id"] in self.rejected:
             return None
         name = self.identify(ev)
         if name is None or _score(ev) < self.min_score:
@@ -94,10 +99,32 @@ class FrigatePresence:
                 self.active.pop(ev["id"], None)
             else:
                 self.active[ev["id"]] = rec
-            cur = self.latest.get(name)
-            if cur is None or cur["event_id"] == ev["id"] or rec["seen_at"] >= cur["seen_at"]:
-                self.latest[name] = rec
+            self._file(rec)
         return name
+
+    def _file(self, rec: Dict[str, Any]) -> None:
+        """Put a sighting into its identity's history (replacing an older record of the same event) and
+        make the newest one `latest`. Caller holds the lock."""
+        hist = [r for r in self.history.get(rec["name"], []) if r["event_id"] != rec["event_id"]]
+        hist.append(rec)
+        hist.sort(key=lambda r: r["seen_at"], reverse=True)
+        self.history[rec["name"]] = hist[:HISTORY_PER_IDENTITY]
+        self.latest[rec["name"]] = self.history[rec["name"]][0]
+
+    def _unfile(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Take an event out of every history; the identity falls back to its next most recent sighting.
+        Returns the record removed. Caller holds the lock."""
+        found = None
+        for name, hist in list(self.history.items()):
+            keep = [r for r in hist if r["event_id"] != event_id]
+            if len(keep) != len(hist):
+                found = next(r for r in hist if r["event_id"] == event_id)
+                if keep:
+                    self.history[name], self.latest[name] = keep, keep[0]
+                else:
+                    self.history.pop(name, None)
+                    self.latest.pop(name, None)
+        return found
 
     # ------------------------------------------------------------ output ----
     def locations(self) -> Dict[str, Dict[str, Any]]:
@@ -122,25 +149,21 @@ class FrigatePresence:
         return out
 
     def apply_correction(self, event_id: str, name: Optional[str]) -> None:
-        """Mirror a correction John made in the UI: name=None drops the sighting (rejected), else re-files it
-        under that identity. Frigate gets the same correction through its API; this keeps memory in step."""
+        """Mirror a correction John made in the UI: name=None drops the sighting (rejected: the identity shows its
+        next most recent sighting, and the event never comes back), else re-files it under that identity. Frigate
+        gets the same correction through its API; this keeps memory in step."""
         with self._lock:
-            for store in (self.latest, self.active):
-                for key, rec in list(store.items()):
-                    if rec["event_id"] != event_id:
-                        continue
-                    if store is self.latest:
-                        del store[key]
-                    if name is None:
-                        store.pop(key, None)
-                        continue
-                    new = dict(rec, name=norm_name(name))
-                    if store is self.latest:
-                        cur = store.get(new["name"])
-                        if cur is None or new["seen_at"] >= cur["seen_at"]:
-                            store[new["name"]] = new
-                    else:
-                        store[key] = new
+            rec = self._unfile(event_id)
+            active = self.active.get(event_id)
+            if name is None:
+                self.rejected.add(event_id)
+                self.active.pop(event_id, None)
+                return
+            new_name = norm_name(name)
+            if rec is not None:
+                self._file(dict(rec, name=new_name))
+            if active is not None:
+                self.active[event_id] = dict(active, name=new_name)
 
     # ------------------------------------------------------- camera look ----
     def in_view_now(self, camera: str) -> List[Dict[str, Any]]:

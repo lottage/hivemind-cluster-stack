@@ -2884,3 +2884,18 @@ html, body {
   .ml-opt { grid-template-columns: minmax(0, 1fr); }
   .ml-opt-ctl input[type=number] { width: 76px; }
 }
+
+/* Residents & Pets: a corrected card fades out, then its next most recent sighting arrives (presence_garden.js) */
+.pg-card { transition: opacity 0.35s ease, transform 0.35s ease, filter 0.35s ease; }
+.pg-leaving { opacity: 0.35; transform: scale(0.96); filter: grayscale(1); pointer-events: none; }
+.pg-arrive { animation: pg-arrive 0.7s ease-out; }
+@keyframes pg-arrive {
+  0% { opacity: 0; transform: translateY(8px); box-shadow: 0 0 0 2px var(--term-accent-gold); }
+  60% { opacity: 1; transform: none; box-shadow: 0 0 0 2px var(--term-accent-gold); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pg-note { font-size: 0.68rem; color: var(--term-accent-gold); margin-top: 4px; transition: opacity 0.6s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .pg-card { transition: none; }
+  .pg-arrive { animation: none; }
+}

@@ -264,7 +264,7 @@ class HomePresenceHub:
             return self._cached_presence
 
         known = self.get_known_entities()
-        sightings = self.get_recent_sightings(limit=12)
+        sightings = self.get_recent_sightings(limit=40)  # deep enough that a rejected or relabelled sighting falls back to the one before
         appliances = self.get_appliance_status()
 
         # HA States

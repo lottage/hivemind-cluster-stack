@@ -25,44 +25,129 @@ async function postJSON(url, body) {
 }
 
 // "✗ Wrong" / "Correct as" on a card, and the "+ New profile" form. Corrections go back to where the sighting came
-// from (Frigate event or sentry snapshot); correcting to a person also trains Frigate's face recognition.
+// from (Frigate event, sentry snapshot or patrol frame); correcting to a person also trains Frigate's face recognition.
+// Confirmation happens inside the card, not with confirm(): the StoneSage Android app's WebView answers confirm()
+// with "no" without showing anything, so the button looked dead there.
+// After a correction the card fades out and comes back with that identity's next most recent sighting; on a
+// relabel the other profile's card flashes with the moved frame.
+
+// While a card waits for Yes/No, animates, or the new-profile form is open, presence refreshes must not rebuild
+// the grid underneath it: the latest data is kept and drawn when the hold ends.
+let holdRender = 0;
+let heldData = null;
+function hold() { holdRender += 1; }
+function release() {
+  holdRender = Math.max(0, holdRender - 1);
+  if (!holdRender && heldData) { const d = heldData; heldData = null; renderPresence(d); }
+}
+const reducedMotion = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
+const pause = (ms) => new Promise((r) => setTimeout(r, reducedMotion() ? 0 : ms));
+
+function smallButton(label, title) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'preset-btn';
+  b.style.cssText = 'padding:1px 8px; font-size:0.68rem;';
+  b.textContent = label;
+  b.title = title;
+  return b;
+}
+
+// Replace the card's correction row with "question  ✓ Yes  ✗ No" until one is pressed.
+function askInline(row, question, onYes, onNo) {
+  const saved = [...row.childNodes];
+  hold();
+  const q = document.createElement('span');
+  q.style.cssText = 'flex:1; font-size:0.68rem; color:var(--term-accent-gold); align-self:center;';
+  q.textContent = question;
+  const yes = smallButton('✓ Yes', 'Apply this correction');
+  const no = smallButton('✗ No', 'Leave the sighting as it is');
+  yes.onclick = (e) => { e.stopPropagation(); release(); onYes(); };
+  no.onclick = (e) => { e.stopPropagation(); row.replaceChildren(...saved); if (onNo) onNo(); release(); };
+  row.replaceChildren(q, yes, no);
+  yes.focus();
+}
+
+// Card for an identity key, and the short note that tells John what he is looking at now.
+const cardFor = (grid, key) => grid.querySelector(`[data-card="${CSS.escape(key)}"]`);
+function arrive(grid, key, text) {
+  const card = cardFor(grid, key);
+  if (!card) return;
+  card.classList.add('pg-arrive');
+  card.addEventListener('animationend', () => card.classList.remove('pg-arrive'), { once: true });
+  const note = document.createElement('div');
+  note.className = 'pg-note';
+  note.textContent = text;
+  card.appendChild(note);
+  setTimeout(() => { note.style.opacity = '0'; }, 6000);
+}
+function describeNext(loc) {
+  if (!loc) return 'no earlier sighting';
+  const ago = loc.minutes_ago < 90 ? `${Math.round(loc.minutes_ago)} min ago` : `${(loc.minutes_ago / 60).toFixed(1)} h ago`;
+  const from = loc.source === 'frigate' ? 'Frigate' : loc.source === 'patrol' ? 'patrol' : 'camera sentry';
+  return `↺ previous sighting · ${ago} · ${from}`;
+}
+
 function bindCorrections(grid) {
   const form = document.getElementById('presence-new-profile');
   let pending = null;  // the card waiting for a new profile to be created
 
   const apply = async (row, action, name) => {
+    const card = row.closest('[data-card]');
+    const fromKey = card.dataset.card;
+    const toKey = action === 'relabel' ? normName(name) : null;
     const note = document.createElement('span');
     note.style.cssText = 'font-size:0.68rem; color:var(--term-accent-gold);';
-    note.textContent = 'saving…';
+    note.textContent = action === 'reject' ? 'hiding…' : `moving to ${name}…`;
     row.replaceChildren(note);
-    const res = await postJSON('/api/presence/correct', { source: row.dataset.src, ref: row.dataset.ref, shown: row.dataset.shown, action, name });
-    const trained = res.faces_trained ? ` · ${res.faces_trained} face(s) learned` : res.face_registered === true ? ' · face learned' : '';
-    note.textContent = res.ok ? (action === 'reject' ? 'hidden' : `now ${name}${trained}`) : `error: ${res.error}`;
-    if (res.ok) setTimeout(fetchPresenceState, 800);
+    hold();
+    card.classList.add('pg-leaving');
+    const [res] = await Promise.all([
+      postJSON('/api/presence/correct', { source: row.dataset.src, ref: row.dataset.ref, shown: row.dataset.shown, action, name })
+        .catch((e) => ({ ok: false, error: e.message })),
+      pause(350),                                   // let the fade finish even when the server is quick
+    ]);
+    if (!res.ok) {
+      card.classList.remove('pg-leaving');
+      note.textContent = `error: ${res.error}`;
+      release();
+      return;
+    }
+    note.textContent = 'finding the previous sighting…';
+    heldData = null;                                // stale: the correction changed it
+    release();
+    const data = await fetchPresenceState();        // redraws the grid with each identity's newest remaining sighting
+    const locs = (data && data.locations) || {};
+    arrive(grid, fromKey, describeNext(locs[fromKey]));
+    if (toKey && toKey !== fromKey) {
+      const trained = res.faces_trained ? ` · ${res.faces_trained} face(s) learned` : res.face_registered === true ? ' · face learned' : '';
+      arrive(grid, toKey, `✓ corrected to ${name}${trained}`);
+    }
   };
 
   grid.onchange = (e) => {
     const sel = e.target.closest('select[data-correct]');
     if (!sel || !sel.value) return;
     const row = sel.closest('[data-src]');
-    if (sel.value === '__new__') {
+    const choice = sel.value;
+    sel.value = '';
+    if (choice === '__new__') {
       pending = row;
+      hold();                                       // keep this card while the form is open
       form.style.display = 'block';
       document.getElementById('np-name').focus();
-      sel.value = '';
       return;
     }
-    if (confirm(`This sighting shown as ${row.dataset.shown} is really ${sel.value}?`)) apply(row, 'relabel', sel.value);
-    else sel.value = '';
+    askInline(row, `Really ${choice}?`, () => apply(row, 'relabel', choice));
   };
   grid.onclick = async (e) => {
     const rej = e.target.closest('button[data-correct="reject"]');
     if (rej) {
       const row = rej.closest('[data-src]');
-      if (confirm(`Hide this sighting of ${row.dataset.shown}? (It is kept aside, not deleted.)`)) apply(row, 'reject', '');
+      askInline(row, `Not ${row.dataset.shown}? Hide it`, () => apply(row, 'reject', ''));
       return;
     }
-    if (e.target.id === 'np-cancel') { form.style.display = 'none'; pending = null; return; }
+    if (e.target.id === 'np-cancel') { form.style.display = 'none'; pending = null; release(); return; }
     if (e.target.id !== 'np-save') return;
     const kind = document.getElementById('np-kind').value;
     const extra = document.getElementById('np-extra').value.trim();
@@ -74,14 +159,17 @@ function bindCorrections(grid) {
     const res = await postJSON('/api/presence/profiles', body);
     if (!res.ok) { status.textContent = `error: ${res.error}`; return; }
     form.style.display = 'none';
-    if (pending) await apply(pending, 'relabel', res.profile.name);
+    const row = pending;
     pending = null;
-    fetchPresenceState();
+    release();
+    if (row) await apply(row, 'relabel', res.profile.name);
+    else fetchPresenceState();
   };
 }
 
 export function renderPresence(data) {
   if (!data) return;
+  if (holdRender) { heldData = data; return; }   // a card is mid-correction: draw when it is done
 
   // Render resident & pet locations
   const locContainer = document.getElementById('presence-locations-grid');
@@ -137,7 +225,7 @@ export function renderPresence(data) {
           </div>`;
 
       html += `
-        <div style="background:var(--term-bg); border:1px solid var(--term-border-dim); border-radius:4px; padding:8px;">
+        <div class="pg-card" data-card="${key}" style="background:var(--term-bg); border:1px solid var(--term-border-dim); border-radius:4px; padding:8px;">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <span style="font-weight:bold; color:var(--term-text-bright);">${ent.name}</span>
             <span style="font-size:0.7rem; font-family:monospace;">${statusBadge}</span>

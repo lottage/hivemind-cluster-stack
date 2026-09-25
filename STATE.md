@@ -162,7 +162,13 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   Frigate's face library. Profiles = `wildlife/known_entities.json` (backup per write); the sentry re-reads it on change.
   The hub matches the activity log by exact snapshot name, following relabels in `corrections.jsonl` back to the name the
   sentry logged (was: by timestamp, which collided: austin_ and kylo_20260925_052758 came from one frame). Relabelling
-  into a taken name adds a suffix (`austin_<ts>-2.jpg`). Identity key everywhere:
+  into a taken name adds a suffix (`austin_<ts>-2.jpg`).
+  Card UX (2026-09-25): Wrong / Correct as confirm inside the card (not confirm(): the Android app's WebView returned
+  "no" silently, so Wrong looked dead); the card fades out and comes back with that identity's next most recent sighting
+  ("previous sighting · 7 min ago · Frigate", or "no earlier sighting"), and on a relabel the other profile's card flashes.
+  Presence refreshes wait while a card is mid-correction. Next-most-recent per source: Frigate keeps 10 sightings per
+  identity and never re-shows a rejected event; the hub reads the 40 newest sentry snapshots (was 12); patrol falls back
+  to the other sources through the merge. Identity key everywhere:
   `norm_name` ('Aunt May' -> 'aunt-may'). Deployed; no real correction made yet (first one is John's).
   Solar driveway timer polling stays OFF (`solar_poll_interval` returns None) until John picks thresholds.
 - Review fixes (2026-09-25, live): LIVE tab WebRTC->MP4 fallback timer is cancelled when the tiles close (before, a tab
@@ -284,7 +290,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 267 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 269 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

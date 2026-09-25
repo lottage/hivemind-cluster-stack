@@ -64,6 +64,25 @@ class TestIngest(unittest.TestCase):
         p.ingest(ev("old", "cat", NOW - 900, end=NOW - 900))     # replayed out of order
         self.assertEqual(p.locations()["luna"]["event_id"], "new")
 
+    def test_reject_falls_back_to_the_previous_sighting_for_good(self):
+        p = fp()
+        p.ingest(ev("old", "dog", NOW - 900, end=NOW - 900))
+        p.ingest(ev("new", "dog", NOW - 60, end=NOW - 60))
+        p.apply_correction("new", None)                           # John: that was not Kylo
+        self.assertEqual(p.locations()["kylo"]["event_id"], "old")
+        p.ingest(ev("new", "dog", NOW - 60, end=NOW - 60))        # replayed by a reconnect: stays rejected
+        self.assertEqual(p.locations()["kylo"]["event_id"], "old")
+        p.apply_correction("old", None)
+        self.assertNotIn("kylo", p.locations())
+
+    def test_relabel_moves_the_sighting_and_the_old_identity_falls_back(self):
+        p = fp()
+        p.ingest(ev("k1", "dog", NOW - 900, end=NOW - 900))
+        p.ingest(ev("k2", "dog", NOW - 60, end=NOW - 60))
+        p.apply_correction("k2", "Luna")                          # the "dog" was the cat
+        self.assertEqual(p.locations()["luna"]["event_id"], "k2")
+        self.assertEqual(p.locations()["kylo"]["event_id"], "k1")
+
     def test_websocket_frame_with_string_payload(self):
         p = fp()
         frame = json.dumps({"topic": "events", "payload": json.dumps({"type": "new", "after": ev("w", "dog", NOW)})})
