@@ -88,6 +88,42 @@ function describeNext(loc) {
   return `↺ previous sighting · ${ago} · ${from}`;
 }
 
+// 2px box around the card's subject (backend sighting_boxes.py): Frigate's detector box, or where the vision model
+// found that profile in a sentry/patrol picture. The image also shifts so the subject stays in the 90 px strip.
+const boxCache = new Map();   // query -> box ([x, y, w, h] fractions) or null
+function placeBox(img, box) {
+  const wrap = img.parentElement;
+  wrap.querySelector('.pg-box')?.remove();
+  const cw = img.clientWidth, ch = img.clientHeight, iw = img.naturalWidth, ih = img.naturalHeight;
+  if (!box || !iw || !cw) return;                              // no box, or the grid is hidden right now
+  const px = box[0] + box[2] / 2, py = box[1] + box[3] / 2;
+  img.style.objectPosition = `${(px * 100).toFixed(1)}% ${(py * 100).toFixed(1)}%`;
+  const s = Math.max(cw / iw, ch / ih);                          // object-fit: cover
+  const ox = (cw - iw * s) * px, oy = (ch - ih * s) * py;        // object-position px% py%
+  const d = document.createElement('div');
+  d.className = 'pg-box';
+  Object.assign(d.style, { left: `${ox + box[0] * iw * s}px`, top: `${oy + box[1] * ih * s}px`,
+                           width: `${box[2] * iw * s}px`, height: `${box[3] * ih * s}px` });
+  wrap.appendChild(d);
+}
+function drawBoxes(grid) {
+  grid.querySelectorAll('img[data-box-src]').forEach((img) => {
+    const { boxSrc, boxRef, boxName, boxAt } = img.dataset;
+    const q = `source=${encodeURIComponent(boxSrc)}&ref=${encodeURIComponent(boxRef)}&name=${encodeURIComponent(boxName)}&at=${boxAt}`;
+    const show = (box) => (img.complete && img.naturalWidth ? placeBox(img, box)
+      : img.addEventListener('load', () => placeBox(img, box), { once: true }));
+    if (boxCache.has(q)) { show(boxCache.get(q)); return; }
+    fetch(`/api/presence/box?${q}`).then((r) => r.json())
+      .then((j) => { if (j.ok) { boxCache.set(q, j.box); show(j.box); } })
+      .catch(() => { /* no box: the picture still shows */ });
+  });
+}
+let boxResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(boxResizeTimer);
+  boxResizeTimer = setTimeout(() => { const g = document.getElementById('presence-locations-grid'); if (g) drawBoxes(g); }, 200);
+});
+
 function bindCorrections(grid) {
   const form = document.getElementById('presence-new-profile');
   let pending = null;  // the card waiting for a new profile to be created
@@ -192,13 +228,18 @@ export function renderPresence(data) {
         ? `<span style="color:#22c55e; font-weight:bold;">🟢 Active (${Math.round(loc.minutes_ago)}m ago)</span>`
         : `<span style="color:var(--term-text-muted); font-weight:bold;">⚪ Inactive (${loc ? Math.round(loc.minutes_ago) + 'm ago' : 'No recent sighting'})</span>`;
 
+      // Correction controls and the subject box: only for a sighting that has an image to judge
+      const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
+        : loc && loc.source === 'patrol' && loc.patrol_ref ? ['patrol', loc.patrol_ref]
+        : loc && loc.snapshot ? ['sentry', loc.snapshot] : null;
       // Frigate sightings carry an event id (snapshot proxied by StoneSage); sentry sightings a snapshot filename
       const snapSrc = loc && loc.source === 'frigate' && loc.event_id ? `/api/frigate/snapshot/${loc.event_id}`
         : loc && loc.source === 'patrol' ? loc.snapshot_url
         : loc && loc.snapshot ? `/api/presence/snapshot/${loc.snapshot}` : null;
       const snapshotImg = snapSrc
-        ? `<div style="margin-top:6px; border:1px solid var(--term-border-dim); border-radius:3px; overflow:hidden; max-height:90px; background:#000;">
-             <img src="${snapSrc}" alt="${ent.name}" style="width:100%; height:90px; object-fit:cover;" loading="lazy">
+        ? `<div style="position:relative; margin-top:6px; border:1px solid var(--term-border-dim); border-radius:3px; overflow:hidden; max-height:90px; background:#000;">
+             <img src="${snapSrc}" alt="${ent.name}" style="display:block; width:100%; height:90px; object-fit:cover;" loading="lazy"
+               ${src ? `data-box-src="${src[0]}" data-box-ref="${src[1]}" data-box-name="${ent.name}" data-box-at="${loc.mtime}"` : ''}>
            </div>`
         : `<div style="margin-top:6px; height:45px; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; font-size:0.7rem; color:var(--term-text-muted);">No snapshot</div>`;
       const lastSeen = !loc ? 'Unknown'
@@ -210,10 +251,6 @@ export function renderPresence(data) {
         : `<div style="font-size:0.72rem; margin-top:2px; font-weight:bold; color:${hs.state === 'home' ? '#22c55e' : 'var(--term-accent-gold)'};">`
           + `${hs.state === 'home' ? '🏠 Home' : hs.state === 'not_home' ? '🚗 Away' : `📍 ${hs.state}`} · ${hs.source_label}`
           + `${hs.since_min != null ? ` · ${hs.since_min < 90 ? Math.round(hs.since_min) + ' min' : (hs.since_min / 60).toFixed(1) + ' h'}` : ''}</div>`;
-      // Correction controls: only for a sighting that has an image to judge
-      const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
-        : loc && loc.source === 'patrol' && loc.patrol_ref ? ['patrol', loc.patrol_ref]
-        : loc && loc.snapshot ? ['sentry', loc.snapshot] : null;
       const correct = !src ? '' : `
           <div style="display:flex; gap:4px; margin-top:4px;" data-src="${src[0]}" data-ref="${src[1]}" data-shown="${ent.name}">
             <button type="button" class="preset-btn" style="padding:1px 6px; font-size:0.68rem;" data-correct="reject" title="Not a real sighting of ${ent.name}: hide it">✗ Wrong</button>
@@ -252,6 +289,7 @@ export function renderPresence(data) {
         </div>
       </div>`;
     bindCorrections(locContainer);
+    drawBoxes(locContainer);
   }
 
   // Render Appliance Status
@@ -546,6 +584,7 @@ export function showPresenceTab(which) {
   document.getElementById('presence-tab-people').classList.toggle('active', !live);
   document.getElementById('presence-tab-live').classList.toggle('active', live);
   if (live) startLive(); else stopLive();  // only hold camera streams open while someone is watching
+  if (!live) drawBoxes(document.getElementById('presence-locations-grid'));  // boxes need the grid visible to size
 }
 
 // Close the streams when the page is hidden (phone locked, tab switched); reopen on return

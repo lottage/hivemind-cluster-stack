@@ -19,7 +19,7 @@ CFG = {"camera_ui": {
 
 def ha_state(entity):
     if entity == "select.drive_move_to_preset":
-        return {"attributes": {"options": ["Doors", "Driveway ", "Garden"]}}
+        return {"attributes": {"options": ["Doors", "Driveway ", "Garden", "StoneSage return"]}}
     if entity == "select.kitchen_move_to_preset":
         return {"attributes": {"options": ["Living Room"]}}
     return None

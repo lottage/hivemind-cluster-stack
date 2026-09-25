@@ -4,7 +4,8 @@ PTZ patrol: the PTZ cameras sweep their whole pan range every so often and repor
 Per camera (config.json patrol.cameras, keyed by HA camera entity):
   ptz           HA entity prefix (button.<ptz>_move_left/right, number.<ptz>_movement_angle, select.<ptz>_move_to_preset)
   frames        "frigate:<camera>" (Frigate's latest frame; that camera streams anyway) or "go2rtc:<stream>"
-  home_preset   where the camera returns after a sweep
+  home_preset   fallback return point: a sweep goes back to wherever the camera pointed before it (saved as a temporary
+                Tapo preset, RETURN_PRESET, deleted afterwards) and only uses home_preset if that save or return fails
   quiet_when_home  skip sweeps while a resident is home (indoor camera: the motor is audible)
   battery_sensor   battery-gated schedule (solar driveway): see interval_for()
   start_deg, step_deg, max_frames   where the first frame is taken (degrees right of the left end stop), the step
@@ -12,7 +13,7 @@ Per camera (config.json patrol.cameras, keyed by HA camera entity):
                    kitchen 4 frames at 90..210, driveway 6 frames at 30..230, picked from full 30-degree sweeps)
 
 A sweep: pan to the left end stop, turn right to start_deg, then step right by step_deg taking a frame each time until
-the picture stops changing (right end stop reached) or max_frames, then return home. Each frame is checked by the vision model for known
+the picture stops changing the picture stops changing (right end stop reached) or max_frames, then return to where it pointed before. Each frame is checked by the vision model for known
 profiles (for a Frigate camera only when Frigate sees someone, to spare the GPU). Sightings go into Courage's
 presence like Frigate's (source "patrol"). A camera John moved by hand in the last few minutes is left alone, and
 a sweep in progress stops before its next move when John or Courage's camera_scan takes the camera (note_manual).
@@ -29,6 +30,13 @@ from typing import Any, Callable, Dict, List, Optional
 MANUAL_HOLD_S = 300          # a hand-moved camera is not swept for this long
 LEFT_END_MOVES = 3           # 3 x 120 deg left: past the end stop of any Tapo pan range
 DEFAULT_ANGLE = 15           # Tapo's movement angle, restored when HA does not report the camera's own value
+# Temporary Tapo preset holding the pre-sweep position. HA's preset list refreshes on a save but not on a delete, so the
+# name can linger in HA after the sweep: camera_ui and camera_scan hide it (is_temp_preset).
+RETURN_PRESET = "StoneSage return"
+
+
+def is_temp_preset(name: str) -> bool:
+    return (name or "").strip() == RETURN_PRESET
 
 
 class Interrupted(Exception):
@@ -214,12 +222,16 @@ class Patrol:
                 raise Interrupted()
             self.ha.press_button(f"button.{ptz}_move_{button}")
 
+        saved = False
         try:
             profiles = self._profiles(presence if presence is not None else (self.presence_fn() or {}))
             try:
                 angle_before = float(self._ha_state(angle_eid))  # John's step size, put back afterwards
             except (TypeError, ValueError):
                 pass
+            # Where the camera points now (John's last position, or wherever it was left) is where it goes back to
+            res = self.ha.call_service("tapo_control", "save_preset", {"entity_id": entity, "name": RETURN_PRESET})
+            saved = bool((res or {}).get("ok", True))
             self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": 120})
             for _ in range(LEFT_END_MOVES):
                 move("left")
@@ -255,8 +267,12 @@ class Patrol:
             try:
                 value = int(angle_before) if float(angle_before).is_integer() else angle_before
                 self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": value})
-                if cam.get("home_preset") and not interrupted:
-                    self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+                if not interrupted:
+                    back = self.ha.select_option(f"select.{ptz}_move_to_preset", RETURN_PRESET) if saved else {"ok": False}
+                    if not (back or {}).get("ok", True) and cam.get("home_preset"):
+                        self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+                # Even when the save looked failed: HA's client gives up after 4 s, the camera may still have saved it
+                self.ha.call_service("tapo_control", "delete_preset", {"entity_id": entity, "preset": RETURN_PRESET})
             finally:
                 with self._lock:
                     self.frames[entity] = frames

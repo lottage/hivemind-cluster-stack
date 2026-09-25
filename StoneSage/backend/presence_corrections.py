@@ -25,12 +25,16 @@ from frigate_presence import EVENT_ID, norm_name
 
 class PresenceCorrections:
     def __init__(self, ssh_host: str, admin_path: str, frigate_url: str, run: Callable[..., Any] = subprocess.run,
-                 http: Optional[Callable[..., Any]] = None):
+                 http: Optional[Callable[..., Any]] = None,
+                 prepare_face: Optional[Callable[[bytes, str], bytes]] = None):
         self.ssh_host = ssh_host
         self.admin_path = admin_path
         self.frigate = frigate_url.rstrip("/")
         self.run = run
         self.http = http or self._http
+        # (frame, person) -> the part of the frame to learn from: the server crops to that person, so the right face is
+        # learned when several people are in view. Identity when not given.
+        self.prepare_face = prepare_face or (lambda jpeg, name: jpeg)
 
     # ------------------------------------------------------------ transport ----
     def _admin(self, command: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -124,6 +128,10 @@ class PresenceCorrections:
 
     def register_face_image(self, jpeg: bytes, name: str, filename: str = "correction.jpg") -> Any:
         """Any corrected frame (sentry snapshot, patrol frame) into the person's Frigate face library."""
+        try:
+            jpeg = self.prepare_face(jpeg, name)
+        except Exception:
+            pass    # no crop: Frigate still looks for a face in the whole frame
         boundary = uuid.uuid4().hex
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
                 f"Content-Type: image/jpeg\r\n\r\n").encode() + jpeg + f"\r\n--{boundary}--\r\n".encode()

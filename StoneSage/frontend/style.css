@@ -2899,3 +2899,10 @@ html, body {
   .pg-card { transition: none; }
   .pg-arrive { animation: none; }
 }
+
+/* Residents & Pets: the subject of a sighting (Frigate's box or the vision model's), 2px */
+.pg-box {
+  position: absolute; box-sizing: border-box; pointer-events: none;
+  border: 2px solid var(--term-accent-gold); border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);   /* stays visible on light backgrounds */
+}

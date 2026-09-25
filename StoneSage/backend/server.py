@@ -2486,7 +2486,9 @@ def scan_camera_presets(cam_eid: str, cam_name: str) -> Optional[str]:
     preset_entity = ptz_config["preset_entity"]
     # HA's own spelling wins over the registry: the driveway preset is "Driveway " (trailing space) in HA,
     # so selecting the registry's "Driveway" failed silently
-    live_opts = ((hass.get_state(preset_entity) or {}).get("attributes") or {}).get("options") or []
+    from patrol import is_temp_preset
+    live_opts = [p for p in ((hass.get_state(preset_entity) or {}).get("attributes") or {}).get("options") or []
+                 if not is_temp_preset(p)]   # the patrol's return preset can linger in HA's list
     presets = live_opts or ptz_config["presets"]
     default_preset = next((p for p in presets if p.strip() == ptz_config.get("default_preset", "").strip()), presets[0])
     now_str = datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p EST")
@@ -2646,7 +2648,80 @@ def _presence_corrections():
     pcfg = load_config().get("presence") or {}
     return PresenceCorrections(pcfg.get("ssh", "austin@192.168.1.105"),
                                pcfg.get("admin_script", "/opt/cluster-bridge/wildlife_admin.py"),
-                               (load_config().get("frigate") or {}).get("url", ""))
+                               (load_config().get("frigate") or {}).get("url", ""),
+                               prepare_face=_crop_to_person)
+
+
+# ---- Where the subject is in a sighting's picture (sighting_boxes.py): card boxes and face-training crops ----
+_box_cache = None
+_vision_lock = threading.Lock()   # one grounding call at a time: the cards ask together, the vision slot is single
+
+
+def _vision_url() -> str:
+    return config.get("cluster", {}).get("vision_url", "http://192.168.1.105:8004/v1")
+
+
+def _profile(name: str) -> Optional[Dict[str, Any]]:
+    from frigate_presence import norm_name
+    ents = (_courage_hub_presence() or {}).get("known_entities") or {}
+    return next((e for g in ("people", "pets") for e in ents.get(g, []) if norm_name(e.get("name", "")) == norm_name(name)), None)
+
+
+def _sentry_snapshot_bytes(fn: str) -> Optional[bytes]:
+    """A wildlife-sentry snapshot from VM 102 (name checked: letters, digits, _ . - only, .jpg)."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.jpg", fn or "") or ".." in fn:
+        return None
+    sub = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
+                          f"cat /opt/cluster-bridge/wildlife/snapshots/{fn}"], capture_output=True, timeout=10)
+    return sub.stdout if sub.returncode == 0 and sub.stdout else None
+
+
+def _sighting_box(source: str, ref: str, name: str) -> Optional[List[float]]:
+    """[x, y, w, h] (fractions) of `name` in a card's picture, or None. Cached per sighting."""
+    global _box_cache
+    import sighting_boxes as sb
+    from frigate_presence import EVENT_ID, norm_name
+    if _box_cache is None:
+        _box_cache = sb.BoxCache(os.path.join(ROOT_DIR, "data", "sighting_boxes.json"))
+    key = f"{source}|{ref}|{norm_name(name)}"
+    if source == "patrol":
+        entity = ref.rpartition("|")[0]
+        key += f"|{(get_patrol().state.get(entity) or {}).get('last')}"   # frame indexes are reused by the next sweep
+    known, box = _box_cache.get(key)
+    if known:
+        return box
+    if source == "frigate":
+        if not EVENT_ID.match(ref or ""):
+            raise ValueError("bad event id")
+        box = sb.frigate_box((load_config().get("frigate") or {}).get("url", ""), ref)
+    else:
+        if source == "sentry":
+            jpeg = _sentry_snapshot_bytes(ref)
+        elif source == "patrol":
+            entity, _, idx = ref.rpartition("|")
+            jpeg = get_patrol().frame(entity, int(idx)) if idx.isdigit() else None
+        else:
+            raise ValueError("unknown source")
+        if not jpeg:
+            return None
+        with _vision_lock:
+            known, box = _box_cache.get(key)          # another card may have asked for the same one meanwhile
+            if known:
+                return box
+            box = sb.locate(jpeg, sb.describe(_profile(name), name), _vision_url())
+    _box_cache.put(key, box)
+    return box
+
+
+def _crop_to_person(jpeg: bytes, name: str) -> bytes:
+    """Face training: only the corrected person, when the vision model can find them in the frame."""
+    import sighting_boxes as sb
+    with _vision_lock:
+        box = sb.locate(jpeg, sb.describe(_profile(name), name), _vision_url())
+    if not box:
+        return jpeg
+    logger.info(f"face training for {name}: cropped to {box}")
+    return sb.crop(jpeg, box)
 
 
 def _invalidate_presence() -> None:
@@ -4080,20 +4155,28 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path.startswith("/api/presence/snapshot/"):
-            raw_fn = path[len("/api/presence/snapshot/"):].strip()
-            safe_fn = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_fn)
-            if safe_fn and safe_fn.endswith(".jpg"):
-                cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", f"cat /opt/cluster-bridge/wildlife/snapshots/{safe_fn}"]
-                sub = subprocess.run(cmd, capture_output=True, timeout=5)
-                if sub.returncode == 0 and len(sub.stdout) > 0:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/jpeg")
-                    self.send_header("Content-Length", str(len(sub.stdout)))
-                    self.send_header("Cache-Control", "public, max-age=3600")
-                    self.end_headers()
-                    self.wfile.write(sub.stdout)
-                    return
+            img = _sentry_snapshot_bytes(path[len("/api/presence/snapshot/"):].strip())
+            if img:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(img)
+                return
             self.send_json({"ok": False, "error": "Snapshot not found"}, 404)
+            return
+
+        elif path == "/api/presence/box":
+            # Where a card's subject is in its picture, for the 2px box (sighting_boxes.py)
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                box = _sighting_box(q.get("source", [""])[0], q.get("ref", [""])[0], q.get("name", [""])[0])
+                self.send_json({"ok": True, "box": box})
+            except ValueError as e:
+                self.send_json({"ok": False, "error": str(e)}, 400)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 502)
             return
 
         elif path == "/api/garden/status":
@@ -7605,7 +7688,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                             res = get_patrol().correct(body.get("ref", ""), body.get("shown", ""), action, name)
                             frame = res.pop("frame", None)
                             if res.get("ok") and action == "relabel" and frame and pc._is_person(name):
-                                res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")
+                                res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")  # cropped to them
                     else:
                         res = pc.correct(body.get("source", ""), body.get("ref", ""), body.get("action", ""), body.get("name", ""))
                         fp = get_frigate_presence()

@@ -29,9 +29,11 @@ def camera_entries(cfg: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 def presets(ptz: str, get_state: Callable[[str], Optional[Dict[str, Any]]]) -> List[str]:
-    """Preset names exactly as HA spells them (the driveway's 'Driveway ' has a trailing space)."""
+    """Preset names exactly as HA spells them (the driveway's 'Driveway ' has a trailing space), without the
+    patrol's temporary return preset."""
+    from patrol import is_temp_preset
     st = get_state(f"select.{ptz}_move_to_preset") or {}
-    return list((st.get("attributes") or {}).get("options") or [])
+    return [p for p in (st.get("attributes") or {}).get("options") or [] if not is_temp_preset(p)]
 
 
 def variant_streams(cfg: Dict[str, Any]) -> Dict[str, Dict[str, str]]:

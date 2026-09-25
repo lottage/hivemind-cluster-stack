@@ -53,6 +53,8 @@ class FakeCamera:
     def __init__(self):
         self.pos, self.angle, self.calls = 120, 45, []     # John set a 45 deg step in HA
         self.on_press = None
+        self.presets = {}                                    # temporary presets saved by the patrol
+        self.save_ok = True
 
     def press_button(self, eid):
         if self.on_press:
@@ -65,11 +67,20 @@ class FakeCamera:
     def call_service(self, domain, service, data):
         if data.get("entity_id", "").endswith("movement_angle"):
             self.angle = data["value"]
+        if service == "save_preset":
+            if not self.save_ok:
+                return {"ok": False, "error": "camera busy"}
+            self.presets[data["name"]] = self.pos
+        if service == "delete_preset":
+            self.presets.pop(data["preset"], None)
         return {"ok": True}
 
     def select_option(self, eid, option):
         self.calls.append(f"{eid}={option}")
-        self.pos = 120
+        if option in self.presets:
+            self.pos = self.presets[option]
+        else:
+            self.pos = 120                                   # the home preset
         return {"ok": True}
 
     def get_state(self, eid):
@@ -102,7 +113,8 @@ class TestSweep(unittest.TestCase):
         self.assertEqual(res["frames"], 8)                          # 30..240 deg (0 deg = wall is skipped), then the end stop
         self.assertEqual(cam.calls[:4], ["button.kitchen_move_left"] * 3 + ["button.kitchen_move_right"])
         self.assertEqual(p.status()["cameras"]["camera.kitchen"]["first_pan"], 30)
-        self.assertEqual(cam.calls[-1], "select.kitchen_move_to_preset=Living Room")
+        self.assertEqual(cam.calls[-1], f"select.kitchen_move_to_preset={pt.RETURN_PRESET}")
+        self.assertEqual((cam.pos, cam.presets), (120, {}))     # back where it was; temporary preset deleted
         self.assertEqual(cam.angle, 45)                             # John's step size restored, not a default
         self.assertEqual(set(p.locations()), {"kylo"})              # unknown names from the VLM are dropped
         self.assertTrue(p.frame("camera.kitchen", 0))
@@ -144,6 +156,17 @@ class TestSweep(unittest.TestCase):
         p.manual_at.clear()
         p.presence_fn = lambda: {"locations": {"austin": {"minutes_ago": 5}}}
         self.assertEqual(p.due("camera.kitchen", KITCHEN), "paused: Austin home")
+
+    def test_sweep_returns_to_where_john_left_it_and_falls_back_home(self):
+        p, cam = self.make()
+        cam.pos = 200                                         # John pointed it at the sofa
+        p.sweep("camera.kitchen", KITCHEN)
+        self.assertEqual(cam.pos, 200)
+        self.assertEqual(cam.presets, {})
+        cam.pos, cam.save_ok = 200, False                     # the save failed: home preset as before
+        p.sweep("camera.kitchen", KITCHEN)
+        self.assertEqual(cam.calls[-1], "select.kitchen_move_to_preset=Living Room")
+        self.assertEqual(cam.pos, 120)
 
     def test_one_sweep_per_camera_at_a_time(self):
         p, cam = self.make()
