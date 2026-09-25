@@ -141,6 +141,12 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   (extended family trackers exist, deliberately not used). New `person.savannah` (Life360); `person.austin` gained the
   Life360 tracker next to phone + tablet. Pre-change person list: `_backups/ha_persons_backup_2026-09-25.json`.
   The patrol's "resident home" check uses `person.<name>` first, so Savannah is no longer inferred from cameras.
+  Courage (live 2026-09-25): presence card lines lead with GPS ("- Savannah: away (Life360, 2.1 h); camera: ..."),
+  `presence_now` returns `gps` and skips the camera look when GPS says away (verified: "Is Savannah home?" 4.1 s, no look);
+  Residents & Pets cards show Home / Away / zone. Tool choice unchanged (42/42, 41/42).
+- Deploy script fix (2026-09-25): `sync_stonesage_to_lxc.ps1` now also copies Python packages inside backend/ (`courage/`,
+  `boost/`). Before, backend/courage/ changes only went live when copied by hand. Parallel sessions also shared the main
+  checkout (one switched it to `ui-accent-tokens`); `boost-free` was merged back in (d7099ab) so one tree holds everything.
 - Presence corrections (2026-09-25, `backend/presence_corrections.py`, cards in Residents & Pets): "✗ Wrong" and
   "Correct as ▾" (+ New profile). Frigate sightings: false_positive / sub_label; correcting to a person moves that event's
   face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).

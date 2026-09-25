@@ -34,6 +34,15 @@ Write-Host "`n[2/3] Uploading Backend Python modules to LXC 120..." -ForegroundC
 Get-ChildItem -Path "$LocalBackend" -Filter "*.py" | ForEach-Object {
     scp $_.FullName "$LxcUser@$LxcHost`:/opt/stonesage/backend/$($_.Name)"
 }
+# Python packages inside backend/ (courage/, boost/, ...): .py files only, no Windows __pycache__.
+# Until 2026-09-25 this script skipped them, so backend/courage/ changes only went live when copied by hand.
+Get-ChildItem -Path "$LocalBackend" -Directory | Where-Object { Test-Path (Join-Path $_.FullName "__init__.py") } | ForEach-Object {
+    $pkg = $_.Name
+    ssh -n "$LxcUser@$LxcHost" "mkdir -p /opt/stonesage/backend/$pkg"
+    Get-ChildItem -Path $_.FullName -Filter "*.py" | ForEach-Object {
+        scp $_.FullName "$LxcUser@$LxcHost`:/opt/stonesage/backend/$pkg/$($_.Name)"
+    }
+}
 # Remove any legacy builtin_overrides.json on LXC 120
 ssh -n "$LxcUser@$LxcHost" "rm -f /opt/stonesage/backend/builtin_overrides.json"
 
