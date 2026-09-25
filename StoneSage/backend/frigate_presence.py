@@ -221,11 +221,17 @@ class FrigatePresence:
 EVENT_ID = re.compile(r"^[0-9]+\.[0-9]+-[a-z0-9]+$")
 
 
-def live_cameras(go2rtc_url: str, frigate_cameras: List[str]) -> List[Dict[str, str]]:
-    """Cameras the StoneSage LIVE tab can play: each Frigate camera, on its go2rtc sub stream (H.264, plays in
-    every browser) when one exists, else the main stream."""
+def go2rtc_stream_names(go2rtc_url: str) -> set:
+    """Stream names go2rtc has (raises when go2rtc is unreachable)."""
     with urllib.request.urlopen(f"{go2rtc_url.rstrip('/')}/api/streams", timeout=3) as r:
-        streams = set(json.load(r) or {})
+        return set(json.load(r) or {})
+
+
+def live_cameras(go2rtc_url: str, frigate_cameras: List[str], streams: Optional[set] = None) -> List[Dict[str, str]]:
+    """Cameras the StoneSage LIVE tab can play: each Frigate camera, on its go2rtc sub stream (H.264, plays in
+    every browser) when one exists, else the main stream. streams: go2rtc's names if the caller has them."""
+    if streams is None:
+        streams = go2rtc_stream_names(go2rtc_url)
     out = []
     for cam in frigate_cameras:
         if cam in streams:

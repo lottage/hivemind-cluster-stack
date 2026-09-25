@@ -1,0 +1,80 @@
+# litellm_config.yaml
+# Unified OpenAI-compatible gateway for the pve/bigserv AI stack.
+# Fronts: coordinator (:8001), worker (:8002), BGE embeddings (:8003), vision (:8004)
+#
+# Host/IP values are pulled from environment variables per your zero-leak rule —
+# never hardcode real 192.168.x.x addresses here. Set these in a .env file that
+# stays out of git:
+#   PVE_COORDINATOR_HOST=http://<coordinator-tailscale-or-lan-host>:8001
+#   PVE_WORKER_HOST=http://<worker-tailscale-or-lan-host>:8002
+#   PVE_EMBED_HOST=http://<embed-host>:8003
+#   PVE_VISION_HOST=http://<vision-host>:8004
+
+model_list:
+  # --- Tier: Local Coordinator (RX 6750 XT 12GB) ---
+  - model_name: local-coordinator
+    litellm_params:
+      model: openai/coordinator-14b        # served name from your llama-server instance
+      api_base: os.environ/PVE_COORDINATOR_HOST
+      api_key: "not-needed"
+      # Reminder (not enforced by litellm): server must be launched with
+      # --device Vulkan0 --flash-attn on -ctk q4_0 -ctv q4_0 for the 12k window
+      rpm: 120
+      tpm: 200000
+
+  # --- Tier: Local Worker (RX 6600 XT 8GB) — unit tests / linting / bulk drafts ---
+  - model_name: local-worker
+    litellm_params:
+      model: openai/worker-3b
+      api_base: os.environ/PVE_WORKER_HOST
+      api_key: "not-needed"
+      rpm: 180
+      tpm: 150000
+
+  # --- BGE-Large embeddings — hard 512 token / ~900 char ceiling ---
+  - model_name: local-embed
+    litellm_params:
+      model: openai/bge-large-en-v1.5
+      api_base: os.environ/PVE_EMBED_HOST
+      api_key: "not-needed"
+      rpm: 300
+
+  # --- Vision server — expects pre-resized <=640px Lanczos frames, <200 tokens ---
+  - model_name: local-vision
+    litellm_params:
+      model: openai/vision-local
+      api_base: os.environ/PVE_VISION_HOST
+      api_key: "not-needed"
+      rpm: 60
+
+# --- Frontier tier stays external, routed through the same gateway for
+#     unified logging/tracing even though it's not "local" ---
+  - model_name: frontier-director
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      rpm: 60
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  # Emits per-request latency/token metrics; scrape with Prometheus below
+  success_callback: ["prometheus"]
+  failure_callback: ["prometheus"]
+  # Enforces the BGE/vision constraints before they hit the backend and crash it
+  callbacks: ["custom_guardrails.enforce_local_stack_limits"]
+
+router_settings:
+  routing_strategy: usage-based-routing-v2
+  fallbacks:
+    - local-coordinator: ["frontier-director"]   # escalate on repeated local failure
+  allowed_fails: 2
+  cooldown_time: 30
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/LITELLM_DB_URL       # optional: postgres for request logs
+  # Bind only to the Tailscale interface — never expose via port forwarding,
+  # consistent with your existing access pattern
+  host: "0.0.0.0"
+  port: 4000

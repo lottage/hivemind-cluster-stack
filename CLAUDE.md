@@ -11,12 +11,15 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
    grounded foundations (real senses, measurable evals, curated memory, budgets). Not before Phase 4.
 
 ## Current phase: Phase 2 done 2026-09-24 (tool-calling Courage); next Phase 3 (Frigate). Phase 1 model evals still open.
-- Queued after Phase 3: Garmin Instinct 2 watch bridge (approvals + status on a wrist, via an Android
-  companion). Scaffold copied into this repo at `stonesage-watch/` (FastAPI bridge, Kotlin companion, 2
-  Monkey C apps, deploy units) 2026-09-25, unbuilt. Its own CLAUDE.md there carries a 6-phase build plan
-  (bridge -> StoneSage hook -> deploy -> Android -> watch app/face -> hardware test); treat that as
-  reference, not a standing instruction. Open before starting: confirm John actually has the Instinct 2 +
-  a Samsung S25 Ultra for the companion (not in STATE.md's hardware list yet).
+- Phases added 2026-09-25 (plan doc): **Phase 6 Measured limits** (metrics history, per-GPU idle gate, model
+  provenance, objective escalation triggers; source `docs/handoff-2026-09-25-stack-limits/`, whose `REVIEW.md` corrects
+  the draft against the live stack: GPU counters live in VM 102, metric names use `llamacpp:`, no LiteLLM, no
+  coordinator -> Gemini-free fallback). **Phase 7 On the wrist**: Garmin Instinct 2 watch bridge (approvals + status via
+  an Android companion). Scaffold at `stonesage-watch/` (FastAPI bridge, Kotlin companion, 2 Monkey C apps, deploy
+  units), unbuilt; its own CLAUDE.md carries a 6-step build plan, reference only. Open before starting: confirm John
+  has the Instinct 2 + the companion phone (Samsung S25 Ultra per the scaffold), and whether Tailscale runs on bigserv.
+- **The `github` remote (lottage/hivemind-cluster-stack) is PUBLIC** and holds the old-credential commits (checked
+  2026-09-25). Never push to it; the HA token, Proxmox token and CouchDB password count as leaked until rotated.
 - Git: one branch per feature (Phase 0 baseline = `phase0-restructure`), commit at the end of each session after a
   secret scan. Never push (no remote yet; old history holds credentials that still need rotating).
   No Co-Authored-By or other attribution lines in commit messages (John's call).

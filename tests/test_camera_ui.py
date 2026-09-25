@@ -1,5 +1,5 @@
 """Offline tests for the LIVE tab's camera tiles: battery-safe snapshot refresh, PTZ validation against HA's own
-preset names, HLS proxy path checks and the WebRTC -> snapshot fallback."""
+preset names, stale-cache refetch on tile load and the WebRTC -> snapshot fallback."""
 
 import os
 import sys
@@ -12,7 +12,7 @@ import camera_ui  # noqa: E402
 
 CFG = {"camera_ui": {
     "camera.kitchen": {"name": "Kitchen", "live": "webrtc", "ptz": "kitchen"},
-    "camera.drive": {"name": "Driveway", "live": "hls", "ptz": "drive", "min_refresh_s": 60},
+    "camera.drive": {"name": "Driveway", "live": "webrtc", "ptz": "drive", "min_refresh_s": 60},
     "camera.yard": {"name": "Yard", "live": "snapshot", "min_refresh_s": 180},
 }}
 
@@ -47,11 +47,13 @@ class TestSnapshot(unittest.TestCase):
         img, age = self.snap(True)                 # past 180 s: a new frame
         self.assertEqual((img, age, self.wakes), (b"jpeg-2", 0.0, 2))
 
-    def test_plain_load_uses_cache_without_waking(self):
+    def test_plain_load_uses_a_recent_cache_but_never_an_old_one(self):
         self.snap(False)
-        self.now += 5000
+        self.now += 250                            # 250 s: past min_refresh, still inside STALE_S
         self.snap(False)
         self.assertEqual(self.wakes, 1)
+        self.now += 5000                           # hours old: a tile opening fetches a new frame
+        self.assertEqual(self.snap(False), (b"jpeg-2", 0.0))
 
     def test_unknown_camera_is_rejected(self):
         with self.assertRaises(KeyError):
@@ -76,11 +78,11 @@ class TestPTZ(unittest.TestCase):
             camera_ui.ptz_command("camera.drive", CFG, "zoom", "", ha_state)
 
 
-class TestTilesAndHLS(unittest.TestCase):
+class TestTiles(unittest.TestCase):
     def test_webrtc_camera_falls_back_to_snapshot_without_go2rtc(self):
         tiles = camera_ui.list_cameras(CFG, ha_state, webrtc_streams={})
         self.assertEqual([(t["entity"], t["live"]) for t in tiles],
-                         [("camera.kitchen", "snapshot"), ("camera.drive", "hls"), ("camera.yard", "snapshot")])
+                         [("camera.kitchen", "snapshot"), ("camera.drive", "snapshot"), ("camera.yard", "snapshot")])
         self.assertEqual(tiles[1]["ptz"]["presets"], ["Doors", "Driveway ", "Garden"])
         self.assertNotIn("ptz", tiles[2])
 
@@ -88,13 +90,9 @@ class TestTilesAndHLS(unittest.TestCase):
         tiles = camera_ui.list_cameras(CFG, ha_state, webrtc_streams={"camera.kitchen": "kitchen_sub"})
         self.assertEqual((tiles[0]["live"], tiles[0]["stream"]), ("webrtc", "kitchen_sub"))
 
-    def test_hls_proxy_path(self):
-        self.assertEqual(camera_ui.hls_proxy_path("abcDEF123_-xyz/master_playlist.m3u8"),
-                         "/api/hls/abcDEF123_-xyz/master_playlist.m3u8")
-        self.assertEqual(camera_ui.hls_proxy_path("abcDEF123_-xyz/segment/12.m4s"), "/api/hls/abcDEF123_-xyz/segment/12.m4s")
-        self.assertIsNone(camera_ui.hls_proxy_path("abcDEF123_-xyz/../../states"))
-        self.assertIsNone(camera_ui.hls_proxy_path("abcDEF123_-xyz/config.json"))
-        self.assertIsNone(camera_ui.hls_proxy_path("short/master_playlist.m3u8"))
+    def test_retired_hls_mode_shows_a_snapshot(self):
+        cfg = {"camera_ui": {"camera.old": {"name": "Old", "live": "hls"}}}
+        self.assertEqual(camera_ui.list_cameras(cfg, ha_state, webrtc_streams={})[0]["live"], "snapshot")
 
 
 if __name__ == "__main__":

@@ -179,6 +179,20 @@ class TestRouter(unittest.TestCase):
         return BoostRouter(lambda: c or cfg(), None, http=http or FakeHttp(), env=env, clock=Clock(),
                            home_terms=("luna",))
 
+    def test_home_terms_are_read_per_call_and_survive_a_failed_lookup(self):
+        names = ["luna"]
+
+        def terms():
+            if names is None:
+                raise OSError("VM 102 unreachable")
+            return names
+        r = BoostRouter(lambda: cfg(), None, http=FakeHttp(), env=ENV, clock=Clock(), home_terms=terms)
+        self.assertIn("luna", r.home_terms())
+        names.append("Aunt May")                          # profile added while running
+        self.assertIn("Aunt May", r.home_terms())
+        names = None
+        self.assertIn("Aunt May", r.home_terms())         # lookup failed: last good list, never empty
+
     def test_priority_order_skips_missing_keys(self):
         r = self.make()
         res = r.complete([{"role": "user", "content": "hi"}], "chat")

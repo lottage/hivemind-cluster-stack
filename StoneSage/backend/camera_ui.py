@@ -1,27 +1,24 @@
 """
-Camera tiles for the StoneSage LIVE tab: how each camera is shown, snapshots, HA HLS streams and PTZ.
+Camera tiles for the StoneSage LIVE tab: how each camera is shown, snapshots and PTZ.
 
 Per camera (config.json camera_ui, keyed by HA camera entity):
   live: "webrtc"   go2rtc stream played over WebRTC: a Frigate camera (frigate.cameras), or any go2rtc stream
                    named by go2rtc: (the solar TCW90 via tapo://, which go2rtc only opens while someone watches)
-        "hls"      Home Assistant's own stream (unreliable for the TCW90: HA's muxer fails on its first frame)
         "snapshot" still frame only, refreshed on demand (battery TC82s must not be kept awake)
   ptz:  HA entity prefix of a Tapo PTZ camera: button.<ptz>_move_up/down/left/right and
         select.<ptz>_move_to_preset (preset names are read from HA live, never hardcoded)
   min_refresh_s: snapshots newer than this are served from cache instead of waking the camera again
+
+(HA's own HLS stream was tried for the TCW90 and dropped on 2026-09-25: HA's muxer failed on about half the starts.)
 """
 
-import asyncio
 import io
-import json
-import re
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 MOVES = ("up", "down", "left", "right")
-HLS_TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,}$")
-HLS_FILE = re.compile(r"^[A-Za-z0-9_./-]+\.(m3u8|m4s|mp4|ts)$")
+STALE_S = 300   # a tile opening (no refresh press) fetches a new frame when the cached one is older than this
 
 _snap_cache: Dict[str, Tuple[float, bytes]] = {}
 _snap_lock = threading.Lock()
@@ -48,7 +45,7 @@ def list_cameras(cfg: Dict[str, Any], get_state: Callable[[str], Optional[Dict[s
     (variants go2rtc does not have are left out of the tile's quality menu)."""
     out = []
     for entity, c in camera_entries(cfg).items():
-        live = c.get("live", "snapshot")
+        live = "webrtc" if c.get("live") == "webrtc" else "snapshot"
         tile = {"entity": entity, "name": c.get("name", entity), "live": live,
                 "min_refresh_s": int(c.get("min_refresh_s", 0))}
         if live == "webrtc":
@@ -71,7 +68,8 @@ def list_cameras(cfg: Dict[str, Any], get_state: Callable[[str], Optional[Dict[s
 def snapshot(entity: str, cfg: Dict[str, Any], fetch: Callable[[str], Optional[bytes]],
              force: bool = False, width: int = 640, clock: Callable[[], float] = time.time) -> Tuple[Optional[bytes], float]:
     """(jpeg, age_s). A cached frame younger than the camera's min_refresh_s is returned even when force=True,
-    so a refresh button cannot keep a battery camera awake."""
+    so a refresh button cannot keep a battery camera awake. Without force (a tile opening) the cache serves up to
+    STALE_S (or min_refresh_s if longer), so an opened tile never shows a frame from hours ago."""
     c = camera_entries(cfg).get(entity)
     if c is None:
         raise KeyError(entity)
@@ -79,7 +77,7 @@ def snapshot(entity: str, cfg: Dict[str, Any], fetch: Callable[[str], Optional[b
     now = clock()
     with _snap_lock:
         cached = _snap_cache.get(entity)
-    if cached and (not force or now - cached[0] < min_age):
+    if cached and now - cached[0] < (min_age if force else max(min_age, STALE_S)):
         return cached[1], now - cached[0]
     raw = fetch(entity)
     if not raw:
@@ -120,32 +118,3 @@ def ptz_command(entity: str, cfg: Dict[str, Any], action: str, preset: str,
             raise ValueError(f"unknown preset '{preset}'")
         return "select", f"select.{ptz}_move_to_preset", preset
     raise ValueError(f"unknown PTZ action '{action}'")
-
-
-# ------------------------------------------------------------------ HLS ----
-def ha_hls_url(ha_url: str, token: str, entity: str, timeout: float = 20) -> str:
-    """Ask HA (websocket camera/stream) for an HLS playlist of a camera; returns '/api/hls/<token>/master_playlist.m3u8'.
-    HA starts the stream on request and stops it ~30 s after the last playlist fetch."""
-    import websockets  # available on the StoneSage host (websockets 10.x)
-
-    async def go() -> str:
-        async with websockets.connect(ha_url.rstrip("/").replace("http", "ws", 1) + "/api/websocket", max_size=None) as ws:
-            await ws.recv()
-            await ws.send(json.dumps({"type": "auth", "access_token": token}))
-            if json.loads(await ws.recv()).get("type") != "auth_ok":
-                raise RuntimeError("Home Assistant rejected the token")
-            await ws.send(json.dumps({"id": 1, "type": "camera/stream", "entity_id": entity, "format": "hls"}))
-            res = json.loads(await ws.recv())
-            if not res.get("success"):
-                raise RuntimeError((res.get("error") or {}).get("message", "camera/stream failed"))
-            return res["result"]["url"]
-
-    return asyncio.run(asyncio.wait_for(go(), timeout))
-
-
-def hls_proxy_path(rest: str) -> Optional[str]:
-    """'/api/cameras/hls/<token>/<file>' tail -> HA path '/api/hls/<token>/<file>', or None if it is not HLS."""
-    token, _, file = rest.partition("/")
-    if not HLS_TOKEN.match(token) or ".." in file or not HLS_FILE.match(file):
-        return None
-    return f"/api/hls/{token}/{file}"

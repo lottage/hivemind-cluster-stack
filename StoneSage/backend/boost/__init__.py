@@ -11,7 +11,7 @@ The server calls `configure()` once; everything else uses `get_router()`.
 """
 
 import threading
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Optional, Union
 
 from .router import BoostRouter, iter_sse
 
@@ -20,10 +20,13 @@ _lock = threading.Lock()
 _setup: Dict[str, Any] = {}
 
 
-def configure(config_fn: Callable[[], Dict[str, Any]], data_dir: Optional[str], home_terms: Tuple[str, ...] = ()) -> None:
+def configure(config_fn: Callable[[], Dict[str, Any]], data_dir: Optional[str],
+              home_terms: Union[Iterable[str], Callable[[], Iterable[str]]] = ()) -> None:
+    """home_terms: fixed names, or a function read on every call (profiles and family change while running)."""
     global _router
     with _lock:
-        _setup.update(config_fn=config_fn, data_dir=data_dir, home_terms=tuple(home_terms))
+        _setup.update(config_fn=config_fn, data_dir=data_dir,
+                      home_terms=home_terms if callable(home_terms) else tuple(home_terms))
         _router = None
 
 

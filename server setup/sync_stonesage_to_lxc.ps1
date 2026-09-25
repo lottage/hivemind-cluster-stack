@@ -20,7 +20,6 @@ ssh -n "$LxcUser@$LxcHost" "mkdir -p /opt/stonesage/frontend/js /opt/stonesage/f
 
 scp "$LocalFrontend\index.html" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/index.html"
 scp "$LocalFrontend\style.css" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/style.css"
-scp "$LocalFrontend\app.js" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/app.js"
 scp "$LocalFrontend\sw.js" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/sw.js"
 scp "$LocalFrontend\manifest.webmanifest" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/manifest.webmanifest"
 scp "$LocalFrontend\icon.svg" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/icon.svg"

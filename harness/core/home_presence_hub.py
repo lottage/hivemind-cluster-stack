@@ -128,15 +128,23 @@ class HomePresenceHub:
                 "      if ln.startswith('- **Location**: '): info['camera'] = ln[16:].split(' (')[0].strip()\n"
                 "      if ln.startswith('- **Summary**: '): info['doing'] = ln[15:].strip()[:120]\n"
                 "      if ln.startswith('- **Snapshot**: '): info['file'] = ln.split('snapshots/')[-1].strip(chr(96) + ' ')\n"
-                # keyed by the timestamp part: a corrected snapshot (austin_<ts>.jpg -> savannah_<ts>.jpg) keeps its log entry
-                "    if info.get('file'): where[info['file'].split('_', 1)[-1]] = info\n"
+                "    if info.get('file'): where[info['file']] = info\n"
+                "except Exception: pass\n"
+                # a corrected snapshot (austin_<ts>.jpg -> savannah_<ts>.jpg) keeps its log entry: wildlife_admin logs
+                # every rename, so follow the chain back to the name the sentry wrote (exact, even when two
+                # snapshots share a second)
+                "orig = {}\n"
+                "try:\n"
+                "  for ln in open('/opt/cluster-bridge/wildlife/corrections.jsonl', encoding='utf-8'):\n"
+                "    c = json.loads(ln)\n"
+                "    if c.get('action') == 'relabel': orig[c['new_file']] = orig.get(c['file'], c['file'])\n"
                 "except Exception: pass\n"
                 "res = []\n"
                 "for f in files:\n"
                 "  b = os.path.basename(f)\n"
                 "  mtime = os.path.getmtime(f)\n"
                 "  size = os.path.getsize(f)\n"
-                "  w = where.get(b.split('_', 1)[-1], {})\n"
+                "  w = where.get(orig.get(b, b), {})\n"
                 "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size, 'camera': w.get('camera'), 'doing': w.get('doing')})\n"
                 "print(json.dumps(res))\n"
                 "\""

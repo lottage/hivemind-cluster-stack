@@ -1,0 +1,53 @@
+# prometheus_idle_rules.yml
+# Add this scrape config to your existing prometheus.yml, and load the
+# recording rules file separately via `rule_files:`.
+
+# --- Add to prometheus.yml scrape_configs: ---
+#
+# scrape_configs:
+#   - job_name: 'node_exporter'
+#     static_configs:
+#       - targets: ['<pve-host>:9100', '<bigserv-host>:9100']
+#
+#   - job_name: 'llama_coordinator'
+#     metrics_path: /metrics
+#     static_configs:
+#       - targets: ['<coordinator-host>:8001']
+#
+#   - job_name: 'llama_worker'
+#     metrics_path: /metrics
+#     static_configs:
+#       - targets: ['<worker-host>:8002']
+
+# --- Recording rules (idle_rules.yml, loaded via rule_files:) ---
+groups:
+  - name: idle_detection
+    interval: 30s
+    rules:
+      # GPU considered idle below 10% busy, averaged over 5m to smooth
+      # brief spikes (a single tool-call inference shouldn't count as "active")
+      - record: gpu_idle:coordinator
+        expr: avg_over_time(gpu_busy_percent{role="coordinator_6750xt"}[5m]) < 10
+
+      - record: gpu_idle:worker
+        expr: avg_over_time(gpu_busy_percent{role="worker_6600xt"}[5m]) < 10
+
+      # llama-server active slots — 0 means no in-flight requests.
+      # Metric name depends on your llama.cpp build; verify against your
+      # /metrics output (commonly `llamacpp:requests_processing` or similar).
+      - record: inference_idle:coordinator
+        expr: llamacpp_requests_processing{job="llama_coordinator"} == 0
+
+      - record: inference_idle:worker
+        expr: llamacpp_requests_processing{job="llama_worker"} == 0
+
+      # Composite gate — true only when BOTH GPU load and active inference
+      # traffic have been quiet for a sustained window. This is a
+      # necessary-but-not-sufficient signal until the assembly-hall
+      # activity source is wired in as a third input.
+      - record: safe_to_finetune:partial
+        expr: >
+          gpu_idle:coordinator
+          and gpu_idle:worker
+          and inference_idle:coordinator
+          and inference_idle:worker

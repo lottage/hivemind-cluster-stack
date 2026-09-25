@@ -17,7 +17,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 from . import egress
 from .providers import DEFAULT_PRIORITY, Provider, load_providers
@@ -93,12 +93,13 @@ def _est_tokens(messages: List[Dict[str, Any]], max_tokens: int) -> int:
 class BoostRouter:
     def __init__(self, config_fn: Callable[[], Dict[str, Any]], data_dir: Optional[str] = None,
                  http: Optional[Http] = None, env: Optional[Dict[str, str]] = None, clock: Callable[[], float] = time.time,
-                 home_terms: Tuple[str, ...] = ()):
+                 home_terms: Union[Tuple[str, ...], Callable[[], Iterable[str]]] = ()):
         self.config_fn = config_fn
         self.http = http or Http()
         self.env = env
         self.clock = clock
-        self.base_home_terms = tuple(home_terms)
+        # Callable: re-read on every call, so a profile added at runtime counts as home content at once
+        self.base_home_terms = home_terms if callable(home_terms) else tuple(home_terms)
         qpath = os.path.join(data_dir, "boost_quota.json") if data_dir else None
         self.quota = QuotaBook(qpath, loop_share=self.settings().get("loop_share", 0.5), clock=clock)
         self._models: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
@@ -131,7 +132,14 @@ class BoostRouter:
                         tier="local", key_env=None, models=["coordinator"], list_models=False)
 
     def home_terms(self) -> List[str]:
-        return list(self.base_home_terms) + self.settings()["home_terms"]
+        base = self.base_home_terms
+        if callable(base):
+            try:
+                self._last_home_terms = tuple(base())
+            except Exception:
+                pass    # lookup failed: keep the last good list (never fall back to an empty one)
+            base = getattr(self, "_last_home_terms", ())
+        return list(base) + self.settings()["home_terms"]
 
     # ---- models --------------------------------------------------------------
     def live_models(self, p: Provider, refresh: bool = False) -> List[Dict[str, Any]]:

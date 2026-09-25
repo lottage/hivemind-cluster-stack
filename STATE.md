@@ -126,15 +126,22 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   GO2RTC_ALLOW_ARBITRARY_EXEC=true; go2rtc's API has no auth, so not enabled). Frigate formats go2rtc streams with
   str.format: a literal `{x}` must be written `{{x}}` or go2rtc crash-loops (KeyError).
 - PTZ patrol (2026-09-25, `backend/patrol.py`, `config.json patrol`, LIVE tab line "🛡️ Patrol" + "Sweep now"):
-  every 15 min per PTZ camera: 3 x 120 deg left to the end stop, then 30 deg steps right with a frame each until the
-  picture stops changing (right end stop) or 9 frames, then home preset (kitchen "Living Room", driveway "Doors").
+  every 15 min per PTZ camera: 3 x 120 deg left to the end stop, right to the camera's `start_deg`, then `step_deg`
+  steps right with a frame each until the picture stops changing (right end stop) or `max_frames`, then home preset
+  (kitchen "Living Room", driveway "Doors"; a fixed preset, not where the camera was before the sweep).
+  Per camera since 2026-09-25 (John, from full 30-deg sweeps; kitchen range ~210 deg, driveway ~270 deg):
+  kitchen 90/130/170/210 (4 frames; 30 and 60 are ceiling), driveway 30/70/110/150/190/230 (6 frames; 270 is housing).
   Vision model gets each frame (kitchen only when Frigate tracks someone) and names known profiles (JSON, names
   checked); sightings merge into presence as source "patrol". Kitchen pauses while Austin or Savannah is home
   (`person.austin` GPS; Savannah has no HA tracker, so camera sightings within 90 min); driveway battery-gated
-  (daylight and >= 60 % -> 15 min, else hourly, < 30 % never). A camera moved by hand is left alone for 5 min.
+  (daylight and >= 60 % -> 15 min, else hourly, < 30 % never). A camera moved by hand is left alone for 5 min, and a
+  sweep in progress stops before its next move when John presses a PTZ button or Courage's camera_scan takes the camera
+  (camera_scan waits <= 10 s for it; an interrupted sweep does not go home). One sweep per camera: the scheduler and
+  "Sweep now" both claim the camera. The movement angle the camera had before is restored (was: always 15).
+  One presence read per scheduler run (was: per camera and per frame).
   Routes: `GET /api/patrol/status`, `GET /api/patrol/frame?entity=&i=`, `POST /api/patrol/run {entity}`.
-  Sweeps skip the first step after the left end stop (`skip_steps` 1: the driveway looks into the house wall at 0 deg),
-  so frames start at pan 30. Patrol sightings have Wrong / Correct as too (logged to `data/patrol_corrections.jsonl`;
+  Without `start_deg`, a sweep skips the first step after the left end stop (`skip_steps` 1: the driveway looks into
+  the house wall at 0 deg). Patrol sightings have Wrong / Correct as too (logged to `data/patrol_corrections.jsonl`;
   a person correction uploads the frame to Frigate's face library). Last sweep times: `data/patrol_state.json`.
 - Life360 (2026-09-25): HACS custom integration pnbruckner/ha-life360 (HA's built-in one was removed in 2024.2),
   installed and logged in by John. Trackers `device_tracker.life360_savannah_karisny`, `device_tracker.life360_austin_lott`
@@ -152,10 +159,17 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).
   Sentry sightings: `wildlife_admin.py` on VM 102 (/opt/cluster-bridge, args on stdin) renames the snapshot prefix or
   moves it to `wildlife/rejected/`, logs `wildlife/corrections.jsonl`; a person correction also uploads the snapshot to
-  Frigate's face library. Profiles = `wildlife/known_entities.json` (backup per write); the sentry re-reads it on change,
-  the hub matches the activity log by snapshot timestamp so renames keep camera/activity. Identity key everywhere:
+  Frigate's face library. Profiles = `wildlife/known_entities.json` (backup per write); the sentry re-reads it on change.
+  The hub matches the activity log by exact snapshot name, following relabels in `corrections.jsonl` back to the name the
+  sentry logged (was: by timestamp, which collided: austin_ and kylo_20260925_052758 came from one frame). Relabelling
+  into a taken name adds a suffix (`austin_<ts>-2.jpg`). Identity key everywhere:
   `norm_name` ('Aunt May' -> 'aunt-may'). Deployed; no real correction made yet (first one is John's).
   Solar driveway timer polling stays OFF (`solar_poll_interval` returns None) until John picks thresholds.
+- Review fixes (2026-09-25, live): LIVE tab WebRTC->MP4 fallback timer is cancelled when the tiles close (before, a tab
+  switch within 6 s stored the MP4 preference for good); an opening tile refetches a snapshot older than 300 s (still at
+  most one wake per `min_refresh_s`); go2rtc's stream list is cached 10 s for the tiles and the webrtc/mp4 checks; the HA
+  HLS mode, its routes and playHLS are removed. Boost's home terms are looked up per call (5 min cache, never shrinks):
+  household/pet/camera names + every recognition profile + all 13 Life360 circle names (full, first, last).
 - Still open (Phase 3): commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
@@ -180,7 +194,10 @@ LXC 120: `/etc/stonesage/secrets.env` (root, 600) holds `PVE_TOKEN`/`HASS_TOKEN`
 `EnvironmentFile=-` (2026-09-23). The live watchdog script had both tokens hardcoded as fallbacks until then; the pre-change copy
 (still holding them) is in `/root/pve-watchdog-backup-2026-09-23/` on LXC 120. Delete it once the tokens are rotated.
 **Rotate** the HA long-lived token, the Proxmox `StoneSage` API token and the CouchDB/config password:
-they appear in local git history (commits 67fe717..fb5e327) and sat in plain text in the live LXC 120 watchdog until 2026-09-23.
+they appear in git history (commits 67fe717..fb5e327) and sat in plain text in the live LXC 120 watchdog until 2026-09-23.
+**2026-09-25: that history is public.** The checkout has a `github` remote (lottage/hivemind-cluster-stack); the GitHub
+API shows the repo public (created 2026-09-09, last push 2026-09-25 11:08 UTC, branches `main`, `ui-accent-tokens`) and
+commit 67fe717 reachable without login. The three credentials count as leaked until rotated. Never push to that remote.
 
 ## Live system profile (2026-09-23)
 Hardware, model and engine labels are no longer written in code. Sources, in order:
@@ -267,7 +284,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 197 tests, 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 267 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

@@ -48,6 +48,16 @@ class TestWildlifeAdmin(unittest.TestCase):
         log = open(os.path.join(self.dir, "corrections.jsonl")).read()
         self.assertIn('"action": "relabel"', log)
 
+    def test_relabel_into_a_taken_name_gets_a_suffix(self):
+        # the sentry saved Austin and Luna from one frame in the same second
+        open(os.path.join(self.dir, "snapshots", "luna_20260924_153217.jpg"), "wb").write(b"jpg")
+        res = self.call("relabel", {"file": "luna_20260924_153217.jpg", "name": "Austin"})
+        self.assertEqual(res, {"ok": True, "file": "austin_20260924_153217-2.jpg"})
+        again = self.call("relabel", {"file": "austin_20260924_153217-2.jpg", "name": "Austin"})
+        self.assertTrue(again.get("unchanged"))
+        self.assertEqual(self.call("relabel", {"file": "austin_20260924_153217-2.jpg", "name": "Luna"})["file"],
+                         "luna_20260924_153217.jpg")
+
     def test_reject_moves_aside(self):
         self.call("reject", {"file": "austin_20260924_153217.jpg"})
         self.assertTrue(os.path.exists(os.path.join(self.dir, "rejected", "austin_20260924_153217.jpg")))

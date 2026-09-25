@@ -2480,6 +2480,8 @@ def scan_camera_presets(cam_eid: str, cam_name: str) -> Optional[str]:
     ptz_config = CAMERA_PTZ_PRESETS.get(cam_eid)
     if not ptz_config:
         return _analyze_single_frame(cam_eid, cam_name)
+    # A patrol sweep on this camera stops before its next move, and we wait (<= 10 s) until it has let go
+    get_patrol().note_manual(cam_eid, wait_s=10)
 
     preset_entity = ptz_config["preset_entity"]
     # HA's own spelling wins over the registry: the driveway preset is "Driveway " (trailing space) in HA,
@@ -2596,12 +2598,11 @@ def _patrol_frame(source: str) -> Optional[bytes]:
     return None
 
 
-def _patrol_vision(frame: bytes, where: str, profiles: List[str]) -> Dict[str, Any]:
-    """Ask the vision model which known profiles are in a patrol frame; JSON answer, names checked by the caller."""
+def _patrol_vision(frame: bytes, where: str, profiles: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Ask the vision model which known profiles ([{name, traits}]) are in a patrol frame; JSON answer, names checked
+    by the caller."""
     from patrol import parse_vision_json
-    ents = (_courage_presence() or {}).get("known_entities") or {}
-    traits = {e["name"]: (e.get("traits") or e.get("species") or "")[:90] for g in ("people", "pets") for e in ents.get(g, [])}
-    who = "; ".join(f"{n}: {traits.get(n, '')}" for n in profiles)
+    who = "; ".join(f"{p['name']}: {p.get('traits', '')}" for p in profiles)
     img = frame
     if Image is not None:
         im = Image.open(io.BytesIO(frame)).convert("RGB")
@@ -2658,14 +2659,22 @@ def _invalidate_presence() -> None:
         pass
 
 
+_go2rtc_names_cache: Dict[str, Any] = {"at": 0.0, "names": None}
+
+
 def _go2rtc_stream_names(cfg: Dict[str, Any]) -> Optional[set]:
-    """Stream names go2rtc has right now (None if unreachable: then the quality menu is not filtered)."""
+    """Stream names go2rtc has right now (None if unreachable: then the quality menu is not filtered).
+    10 s cache: opening the LIVE tab lists the tiles and then validates one WebRTC/MP4 request per tile."""
+    if time.time() - _go2rtc_names_cache["at"] < 10:
+        return _go2rtc_names_cache["names"]
     try:
-        url = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
-        with urllib.request.urlopen(f"{url}/api/streams", timeout=3) as r:
-            return set(json.load(r) or {})
-    except Exception:
-        return None
+        from frigate_presence import go2rtc_stream_names
+        names = go2rtc_stream_names((cfg.get("frigate") or {}).get("go2rtc_url", ""))
+    except Exception as e:
+        logger.warning(f"go2rtc unreachable: {e}")
+        names = None
+    _go2rtc_names_cache.update(at=time.time(), names=names)
+    return names
 
 
 def _webrtc_streams(cfg: Dict[str, Any]) -> Dict[str, str]:
@@ -2674,12 +2683,11 @@ def _webrtc_streams(cfg: Dict[str, Any]) -> Dict[str, str]:
     fcfg = cfg.get("frigate") or {}
     cams = dict(fcfg.get("cameras") or {})
     cams.update({e: c["go2rtc"] for e, c in (cfg.get("camera_ui") or {}).items() if c.get("go2rtc")})
-    try:
-        from frigate_presence import live_cameras
-        by_cam = {c["id"]: c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list(cams.values()))}
-    except Exception as e:
-        logger.warning(f"go2rtc unreachable: {e}")
+    names = _go2rtc_stream_names(cfg)
+    if names is None:
         return {}
+    from frigate_presence import live_cameras
+    by_cam = {c["id"]: c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list(cams.values()), names)}
     return {entity: by_cam[cam] for entity, cam in cams.items() if cam in by_cam}
 
 
@@ -2803,12 +2811,38 @@ def _stonesage_data_dir() -> str:
     return os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 
 
-def setup_boost() -> None:
-    """Boost (free extra inference, backend/boost). Home terms: family, pets and camera names count as home content."""
-    import boost
+_boost_terms_cache: Dict[str, Any] = {"at": 0.0, "terms": frozenset()}
+
+
+def _boost_home_terms() -> frozenset:
+    """Names that make text home content for Boost's egress rule, re-read every 5 min: household, pet and camera
+    names, every recognition profile (known_entities.json grows through "+ New profile") and everyone in the
+    Life360 circle (full, first and last name; extended family too: not tracked, but still family).
+    Only ever grows while running, so a failed read never drops a name."""
+    if time.time() - _boost_terms_cache["at"] < 300:
+        return _boost_terms_cache["terms"]
     from courage.tools import CAMERAS, PEOPLE
-    terms = tuple(PEOPLE) + tuple(c["name"] for c in CAMERAS.values()) + tuple(k.replace("_", " ") for k in CAMERAS)
-    boost.configure(load_config, _stonesage_data_dir(), home_terms=terms)
+    terms = set(_boost_terms_cache["terms"]) | set(PEOPLE) | {c["name"] for c in CAMERAS.values()}
+    terms |= {k.replace("_", " ") for k in CAMERAS}
+    try:
+        ents = _courage_hub_presence().get("known_entities") or {}
+        terms |= {e["name"] for g in ("people", "pets") for e in ents.get(g, []) if e.get("name")}
+    except Exception as e:
+        logger.warning(f"Boost home terms: profiles: {e}")
+    for t in (hass.get_states("device_tracker").get("entities") or []):
+        if t["entity_id"].startswith("device_tracker.life360_"):
+            full = re.sub(r"^life360\s+", "", t.get("friendly_name") or "", flags=re.I).strip()
+            if full:
+                terms.add(full)
+                terms.update(w for w in full.split() if len(w) >= 3)
+    _boost_terms_cache.update(at=time.time(), terms=frozenset(terms))
+    return _boost_terms_cache["terms"]
+
+
+def setup_boost() -> None:
+    """Boost (free extra inference, backend/boost). Home terms are looked up per call (_boost_home_terms)."""
+    import boost
+    boost.configure(load_config, _stonesage_data_dir(), home_terms=_boost_home_terms)
 
 
 def _boost_router():
@@ -3958,7 +3992,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/cameras/live":
-            # Tiles for the LIVE tab (camera_ui.py): WebRTC via Frigate/go2rtc, HLS via HA, or snapshot; PTZ presets
+            # Tiles for the LIVE tab (camera_ui.py): WebRTC/MP4 via go2rtc, or snapshot; PTZ presets
             import camera_ui
             cfg = load_config()
             self.send_json({"ok": True, "cameras": camera_ui.list_cameras(cfg, hass.get_state, _webrtc_streams(cfg),
@@ -4022,31 +4056,6 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             finally:
                 upstream.close()
                 self.close_connection = True
-            return
-
-        elif path.startswith("/api/cameras/hls/"):
-            # HA's HLS stream through StoneSage (same origin: no CORS, and HTTPS pages can play it)
-            import camera_ui
-            ha_path = camera_ui.hls_proxy_path(path[len("/api/cameras/hls/"):])
-            if not ha_path:
-                self.send_json({"ok": False, "error": "not an HLS path"}, 400)
-                return
-            url = hass.base_url.rstrip("/") + ha_path + (f"?{parsed.query}" if parsed.query else "")
-            try:
-                with urllib.request.urlopen(url, timeout=30) as r:  # LL-HLS playlist requests may block until a part is ready
-                    data, ctype, cenc = r.read(), r.headers.get("Content-Type", ""), r.headers.get("Content-Encoding")
-                self.send_response(200)
-                self.send_header("Content-Type", ctype)
-                if cenc:
-                    self.send_header("Content-Encoding", cenc)
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(data)
-            except urllib.error.HTTPError as e:
-                self.send_json({"ok": False, "error": f"HA {e.code}"}, e.code)
-            except Exception as e:
-                self.send_json({"ok": False, "error": str(e)}, 502)
             return
 
         elif path.startswith("/api/frigate/snapshot/"):
@@ -7633,21 +7642,6 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     self.send_json({"ok": bool(res.get("ok", True)), "done": eid, "error": res.get("error")})
                 except ValueError as e:
                     self.send_json({"ok": False, "error": str(e)}, 400)
-                return
-
-            elif path == "/api/cameras/hls":
-                # Start HA's HLS stream for a camera marked live: "hls" and hand back a StoneSage-proxied playlist URL
-                import camera_ui
-                cfg = load_config()
-                entity = body.get("entity", "")
-                if (camera_ui.camera_entries(cfg).get(entity) or {}).get("live") != "hls":
-                    self.send_json({"ok": False, "error": "camera is not an HLS camera"}, 400)
-                    return
-                try:
-                    ha_url = camera_ui.ha_hls_url(hass.base_url, cfg["homeassistant"]["token"], entity)
-                    self.send_json({"ok": True, "url": "/api/cameras/hls/" + ha_url[len("/api/hls/"):]})
-                except Exception as e:
-                    self.send_json({"ok": False, "error": f"HA stream: {e}"}, 502)
                 return
 
             elif path == "/api/cameras/webrtc":

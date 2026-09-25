@@ -195,21 +195,23 @@ export function renderPresence(data) {
 
 // ------------------------------------------------------------ live cameras ----
 // One tile per camera in config.json camera_ui (backend/camera_ui.py):
-//   webrtc   Frigate/go2rtc. StoneSage only relays the SDP offer/answer; video flows go2rtc -> browser.
-//   hls      Home Assistant's own stream (solar driveway), proxied through StoneSage; the browser plays HLS natively.
+//   webrtc   go2rtc (Frigate cameras, and the solar driveway via tapo://). StoneSage only relays the SDP
+//            offer/answer; video flows go2rtc -> browser. MP4 relayed by StoneSage when WebRTC is blocked.
 //   snapshot still frame with a refresh button; the server keeps battery cameras to one wake per min_refresh_s.
 // PTZ cameras get arrows and their HA presets.
 const livePeers = [];
 const liveVideos = [];
+const liveTimers = [];  // WebRTC -> MP4 fallback timers: must not fire after the tiles are gone
 let patrolTimer = null;
 
 function stopLive() {
   clearInterval(patrolTimer);
+  while (liveTimers.length) clearTimeout(liveTimers.pop());
   while (livePeers.length) {
     const pc = livePeers.pop();
     try { pc.close(); } catch (e) { /* already closed */ }
   }
-  while (liveVideos.length) {  // HLS: stop fetching so HA ends the stream (~30 s later)
+  while (liveVideos.length) {  // MP4: stop fetching so StoneSage's relay and go2rtc's stream end
     const v = liveVideos.pop();
     v.pause(); v.removeAttribute('src'); v.load();
   }
@@ -302,13 +304,14 @@ async function playWebRTC(video, status, stream, allowFallback = true) {
   pc.ontrack = (e) => media.addTrack(e.track);
   let fellBack = false;
   const fallBack = () => {
-    if (!allowFallback || fellBack || pc.connectionState === 'connected') return;
+    // 'closed': stopLive() closed this tile (tab switch, quality change): not a WebRTC failure, keep the preference
+    if (!allowFallback || fellBack || pc.connectionState === 'connected' || pc.signalingState === 'closed') return;
     fellBack = true;
     try { localStorage.setItem(MP4_PREF, '1'); } catch (e) { /* private mode: fall back each time */ }
     try { pc.close(); } catch (e) { /* already closed */ }
     playMP4(video, status, stream);
   };
-  setTimeout(fallBack, 6000);  // Firefox takes ~13 s to declare failure; don't make the viewer wait for it
+  liveTimers.push(setTimeout(fallBack, 6000));  // Firefox takes ~13 s to declare failure; don't make the viewer wait
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     if (fellBack) return;
@@ -326,21 +329,6 @@ async function playWebRTC(video, status, stream, allowFallback = true) {
   const json = await res.json();
   if (!json.ok) throw new Error(json.error || 'signalling failed');
   await pc.setRemoteDescription(json.answer);
-}
-
-async function playHLS(video, status, entity) {
-  if (!video.canPlayType('application/vnd.apple.mpegurl')) throw new Error('this browser cannot play HLS');
-  setStatus(status, 'waking camera…');
-  const res = await fetch('/api/cameras/hls', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity }),
-  });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'stream failed');
-  liveVideos.push(video);
-  video.addEventListener('playing', () => setStatus(status, '● LIVE (HA)', true));
-  video.addEventListener('error', () => setStatus(status, 'stream ended'));
-  video.src = json.url;
-  await video.play().catch(() => { /* autoplay rules: muted video still starts on its own */ });
 }
 
 async function loadSnapshot(img, status, entity, force) {
@@ -459,8 +447,7 @@ async function startLive() {
     if (c.live === 'snapshot') { loadSnapshot(document.getElementById(`cam-img-${i}`), status, c.entity, false); return; }
     const video = document.getElementById(`cam-vid-${i}`);
     video.addEventListener('click', () => { video.muted = !video.muted; });
-    const play = c.live === 'webrtc' ? playTile(c, video, status) : playHLS(video, status, c.entity);
-    Promise.resolve(play).catch((e) => setStatus(status, e.message));
+    Promise.resolve(playTile(c, video, status)).catch((e) => setStatus(status, e.message));
   });
 }
 

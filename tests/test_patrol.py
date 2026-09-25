@@ -51,9 +51,12 @@ def jpeg(shade):
 class FakeCamera:
     """Pan range 0..240 deg in 30 deg steps; the picture's brightness encodes the position."""
     def __init__(self):
-        self.pos, self.angle, self.calls = 120, 15, []
+        self.pos, self.angle, self.calls = 120, 45, []     # John set a 45 deg step in HA
+        self.on_press = None
 
     def press_button(self, eid):
+        if self.on_press:
+            self.on_press(eid)
         self.calls.append(eid)
         step = self.angle if eid.endswith("left") is False else -self.angle
         self.pos = max(0, min(240, self.pos + step))
@@ -70,7 +73,8 @@ class FakeCamera:
         return {"ok": True}
 
     def get_state(self, eid):
-        return {"sensor.drive_battery": {"state": "90"}, "sun.sun": {"state": "above_horizon"}}.get(eid)
+        return {"sensor.drive_battery": {"state": "90"}, "sun.sun": {"state": "above_horizon"},
+                "number.kitchen_movement_angle": {"state": str(self.angle)}}.get(eid)
 
     def frame(self, _source):
         return jpeg(20 + self.pos)                 # 0..240 deg -> shade 20..260 (clamped by PIL at 255)
@@ -82,8 +86,13 @@ class TestSweep(unittest.TestCase):
         cfg = {"patrol": {"enabled": True, "step_deg": 30, "max_frames": 9, "settle_s": 0, "residents": ["Austin"],
                           "cameras": {"camera.kitchen": KITCHEN}}}
         presence = {"locations": {}, "known_entities": {"people": [{"name": "Austin"}], "pets": [{"name": "Kylo"}]}}
+        self.presence_reads = 0
+
+        def presence_fn():
+            self.presence_reads += 1
+            return presence
         p = pt.Patrol(lambda: cfg, cam, cam.frame, lambda f, w, prof: {"seen": list(vision_seen) + ["Nobody"]},
-                      lambda c: [{"label": "dog"}] if in_view else [], lambda: presence, clock=lambda: 1000.0,
+                      lambda c: [{"label": "dog"}] if in_view else [], presence_fn, clock=lambda: 1000.0,
                       sleep=lambda s: None)
         return p, cam
 
@@ -94,7 +103,7 @@ class TestSweep(unittest.TestCase):
         self.assertEqual(cam.calls[:4], ["button.kitchen_move_left"] * 3 + ["button.kitchen_move_right"])
         self.assertEqual(p.status()["cameras"]["camera.kitchen"]["first_pan"], 30)
         self.assertEqual(cam.calls[-1], "select.kitchen_move_to_preset=Living Room")
-        self.assertEqual(cam.angle, 15)                             # step size restored
+        self.assertEqual(cam.angle, 45)                             # John's step size restored, not a default
         self.assertEqual(set(p.locations()), {"kylo"})              # unknown names from the VLM are dropped
         self.assertTrue(p.frame("camera.kitchen", 0))
 
@@ -135,6 +144,57 @@ class TestSweep(unittest.TestCase):
         p.manual_at.clear()
         p.presence_fn = lambda: {"locations": {"austin": {"minutes_ago": 5}}}
         self.assertEqual(p.due("camera.kitchen", KITCHEN), "paused: Austin home")
+
+    def test_one_sweep_per_camera_at_a_time(self):
+        p, cam = self.make()
+        started = []
+        import threading
+        real_sweep = p._sweep
+        p._sweep = lambda e, c, pr=None: started.append(e)          # "Sweep now" claims, thread records the start
+        self.assertTrue(p.run_now("camera.kitchen")["ok"])
+        self.assertFalse(p.run_now("camera.kitchen")["ok"])          # second press refused
+        self.assertEqual(p.due("camera.kitchen", KITCHEN), "sweeping")
+        self.assertEqual(p.sweep("camera.kitchen", KITCHEN)["skipped"], "already sweeping")   # scheduler too
+        for t in threading.enumerate():
+            if t is not threading.current_thread() and t.daemon:
+                t.join(1)
+        self.assertEqual(started, ["camera.kitchen"])
+        p._sweep = real_sweep
+
+    def test_manual_move_mid_sweep_stops_it_where_john_left_it(self):
+        p, cam = self.make()
+        clock = [1000.0]
+        p.clock = lambda: clock[0]
+        presses = []
+
+        def on_press(eid):
+            presses.append(eid)
+            if len(presses) == 6:                  # John grabs the camera during the sweep
+                clock[0] += 1
+                p.note_manual("camera.kitchen")
+        cam.on_press = on_press
+        res = p.sweep("camera.kitchen", KITCHEN)
+        self.assertTrue(res["interrupted"])
+        self.assertEqual(len(presses), 6)                            # no move after John's
+        self.assertNotIn("select.kitchen_move_to_preset=Living Room", cam.calls)   # and no trip home
+        self.assertEqual(cam.angle, 45)
+        self.assertFalse(p.state["camera.kitchen"]["busy"])
+
+    def test_per_camera_start_step_and_frame_cap(self):
+        p, cam = self.make()
+        pans = []
+        p.vision_fn = lambda f, where, prof: pans.append(where) or {"seen": []}
+        kitchen = dict(KITCHEN, start_deg=90, step_deg=40, max_frames=4)   # John's 4-frame kitchen sweep
+        res = p.sweep("camera.kitchen", kitchen)
+        self.assertEqual(res["frames"], 4)
+        self.assertEqual([w.split("pan ")[1] for w in pans], ["90 deg)", "130 deg)", "170 deg)", "210 deg)"])
+        st = p.status()["cameras"]["camera.kitchen"]
+        self.assertEqual((st["first_pan"], st["step"]), (90, 40))
+
+    def test_run_once_reads_presence_once(self):
+        p, _ = self.make()
+        p.run_once()
+        self.assertEqual(self.presence_reads, 1)
 
 
 if __name__ == "__main__":

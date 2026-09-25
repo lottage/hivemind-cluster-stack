@@ -107,6 +107,13 @@ class TestLiveCameras(unittest.TestCase):
         self.assertEqual(cams, [{"id": "kitchen_living_room", "name": "kitchen living room", "stream": "kitchen_living_room_sub"},
                                 {"id": "garage", "name": "garage", "stream": "garage"}])
 
+    def test_live_cameras_uses_the_callers_stream_list(self):
+        from unittest import mock
+        from frigate_presence import live_cameras
+        with mock.patch("frigate_presence.urllib.request.urlopen", side_effect=AssertionError("no fetch")):
+            cams = live_cameras("http://go2rtc:1984", ["garage"], {"garage", "garage_sub"})
+        self.assertEqual(cams[0]["stream"], "garage_sub")
+
     def test_event_id_pattern_rejects_paths(self):
         from frigate_presence import EVENT_ID
         self.assertTrue(EVENT_ID.match("1790276100.088879-gen6ep"))

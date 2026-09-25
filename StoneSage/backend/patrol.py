@@ -7,11 +7,16 @@ Per camera (config.json patrol.cameras, keyed by HA camera entity):
   home_preset   where the camera returns after a sweep
   quiet_when_home  skip sweeps while a resident is home (indoor camera: the motor is audible)
   battery_sensor   battery-gated schedule (solar driveway): see interval_for()
+  start_deg, step_deg, max_frames   where the first frame is taken (degrees right of the left end stop), the step
+                   between frames and the frame cap; each falls back to the patrol-wide value (John, 2026-09-25:
+                   kitchen 4 frames at 90..210, driveway 6 frames at 30..230, picked from full 30-degree sweeps)
 
-A sweep: pan to the left end stop, step right by step_deg taking a frame each time until the picture stops changing
-(right end stop reached) or max_frames, then return home. Each frame is checked by the vision model for known
+A sweep: pan to the left end stop, turn right to start_deg, then step right by step_deg taking a frame each time until
+the picture stops changing (right end stop reached) or max_frames, then return home. Each frame is checked by the vision model for known
 profiles (for a Frigate camera only when Frigate sees someone, to spare the GPU). Sightings go into Courage's
-presence like Frigate's (source "patrol"). A camera John moved by hand in the last few minutes is left alone.
+presence like Frigate's (source "patrol"). A camera John moved by hand in the last few minutes is left alone, and
+a sweep in progress stops before its next move when John or Courage's camera_scan takes the camera (note_manual).
+One sweep per camera at a time: the scheduler and "Sweep now" both claim the camera first.
 """
 
 import io
@@ -23,6 +28,11 @@ from typing import Any, Callable, Dict, List, Optional
 
 MANUAL_HOLD_S = 300          # a hand-moved camera is not swept for this long
 LEFT_END_MOVES = 3           # 3 x 120 deg left: past the end stop of any Tapo pan range
+DEFAULT_ANGLE = 15           # Tapo's movement angle, restored when HA does not report the camera's own value
+
+
+class Interrupted(Exception):
+    """Someone else took the camera mid-sweep."""
 
 
 def _key(name: str) -> str:
@@ -77,7 +87,7 @@ def residents_home(people: List[str], ha_person_state: Callable[[str], Optional[
 
 class Patrol:
     def __init__(self, cfg_fn: Callable[[], Dict[str, Any]], ha: Any, frame_fn: Callable[[str], Optional[bytes]],
-                 vision_fn: Callable[[bytes, str, List[str]], Dict[str, Any]],
+                 vision_fn: Callable[[bytes, str, List[Dict[str, str]]], Dict[str, Any]],
                  frigate_in_view: Callable[[str], List[Dict[str, Any]]], presence_fn: Callable[[], Dict[str, Any]],
                  clock: Callable[[], float] = time.time, sleep: Callable[[float], None] = time.sleep,
                  state_path: Optional[str] = None):
@@ -120,23 +130,42 @@ class Patrol:
         except OSError:
             pass
 
-    def note_manual(self, entity: str) -> None:
-        """Called by the PTZ route: John is steering this camera, so the patrol keeps out of the way."""
+    def note_manual(self, entity: str, wait_s: float = 0) -> None:
+        """Someone else is steering this camera (John's PTZ buttons, Courage's camera_scan): a sweep in progress stops
+        before its next move and no sweep starts for MANUAL_HOLD_S. wait_s: block (real time) until a running sweep
+        has let go, so the caller's first move is not undone by the sweep's last one."""
         self.manual_at[entity] = self.clock()
+        deadline = time.monotonic() + wait_s
+        while self.state.get(entity, {}).get("busy") and time.monotonic() < deadline:
+            time.sleep(0.2)
+
+    def _claim(self, entity: str) -> bool:
+        """Mark a camera busy; False if a sweep already holds it (scheduler and "Sweep now" must not overlap)."""
+        with self._lock:
+            st = self.state.setdefault(entity, {})
+            if st.get("busy"):
+                return False
+            st["busy"] = True
+            return True
 
     def _ha_state(self, entity_id: str) -> Optional[str]:
         return (self.ha.get_state(entity_id) or {}).get("state")
 
     # ------------------------------------------------------------- schedule ----
-    def due(self, entity: str, cam: Dict[str, Any]) -> Optional[str]:
-        """None if this camera should sweep now, else the reason it waits (shown in the UI)."""
+    def due(self, entity: str, cam: Dict[str, Any], presence: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """None if this camera should sweep now, else the reason it waits (shown in the UI).
+        presence: one presence read shared by the whole run (read here when not given)."""
         pcfg = self._pcfg()
         st = self.state.setdefault(entity, {})
         now = self.clock()
+        if st.get("busy"):
+            return "sweeping"
         if now - self.manual_at.get(entity, 0) < MANUAL_HOLD_S:
             return "moved by hand recently"
         people = pcfg.get("residents", ["Austin", "Savannah"])
-        seen = {n: (v or {}).get("minutes_ago") for n, v in ((self.presence_fn() or {}).get("locations") or {}).items()}
+        if presence is None:
+            presence = self.presence_fn() or {}
+        seen = {n: (v or {}).get("minutes_ago") for n, v in (presence.get("locations") or {}).items()}
         home = residents_home(people, lambda n: self._ha_state(f"person.{n.lower()}"), seen)
         battery = None
         if cam.get("battery_sensor"):
@@ -156,29 +185,56 @@ class Patrol:
         return None if now >= nxt else "waiting"
 
     # ---------------------------------------------------------------- sweep ----
-    def sweep(self, entity: str, cam: Dict[str, Any]) -> Dict[str, Any]:
-        pcfg = self._pcfg()
-        ptz, step, max_frames = cam["ptz"], int(pcfg.get("step_deg", 30)), int(pcfg.get("max_frames", 9))
-        settle = float(pcfg.get("settle_s", 3))
-        # Steps to skip after the left end stop: there the driveway camera looks straight into the house wall.
-        skip = int(cam.get("skip_steps", pcfg.get("skip_steps", 1)))
-        profiles = self._profile_names()
+    def sweep(self, entity: str, cam: Dict[str, Any], presence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Claim the camera and sweep it (in this thread). Refused while another sweep holds the camera."""
+        if not self._claim(entity):
+            return {"frames": 0, "seen": [], "skipped": "already sweeping"}
+        return self._sweep(entity, cam, presence)
+
+    def _sweep(self, entity: str, cam: Dict[str, Any], presence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """The sweep itself; the caller has claimed the camera (busy is cleared here)."""
         st = self.state.setdefault(entity, {})
-        st["busy"] = True
         frames: List[bytes] = []
         seen_log: List[Dict[str, Any]] = []
+        interrupted = False
+        pcfg = self._pcfg()
+        ptz = cam["ptz"]
+        step = int(cam.get("step_deg", pcfg.get("step_deg", 30)))
+        max_frames = int(cam.get("max_frames", pcfg.get("max_frames", 9)))
+        settle = float(pcfg.get("settle_s", 3))
+        # No frame at the left end stop by default (one step in): there the driveway looks into the house wall and
+        # the kitchen at the ceiling. start_deg overrides it per camera.
+        start = int(cam.get("start_deg", int(cam.get("skip_steps", pcfg.get("skip_steps", 1))) * step))
+        started = self.clock()
+        angle_eid = f"number.{ptz}_movement_angle"
+        angle_before: float = DEFAULT_ANGLE
+
+        def move(button: str) -> None:
+            if self.manual_at.get(entity, 0) >= started:
+                raise Interrupted()
+            self.ha.press_button(f"button.{ptz}_move_{button}")
+
         try:
-            self.ha.call_service("number", "set_value", {"entity_id": f"number.{ptz}_movement_angle", "value": 120})
+            profiles = self._profiles(presence if presence is not None else (self.presence_fn() or {}))
+            try:
+                angle_before = float(self._ha_state(angle_eid))  # John's step size, put back afterwards
+            except (TypeError, ValueError):
+                pass
+            self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": 120})
             for _ in range(LEFT_END_MOVES):
-                self.ha.press_button(f"button.{ptz}_move_left")
+                move("left")
                 self.sleep(settle + 1)
-            self.ha.call_service("number", "set_value", {"entity_id": f"number.{ptz}_movement_angle", "value": step})
-            for _ in range(skip):
-                self.ha.press_button(f"button.{ptz}_move_right")
+            left = start
+            while left > 0:                                  # to the first frame, in moves of <= 120 deg
+                chunk = min(120, left)
+                self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": chunk})
+                move("right")
                 self.sleep(settle)
+                left -= chunk
+            self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": step})
             prev = None
             for i in range(max_frames):
-                pan = (i + skip) * step
+                pan = start + i * step
                 self.sleep(settle)
                 frame = self.frame_fn(cam["frames"])
                 if frame is None:
@@ -192,20 +248,25 @@ class Patrol:
                     seen_log.append({"pan": pan, "seen": names})
                     self._record(entity, cam, names, len(frames) - 1, pan)
                 if i < max_frames - 1:
-                    self.ha.press_button(f"button.{ptz}_move_right")
+                    move("right")
+        except Interrupted:
+            interrupted = True                               # John/Courage has the camera: no trip home either
         finally:
-            self.ha.call_service("number", "set_value", {"entity_id": f"number.{ptz}_movement_angle", "value": 15})
-            if cam.get("home_preset"):
-                self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
-            with self._lock:
-                self.frames[entity] = frames
-            last = self.clock()
-            st.update(busy=False, last=last, frames=len(frames), seen=seen_log, first_pan=skip * step, step=step,
-                      next=last + st["interval_s"] if st.get("interval_s") else None)
-            self._save_state()
-        return {"frames": len(frames), "seen": seen_log}
+            try:
+                value = int(angle_before) if float(angle_before).is_integer() else angle_before
+                self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": value})
+                if cam.get("home_preset") and not interrupted:
+                    self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+            finally:
+                with self._lock:
+                    self.frames[entity] = frames
+                last = self.clock()
+                st.update(busy=False, last=last, frames=len(frames), seen=seen_log, first_pan=start, step=step,
+                          interrupted=interrupted, next=last + st["interval_s"] if st.get("interval_s") else None)
+                self._save_state()
+        return {"frames": len(frames), "seen": seen_log, "interrupted": interrupted}
 
-    def _look(self, cam: Dict[str, Any], frame: bytes, pan: int, profiles: List[str]) -> List[str]:
+    def _look(self, cam: Dict[str, Any], frame: bytes, pan: int, profiles: List[Dict[str, str]]) -> List[str]:
         """Known profiles in this frame. On a Frigate camera the VLM only runs when Frigate is tracking someone."""
         kind, _, name = cam["frames"].partition(":")
         if kind == "frigate":
@@ -215,7 +276,7 @@ class Patrol:
             except Exception:
                 pass  # Frigate unreachable: look anyway
         res = self.vision_fn(frame, f"{cam.get('name', '')} (pan {pan} deg)", profiles) or {}
-        valid = {p.lower(): p for p in profiles}
+        valid = {p["name"].lower(): p["name"] for p in profiles}
         return [valid[n.lower()] for n in res.get("seen", []) if isinstance(n, str) and n.lower() in valid]
 
     def _record(self, entity: str, cam: Dict[str, Any], names: List[str], frame_idx: int, pan: int) -> None:
@@ -260,9 +321,12 @@ class Patrol:
         except OSError:
             pass
 
-    def _profile_names(self) -> List[str]:
-        ents = (self.presence_fn() or {}).get("known_entities") or {}
-        return [e["name"] for g in ("people", "pets") for e in ents.get(g, []) if e.get("name")]
+    @staticmethod
+    def _profiles(presence: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Known profiles for the vision prompt: [{name, traits}] (traits = looks, or the species for a pet)."""
+        ents = presence.get("known_entities") or {}
+        return [{"name": e["name"], "traits": (e.get("traits") or e.get("species") or "")[:90]}
+                for g in ("people", "pets") for e in ents.get(g, []) if e.get("name")]
 
     # ---------------------------------------------------------------- output ----
     def locations(self) -> Dict[str, Dict[str, Any]]:
@@ -286,7 +350,8 @@ class Patrol:
             st = self.state.get(entity, {})
             out[entity] = {"name": cam.get("name", entity), "busy": st.get("busy", False), "last": st.get("last"),
                            "next": st.get("next"), "skip": st.get("skip"), "frames": st.get("frames", 0),
-                           "seen": st.get("seen", []), "first_pan": st.get("first_pan", 0), "step": st.get("step", 30)}
+                           "seen": st.get("seen", []), "first_pan": st.get("first_pan", 0), "step": st.get("step", 30),
+                           "interrupted": st.get("interrupted", False)}
         return {"enabled": bool(self._pcfg().get("enabled")), "cameras": out}
 
     # ------------------------------------------------------------------ loop ----
@@ -294,9 +359,10 @@ class Patrol:
         pcfg = self._pcfg()
         if not pcfg.get("enabled"):
             return
+        presence = self.presence_fn() or {}            # one read for every camera and frame of this run
         for entity, cam in (pcfg.get("cameras") or {}).items():
-            if self.due(entity, cam) is None:
-                self.sweep(entity, cam)
+            if self.due(entity, cam, presence) is None:
+                self.sweep(entity, cam, presence)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -319,10 +385,10 @@ class Patrol:
         cam = (self._pcfg().get("cameras") or {}).get(entity)
         if not cam:
             return {"ok": False, "error": "not a patrol camera"}
-        if self.state.get(entity, {}).get("busy"):
+        if not self._claim(entity):                    # claimed here, so the scheduler cannot start a second sweep
             return {"ok": False, "error": "already sweeping"}
         self.manual_at.pop(entity, None)
-        threading.Thread(target=self.sweep, args=(entity, cam), daemon=True).start()
+        threading.Thread(target=self._sweep, args=(entity, cam), daemon=True).start()
         return {"ok": True}
 
 

@@ -8,12 +8,12 @@ Commands (all print one JSON object):
   profiles                          -> known_entities.json
   profile-add  {name, kind, species?, role?, traits?}   kind = person | pet
   reject       {file}               snapshots/<file> -> rejected/<file> (reversible; kept as negative examples)
-  relabel      {file, name}         snapshots/austin_<ts>.jpg -> snapshots/savannah_<ts>.jpg
+  relabel      {file, name}         snapshots/austin_<ts>.jpg -> snapshots/savannah_<ts>.jpg (savannah_<ts>-2.jpg if taken)
   snapshot     {file}               the image, base64 (for training Frigate's face library from a correction)
 
 Every change is appended to corrections.jsonl; known_entities.json is backed up before each write.
-The sentry derives identity from the snapshot filename prefix, and the presence hub matches the activity log by
-the timestamp part, so a rename keeps the camera and activity of the sighting.
+The sentry derives identity from the snapshot filename prefix; the presence hub follows the relabel entries in
+corrections.jsonl back to the name the sentry logged, so a rename keeps the camera and activity of the sighting.
 """
 
 import base64
@@ -26,7 +26,7 @@ import time
 
 BASE_DIR = os.environ.get("WILDLIFE_DIR", "/opt/cluster-bridge/wildlife")
 ENTITIES = "known_entities.json"
-SNAPSHOT = re.compile(r"^[a-z][a-z0-9-]{0,30}_\d{8}_\d{6}\.jpg$")
+SNAPSHOT = re.compile(r"^[a-z][a-z0-9-]{0,30}_(\d{8}_\d{6})(-\d{1,2})?\.jpg$")
 NAME = re.compile(r"^[A-Za-z][A-Za-z0-9 '-]{0,29}$")
 
 
@@ -111,11 +111,15 @@ def cmd_relabel(args):
     name = (args.get("name") or "").strip()
     if name.lower() not in names:
         return {"ok": False, "error": f"unknown profile '{name}' (add it first)"}
-    new = f"{prefix(names[name.lower()])}_{f.split('_', 1)[1]}"
-    if new == f:
+    stem = f"{prefix(names[name.lower()])}_{SNAPSHOT.match(f).group(1)}"
+    if re.fullmatch(re.escape(stem) + r"(-\d{1,2})?\.jpg", f):
         return {"ok": True, "file": f, "unchanged": True}
-    if os.path.exists(_path("snapshots", new)):
-        return {"ok": False, "error": f"{new} already exists"}
+    # Two subjects in one frame are saved in the same second (austin_<ts>.jpg + luna_<ts>.jpg): Luna -> Austin
+    # then becomes austin_<ts>-2.jpg
+    new = next((c for c in [f"{stem}.jpg"] + [f"{stem}-{n}.jpg" for n in range(2, 100)]
+                if not os.path.exists(_path("snapshots", c))), None)
+    if new is None:
+        return {"ok": False, "error": f"too many {stem} snapshots"}
     os.rename(_path("snapshots", f), _path("snapshots", new))
     _log({"action": "relabel", "file": f, "new_file": new, "name": names[name.lower()]})
     return {"ok": True, "file": new}
