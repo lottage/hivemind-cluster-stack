@@ -70,7 +70,7 @@ class CourageDeps:
     ha_states: Callable[[Optional[str]], Dict[str, Any]]                      # domain -> {"ok", "entities": [...]}
     ha_call: Callable[[str, str, Dict[str, Any]], Dict[str, Any]]            # domain, service, data -> {"ok", ...}
     presence: Callable[[], Dict[str, Any]]                                   # -> presence hub state
-    camera_look: Callable[[str, str], Optional[str]]                         # entity, name -> description
+    camera_look: Callable[..., Optional[str]]                                # entity, name[, people_only=True] -> description
     camera_scan: Callable[[str, str], Optional[str]]                         # entity, name -> multi-angle report
     memory_search: Callable[[str], List[Dict[str, Any]]] = field(default=lambda q: [])
     notify: Callable[[str, str], Dict[str, Any]] = field(default=lambda msg, target: {"ok": False, "error": "notify not wired"})
@@ -289,7 +289,8 @@ class CourageTools:
         if loc is None or (loc.get("minutes_ago") or 0) > STALE_MINUTES:
             cam = CAMERAS[self._camera_key(loc and loc.get("camera"))]
             out["looked_now"] = {"camera": cam["name"],
-                                 "sees": self.deps.camera_look(cam["entity"], cam["name"]) or "camera snapshot or vision failed"}
+                                 "sees": self.deps.camera_look(cam["entity"], cam["name"], people_only=True)
+                                 or "camera snapshot or vision failed"}
             out["note"] = ("The sighting was stale, so I looked just now. If they are not in this view, say where they "
                            "were last seen and that you can't see them now.")
         return out

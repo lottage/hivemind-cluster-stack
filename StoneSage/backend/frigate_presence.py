@@ -15,8 +15,10 @@ An event without end_time is an object in view right now.
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
+import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional
 
@@ -25,11 +27,17 @@ logger = logging.getLogger("StoneSage.FrigatePresence")
 UNKNOWN_PERSON = "someone"
 
 
+def norm_name(name: str) -> str:
+    """Identity key used everywhere (presence locations, sentry snapshot prefix, UI cards): 'Aunt May' -> 'aunt-may'.
+    Same rule as prefix() in server setup/cluster-bridge/wildlife_admin.py."""
+    return re.sub(r"[^a-z0-9-]", "", name.strip().lower().replace(" ", "-").replace("'", ""))
+
+
 def _sub_label_name(sub_label: Any) -> Optional[str]:
     """Frigate sends sub_label as "Austin" or ["Austin", 0.93] depending on version and source."""
     if isinstance(sub_label, (list, tuple)) and sub_label:
         sub_label = sub_label[0]
-    return sub_label.strip().lower() if isinstance(sub_label, str) and sub_label.strip() else None
+    return norm_name(sub_label) if isinstance(sub_label, str) and sub_label.strip() else None
 
 
 def _score(ev: Dict[str, Any]) -> float:
@@ -113,6 +121,46 @@ class FrigatePresence:
             }
         return out
 
+    def apply_correction(self, event_id: str, name: Optional[str]) -> None:
+        """Mirror a correction John made in the UI: name=None drops the sighting (rejected), else re-files it
+        under that identity. Frigate gets the same correction through its API; this keeps memory in step."""
+        with self._lock:
+            for store in (self.latest, self.active):
+                for key, rec in list(store.items()):
+                    if rec["event_id"] != event_id:
+                        continue
+                    if store is self.latest:
+                        del store[key]
+                    if name is None:
+                        store.pop(key, None)
+                        continue
+                    new = dict(rec, name=norm_name(name))
+                    if store is self.latest:
+                        cur = store.get(new["name"])
+                        if cur is None or new["seen_at"] >= cur["seen_at"]:
+                            store[new["name"]] = new
+                    else:
+                        store[key] = new
+
+    # ------------------------------------------------------- camera look ----
+    def in_view_now(self, camera: str) -> List[Dict[str, Any]]:
+        """Objects Frigate is tracking on this camera right now, asked at call time (~0.1 s) rather than
+        trusted from memory, where a dropped websocket could leave an event open forever."""
+        with urllib.request.urlopen(f"{self.url}/api/events?camera={camera}&in_progress=1&limit=20", timeout=3) as r:
+            events = json.load(r)
+        out = []
+        for ev in events:
+            if ev.get("end_time") or ev.get("false_positive") or _score(ev) < self.min_score:
+                continue
+            out.append({"label": ev.get("label"), "name": self.identify(ev), "score": round(_score(ev), 2),
+                        "for_s": int(max(0.0, self.clock() - (ev.get("start_time") or self.clock())))})
+        return out
+
+    def latest_frame(self, camera: str, height: int = 448) -> bytes:
+        """Frigate's newest decoded frame for the camera (~0.1 s, local), instead of an HA snapshot (~1.5 s)."""
+        with urllib.request.urlopen(f"{self.url}/api/{camera}/latest.jpg?h={height}", timeout=3) as r:
+            return r.read()
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             active = [{"name": r["name"], "camera": r["camera"], "label": r["label"]} for r in self.active.values()]
@@ -168,6 +216,44 @@ class FrigatePresence:
             logger.warning(f"Frigate presence bootstrap failed: {e}")
         self._thread = threading.Thread(target=lambda: asyncio.run(self._listen()), name="frigate-presence", daemon=True)
         self._thread.start()
+
+
+EVENT_ID = re.compile(r"^[0-9]+\.[0-9]+-[a-z0-9]+$")
+
+
+def live_cameras(go2rtc_url: str, frigate_cameras: List[str]) -> List[Dict[str, str]]:
+    """Cameras the StoneSage LIVE tab can play: each Frigate camera, on its go2rtc sub stream (H.264, plays in
+    every browser) when one exists, else the main stream."""
+    with urllib.request.urlopen(f"{go2rtc_url.rstrip('/')}/api/streams", timeout=3) as r:
+        streams = set(json.load(r) or {})
+    out = []
+    for cam in frigate_cameras:
+        if cam in streams:
+            out.append({"id": cam, "name": camera_label(cam),
+                        "stream": f"{cam}_sub" if f"{cam}_sub" in streams else cam})
+    return out
+
+
+def webrtc_answer(go2rtc_url: str, stream: str, offer: Dict[str, Any]) -> Dict[str, Any]:
+    """Relay a browser's SDP offer to go2rtc and return its answer. Only signalling passes through StoneSage;
+    the video goes straight from go2rtc (:8555) to the browser, so HTTPS pages can play it."""
+    req = urllib.request.Request(f"{go2rtc_url.rstrip('/')}/api/webrtc?src={urllib.parse.quote(stream)}",
+                                 data=json.dumps({"type": "offer", "sdp": offer.get("sdp", "")}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)
+
+
+def describe_in_view(objects: List[Dict[str, Any]]) -> str:
+    """'Kylo (dog, in view 40 s), a person (not identified, 5 s)' for Courage; household names where known."""
+    parts = []
+    for o in objects:
+        who = o.get("name")
+        if who and who != UNKNOWN_PERSON:
+            parts.append(f"{who.capitalize()} ({o.get('label')}, in view {o.get('for_s', 0)} s)")
+        else:
+            parts.append(f"a {o.get('label')} (not identified, in view {o.get('for_s', 0)} s)")
+    return ", ".join(parts)
 
 
 def merge_locations(hub: Dict[str, Dict[str, Any]], frigate: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:

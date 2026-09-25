@@ -122,8 +122,9 @@ def solar_poll_interval(level: Optional[int], base: float) -> Optional[float]:
     Returns seconds between snapshots, or None to stop timer polling (push alerts still work).
     Each wake costs the camera a few seconds of Wi-Fi and encoder power; the panel refills it by day.
     """
-    # TODO: battery-dependent policy (John, later). Until then: the base interval. Not deployed yet.
-    return base
+    # TODO: battery-dependent policy (John, later). Until then no timer polls, same as before the solar class
+    # existed: this file is now deployed for the profile reload, and base polling was never agreed.
+    return None
 
 
 logging.basicConfig(
@@ -179,6 +180,7 @@ class WildlifeSentryDaemon:
         """Loads known residents, vehicles, and pets from known_entities.json."""
         if os.path.exists(KNOWN_ENTITIES_FILE):
             try:
+                self._known_entities_mtime = os.path.getmtime(KNOWN_ENTITIES_FILE)
                 with open(KNOWN_ENTITIES_FILE, "r", encoding="utf-8") as f:
                     self.known_entities = json.load(f)
                 p_cnt = len(self.known_entities.get("people", []))
@@ -188,6 +190,14 @@ class WildlifeSentryDaemon:
                 logger.error(f"Failed to load known entities: {e}")
         else:
             logger.warning(f"No known_entities.json found at {KNOWN_ENTITIES_FILE}")
+
+    def _reload_known_entities_if_changed(self):
+        """StoneSage adds recognition profiles to known_entities.json (wildlife_admin.py); pick them up without a restart."""
+        try:
+            if os.path.getmtime(KNOWN_ENTITIES_FILE) != getattr(self, "_known_entities_mtime", None):
+                self._load_known_entities()
+        except OSError:
+            pass
 
     def _save_registry(self):
         try:
@@ -1592,6 +1602,8 @@ class WildlifeSentryDaemon:
                 if burst["shots_left"] <= 0:
                     logger.info(f"🏁 High-frequency wildlife burst completed for {burst['animal_name']} on {burst['cam']['name']}.")
                     self.active_bursts.pop(cam_id, None)
+
+        self._reload_known_entities_if_changed()
 
         # 2. Check scheduled periodic cameras
         for cam in CAMERAS:

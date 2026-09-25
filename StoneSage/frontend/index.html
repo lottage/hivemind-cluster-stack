@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
 
   <link rel="stylesheet" id="xterm-css-link" href="/vendor/xterm/xterm.css?v=4.0.4">
-  <link rel="stylesheet" href="/style.css?v=4.3.1">
+  <link rel="stylesheet" href="/style.css?v=4.3.2">
 
   <!-- xterm.js Terminal Engine -->
   <script id="xterm-core-script" src="/vendor/xterm/xterm.js?v=4.0.4"></script>
@@ -1692,10 +1692,14 @@
 
             <!-- Resident & Pet Real Presence Grid -->
             <div style="margin-bottom:10px;">
-              <div style="font-size:0.72rem; font-weight:bold; color:var(--term-text-muted); margin-bottom:6px;">👥 RESIDENTS &amp; PETS (24/7 VISION RE-ID):</div>
+              <div style="display:flex; gap:6px; margin-bottom:6px;">
+                <button type="button" class="preset-btn active" id="presence-tab-people" onclick="showPresenceTab('people')">[👥 RESIDENTS &amp; PETS]</button>
+                <button type="button" class="preset-btn" id="presence-tab-live" onclick="showPresenceTab('live')">[📹 LIVE CAMERAS]</button>
+              </div>
               <div id="presence-locations-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px;">
                 <div style="color:var(--term-text-muted); font-size:0.75rem;">Loading real-time presence telemetry...</div>
               </div>
+              <div id="presence-live-grid" style="display:none; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:8px;"></div>
             </div>
 
             <!-- Appliance Telemetry Row -->

@@ -71,6 +71,49 @@ class TestIngest(unittest.TestCase):
         self.assertIsNone(p.handle_message(json.dumps({"topic": "stats", "payload": "{}"})))
 
 
+class TestCameraLook(unittest.TestCase):
+    def _fake_urlopen(self, events):
+        import io
+        from unittest import mock
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = io.BytesIO(json.dumps(events).encode())
+        return mock.patch("frigate_presence.urllib.request.urlopen", return_value=resp)
+
+    def test_in_view_now_filters_ended_low_and_false_positive(self):
+        events = [ev("live", "dog", NOW - 40), ev("done", "cat", NOW - 90, end=NOW - 60),
+                  ev("weak", "person", NOW - 5, score=0.4), ev("fp", "person", NOW - 5, false_positive=True),
+                  ev("anon", "person", NOW - 5)]
+        with self._fake_urlopen(events):
+            objs = fp().in_view_now("kitchen_living_room")
+        self.assertEqual([(o["name"], o["for_s"]) for o in objs], [("kylo", 40), ("someone", 5)])
+
+    def test_describe_in_view_names_known_and_hedges_unknown(self):
+        from frigate_presence import describe_in_view
+        text = describe_in_view([{"label": "dog", "name": "kylo", "for_s": 40},
+                                 {"label": "person", "name": "someone", "for_s": 5}])
+        self.assertEqual(text, "Kylo (dog, in view 40 s), a person (not identified, in view 5 s)")
+
+
+class TestLiveCameras(unittest.TestCase):
+    def test_prefers_sub_stream_and_skips_cameras_without_one(self):
+        import io
+        from unittest import mock
+        from frigate_presence import live_cameras
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = io.BytesIO(json.dumps({"kitchen_living_room": {}, "kitchen_living_room_sub": {},
+                                                             "garage": {}}).encode())
+        with mock.patch("frigate_presence.urllib.request.urlopen", return_value=resp):
+            cams = live_cameras("http://go2rtc:1984", ["kitchen_living_room", "garage", "attic"])
+        self.assertEqual(cams, [{"id": "kitchen_living_room", "name": "kitchen living room", "stream": "kitchen_living_room_sub"},
+                                {"id": "garage", "name": "garage", "stream": "garage"}])
+
+    def test_event_id_pattern_rejects_paths(self):
+        from frigate_presence import EVENT_ID
+        self.assertTrue(EVENT_ID.match("1790276100.088879-gen6ep"))
+        self.assertFalse(EVENT_ID.match("../../api/config"))
+        self.assertFalse(EVENT_ID.match("1790276100.088879-gen6ep/../x"))
+
+
 class TestMerge(unittest.TestCase):
     def test_newest_source_wins_per_identity(self):
         hub = {"austin": {"minutes_ago": 12.0, "camera": "Kitchen/Living"}, "kylo": {"minutes_ago": 30.0}}

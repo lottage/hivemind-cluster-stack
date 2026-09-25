@@ -90,8 +90,59 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   `_courage_presence()` merges Frigate over the hub per identity (newest wins) on every read. Status:
   `GET /api/frigate/presence`. Verified live: "Where's Kylo?" answered in 5.4 s from a 4.5-min-old Frigate sighting (no
   camera look). In memory only (no Valkey keys or HA sensors from Frigate yet).
-- Still open (Phase 3): Frigate face recognition (train Austin/Savannah), camera_look via Frigate snapshots, go2rtc WebRTC
-  in the StoneSage camera tab, commentary engine, HA Frigate integration.
+- camera_look via Frigate (live 2026-09-24, `_courage_camera_look` in server.py, `config.json frigate.cameras` maps HA
+  entity -> Frigate camera): asks Frigate what is in view (`/api/events?in_progress=1`, ~0.1 s), names it, and runs the
+  VLM on Frigate's `latest.jpg` (~0.1 s) instead of an HA snapshot (~1.5 s). The VLM is skipped only for presence_now's
+  stale-sighting look (`people_only=True`) when Frigate sees nobody. camera_look itself always runs the VLM: a live eval
+  showed Qwen3-14B does not reliably ask for a "full" look on object questions (package, stove), and Frigate only tracks
+  people/dogs/cats, so a skipped look would answer wrong. Frigate unreachable -> old HA snapshot path.
+  Live: object question 5.3 s end to end; tool choice unchanged (42/42, 41/42).
+- Live cameras (2026-09-24): F5 Smart Home & CCTV, Courage card, tab [📹 LIVE CAMERAS] next to [👥 RESIDENTS & PETS].
+  WebRTC from go2rtc (sub stream, H.264 720p); StoneSage only relays the SDP (`POST /api/cameras/webrtc`, stream must be
+  in `GET /api/cameras/live`), media goes go2rtc :8555 -> browser, so it also works from the HTTPS page (not yet tried on
+  :8443/phone). Streams close when the tab is switched or the page is hidden. Verified in the browser: 1280x720 at
+  24 fps, audio + video. `config.json frigate.go2rtc_url`.
+  Residents & Pets now reads the merged hub + Frigate view (`/api/presence/status` = `_courage_presence()`); Frigate
+  sightings show their event snapshot via `GET /api/frigate/snapshot/<event_id>` and an extra "Someone" card.
+- LIVE tab tiles (2026-09-25, `backend/camera_ui.py`, `config.json camera_ui` keyed by HA camera entity): kitchen =
+  WebRTC (Frigate sub stream); driveway TCW90 = WebRTC from go2rtc `tapo://` (port 8800, TP-Link cloud password as
+  `FRIGATE_TAPO_CLOUD_PASSWORD` on LXC 128; not a Frigate camera, so go2rtc only opens it while someone watches; HA's
+  HLS for it failed ~half the time: "Error muxing first keyframe"); side/back yard = snapshot + Refresh, at most one
+  camera wake per `min_refresh_s` (180 s; driveway 60 s), frames shrunk to 640 px. PTZ arrows + presets on kitchen and
+  driveway via HA `button.<ptz>_move_*` / `select.<ptz>_move_to_preset`, preset names read live from HA (driveway's is
+  "Driveway " with a trailing space; `camera_scan` now uses HA's spelling too). Driveway camera clock is hours off.
+  WebRTC from John's phone failed: Firefox 156 on Android 16 sends no ICE checks at all (`req=0` on every pair;
+  Android's local-network permission); Chrome on the same phone works. Fallback (2026-09-25): if WebRTC is not
+  connected within 6 s, the tile plays `GET /api/cameras/mp4?stream=` = go2rtc's fragmented MP4 (H.264 copied, no
+  transcoding, video only) relayed by StoneSage over the page's own connection, and the browser remembers it
+  (`localStorage stonesage.live.mp4`). Measured: kitchen sub ~250 kbit/s (720p, 24 fps), driveway ~1.6 Mbit/s
+  (1296p, ~15 fps). Failed WebRTC attempts still post ICE stats to `/api/cameras/webrtc-report`. The temporary
+  `go2rtc: log: webrtc: debug` in Frigate's config never logged anything; remove it at the next Frigate change.
+- LIVE quality menu per tile (2026-09-25, remembered per browser): Auto (WebRTC, MP4 if blocked) | WebRTC | MP4 |
+  MP4 + sound (go2rtc `mp4=flac`) | Low data 720p (driveway: go2rtc `driveway_front_door_720`, ~450 kbit/s) | HD 1080p
+  (kitchen: `kitchen_living_room_1080` from the 4K HEVC stream). Variants are go2rtc `ffmpeg:` sources with CPU libx264,
+  only while watched (+~10% / +~33% of a core). GPU encoding did not work: `#hardware=vaapi` lacks the device,
+  scale_vaapi runs out of surfaces on the tapo stream, and `exec:` sources are blocked by Frigate 0.18 (would need
+  GO2RTC_ALLOW_ARBITRARY_EXEC=true; go2rtc's API has no auth, so not enabled). Frigate formats go2rtc streams with
+  str.format: a literal `{x}` must be written `{{x}}` or go2rtc crash-loops (KeyError).
+- PTZ patrol (2026-09-25, `backend/patrol.py`, `config.json patrol`, LIVE tab line "🛡️ Patrol" + "Sweep now"):
+  every 15 min per PTZ camera: 3 x 120 deg left to the end stop, then 30 deg steps right with a frame each until the
+  picture stops changing (right end stop) or 9 frames, then home preset (kitchen "Living Room", driveway "Doors").
+  Vision model gets each frame (kitchen only when Frigate tracks someone) and names known profiles (JSON, names
+  checked); sightings merge into presence as source "patrol". Kitchen pauses while Austin or Savannah is home
+  (`person.austin` GPS; Savannah has no HA tracker, so camera sightings within 90 min); driveway battery-gated
+  (daylight and >= 60 % -> 15 min, else hourly, < 30 % never). A camera moved by hand is left alone for 5 min.
+  Routes: `GET /api/patrol/status`, `GET /api/patrol/frame?entity=&i=`, `POST /api/patrol/run {entity}`.
+- Presence corrections (2026-09-25, `backend/presence_corrections.py`, cards in Residents & Pets): "✗ Wrong" and
+  "Correct as ▾" (+ New profile). Frigate sightings: false_positive / sub_label; correcting to a person moves that event's
+  face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).
+  Sentry sightings: `wildlife_admin.py` on VM 102 (/opt/cluster-bridge, args on stdin) renames the snapshot prefix or
+  moves it to `wildlife/rejected/`, logs `wildlife/corrections.jsonl`; a person correction also uploads the snapshot to
+  Frigate's face library. Profiles = `wildlife/known_entities.json` (backup per write); the sentry re-reads it on change,
+  the hub matches the activity log by snapshot timestamp so renames keep camera/activity. Identity key everywhere:
+  `norm_name` ('Aunt May' -> 'aunt-may'). Deployed; no real correction made yet (first one is John's).
+  Solar driveway timer polling stays OFF (`solar_poll_interval` returns None) until John picks thresholds.
+- Still open (Phase 3): commentary engine, HA Frigate integration.
 
 ## A-MEM (Valkey :6379 on VM 102)
 248 cards on 2026-09-23. Hardware, topology and loop-status cards were rewritten to match this file,

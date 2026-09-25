@@ -175,6 +175,24 @@
   --term-code-bg: #060401;
 }
 
+/* Accent roles, mapped onto each theme's own colors (they used to be undefined, so every
+   use fell back to its own hardcoded hex and ignored the theme). Declared on every themed
+   element so the var() resolves against that element's theme. */
+:root,
+[data-theme] {
+  --term-accent-gold: var(--term-warn);       /* tool calls, approvals */
+  --term-accent-blue: var(--term-info);       /* primary actions, focus */
+  --term-accent-green: var(--term-success);   /* subagent results */
+  --term-accent-cyan: var(--term-success);    /* tool results, "response" status */
+  --term-accent-red: var(--term-alert);       /* danger, offline */
+  --term-accent-purple: var(--term-active);   /* subagents */
+}
+
+/* WIN98: term-text-bright equals term-header-bg (navy on navy); use the bevel white */
+[data-theme="win98"] .topbar-branding {
+  color: var(--term-border-bright);
+}
+
 /* ==========================================================================
    2. BASE LAYOUT & RESET
    ========================================================================== */
@@ -919,7 +937,7 @@ html, body {
 
 .prompt-btn.send {
   background: var(--term-border);
-  color: #ffffff;
+  color: var(--term-surface-sunken);
   border-color: var(--term-border-bright);
 }
 
@@ -1816,7 +1834,7 @@ html, body {
 
 .term-key-btn:active {
   background: var(--term-accent-blue);
-  color: #fff;
+  color: var(--term-surface-sunken);
   border-color: var(--term-border-bright);
 }
 
@@ -2137,7 +2155,7 @@ html, body {
 
 .engine-subnav-btn.active {
   background: var(--term-accent-blue, #2b7de9);
-  color: #fff;
+  color: var(--term-surface-sunken);
   border-color: var(--term-border-bright, #60a5fa);
 }
 
@@ -2322,7 +2340,7 @@ html, body {
 .econsole-subnav-btn:hover { background: var(--term-surface-hover, #333); }
 .econsole-subnav-btn.active {
   background: var(--term-accent-blue, #1e40af);
-  color: #fff;
+  color: var(--term-surface-sunken);
   border-color: var(--term-accent-blue, #1e40af);
 }
 
@@ -2397,7 +2415,7 @@ html, body {
 /* Restart Required Badge */
 .econsole-badge-restart {
   background: var(--term-accent-red, #ef4444);
-  color: #fff;
+  color: var(--term-surface-sunken);
   font-size: 0.6rem;
   padding: 1px 4px;
   font-weight: bold;
@@ -2476,8 +2494,8 @@ html, body {
   transition: opacity 0.15s;
 }
 .econsole-btn:hover { opacity: 0.85; }
-.econsole-btn-primary { background: var(--term-accent-blue, #1e40af); color: #fff; }
-.econsole-btn-danger { background: var(--term-accent-red, #ef4444); color: #fff; }
+.econsole-btn-primary { background: var(--term-accent-blue, #1e40af); color: var(--term-surface-sunken); }
+.econsole-btn-danger { background: var(--term-accent-red, #ef4444); color: var(--term-surface-sunken); }
 
 /* Debug Terminal — CRT Aesthetic */
 .econsole-terminal {
@@ -2561,7 +2579,7 @@ html, body {
 
 .subagent-badge {
   background: var(--term-accent-purple, #9333ea);
-  color: #fff;
+  color: var(--term-surface-sunken);
   padding: 2px 6px;
   border-radius: 2px;
   font-size: 0.72rem;
@@ -2806,7 +2824,7 @@ html, body {
 .ml-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 .ml-note { font-size: 0.74rem; color: var(--term-text-dim); margin-top: 3px; }
 .ml-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
-.ml-actions .ml-primary { background: var(--term-border); color: #fff; font-weight: 700; border-color: var(--term-border-bright); padding: 6px 14px; }
+.ml-actions .ml-primary { background: var(--term-border); color: var(--term-surface-sunken); font-weight: 700; border-color: var(--term-border-bright); padding: 6px 14px; }
 .ml-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .ml-bad-text { color: #ef4444; font-size: 0.74rem; }
 .ml-review { margin-top: 10px; border-top: 1px dashed var(--term-border-dim); padding-top: 8px; }

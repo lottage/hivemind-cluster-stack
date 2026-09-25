@@ -128,14 +128,15 @@ class HomePresenceHub:
                 "      if ln.startswith('- **Location**: '): info['camera'] = ln[16:].split(' (')[0].strip()\n"
                 "      if ln.startswith('- **Summary**: '): info['doing'] = ln[15:].strip()[:120]\n"
                 "      if ln.startswith('- **Snapshot**: '): info['file'] = ln.split('snapshots/')[-1].strip(chr(96) + ' ')\n"
-                "    if info.get('file'): where[info['file']] = info\n"
+                # keyed by the timestamp part: a corrected snapshot (austin_<ts>.jpg -> savannah_<ts>.jpg) keeps its log entry
+                "    if info.get('file'): where[info['file'].split('_', 1)[-1]] = info\n"
                 "except Exception: pass\n"
                 "res = []\n"
                 "for f in files:\n"
                 "  b = os.path.basename(f)\n"
                 "  mtime = os.path.getmtime(f)\n"
                 "  size = os.path.getsize(f)\n"
-                "  w = where.get(b, {})\n"
+                "  w = where.get(b.split('_', 1)[-1], {})\n"
                 "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size, 'camera': w.get('camera'), 'doing': w.get('doing')})\n"
                 "print(json.dumps(res))\n"
                 "\""
@@ -242,6 +243,11 @@ class HomePresenceHub:
             logger.warning(f"Error checking appliance telemetry: {e}")
 
         return result
+
+    def invalidate(self) -> None:
+        """Drop the cached state (after a presence correction or a new profile)."""
+        self._cached_presence = {}
+        self._last_presence_poll = 0.0
 
     def get_full_presence_state(self) -> Dict[str, Any]:
         """Fuses all presence signals into a unified dictionary."""

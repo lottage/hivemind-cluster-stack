@@ -58,7 +58,7 @@ def make_agent(llm, ha=None, pending=None, looks=None):
     looks = looks if looks is not None else []
     deps = CourageDeps(
         ha_states=ha.states, ha_call=ha.call, presence=lambda: PRESENCE,
-        camera_look=lambda eid, name: looks.append(eid) or f"{name}: a black and white cat on the couch.",
+        camera_look=lambda eid, name, **kw: looks.append(eid) or f"{name}: a black and white cat on the couch.",
         camera_scan=lambda eid, name: f"{name}: scanned 3 presets, nobody there.")
     return CourageAgent(CourageTools(deps), "http://fake:8001/v1", presence_fn=lambda: PRESENCE,
                         pending=pending or PendingActions(), post=llm), ha
@@ -156,6 +156,15 @@ class TestCourageAgent(unittest.TestCase):
         self.assertIn("no entity 'light.kitchen_light'", events[0]["result"])
         self.assertIn("light.kitchen", events[0]["result"])
         self.assertEqual(ha.calls, [])
+
+    def test_only_presence_looks_are_people_only(self):
+        """camera_look questions can be about anything, so only presence_now's stale-sighting look may skip vision."""
+        calls = []
+        look = lambda eid, name, **kw: calls.append(kw) or "ok"
+        tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=lambda: {}, camera_look=look, camera_scan=None))
+        tools._camera_look("kitchen_living_room")
+        tools._presence_now("luna")
+        self.assertEqual(calls, [{}, {"people_only": True}])
 
     def test_entity_domain_mismatch_refused(self):
         tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=None, camera_look=None, camera_scan=None))
