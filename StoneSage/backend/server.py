@@ -2594,6 +2594,16 @@ def _invalidate_presence() -> None:
         pass
 
 
+def _go2rtc_stream_names(cfg: Dict[str, Any]) -> Optional[set]:
+    """Stream names go2rtc has right now (None if unreachable: then the quality menu is not filtered)."""
+    try:
+        url = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
+        with urllib.request.urlopen(f"{url}/api/streams", timeout=3) as r:
+            return set(json.load(r) or {})
+    except Exception:
+        return None
+
+
 def _webrtc_streams(cfg: Dict[str, Any]) -> Dict[str, str]:
     """HA camera entity -> go2rtc stream the LIVE tab may play: Frigate cameras (their sub stream) plus
     camera_ui entries that name a go2rtc stream directly. Only streams go2rtc actually has ({} if unreachable)."""
@@ -3650,7 +3660,8 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             # Tiles for the LIVE tab (camera_ui.py): WebRTC via Frigate/go2rtc, HLS via HA, or snapshot; PTZ presets
             import camera_ui
             cfg = load_config()
-            self.send_json({"ok": True, "cameras": camera_ui.list_cameras(cfg, hass.get_state, _webrtc_streams(cfg))})
+            self.send_json({"ok": True, "cameras": camera_ui.list_cameras(cfg, hass.get_state, _webrtc_streams(cfg),
+                                                                           _go2rtc_stream_names(cfg))})
             return
 
         elif path == "/api/cameras/snapshot":
@@ -3678,15 +3689,19 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             # Fallback when a browser cannot do WebRTC to the go2rtc host (Firefox on Android 16 without the
             # local-network permission sends no ICE checks at all): go2rtc's fragmented MP4, H.264 copied (no
             # transcoding, video only), relayed over this same HTTP(S) connection. One thread per viewer.
+            # audio=1: go2rtc's mp4=flac turns the cameras' A-law audio into FLAC, which browsers play in MP4.
+            import camera_ui
             q = urllib.parse.parse_qs(parsed.query or "")
-            stream = q.get("stream", [""])[0]
+            stream, audio = q.get("stream", [""])[0], q.get("audio", ["0"])[0] == "1"
             cfg = load_config()
-            if stream not in set(_webrtc_streams(cfg).values()):
+            allowed = set(_webrtc_streams(cfg).values()) | {s for v in camera_ui.variant_streams(cfg).values() for s in v.values()}
+            if stream not in allowed:
                 self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
                 return
             go2rtc = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
             try:
-                upstream = urllib.request.urlopen(f"{go2rtc}/api/stream.mp4?src={urllib.parse.quote(stream)}", timeout=15)
+                upstream = urllib.request.urlopen(f"{go2rtc}/api/stream.mp4?src={urllib.parse.quote(stream)}"
+                                                  + ("&mp4=flac" if audio else ""), timeout=15)
             except Exception as e:
                 self.send_json({"ok": False, "error": f"go2rtc: {e}"}, 502)
                 return

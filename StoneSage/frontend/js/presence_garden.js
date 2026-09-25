@@ -249,18 +249,42 @@ async function reportIceFailure(pc, stream, status) {
 const MP4_PREF = 'stonesage.live.mp4';
 const prefersMP4 = () => { try { return localStorage.getItem(MP4_PREF) === '1'; } catch (e) { return false; } };
 
-function playMP4(video, status, stream) {
+function playMP4(video, status, stream, audio = false, label = 'MP4') {
   video.srcObject = null;
   liveVideos.push(video);
-  video.addEventListener('playing', () => setStatus(status, '● LIVE (MP4, no sound)', true), { once: true });
+  const tag = `● LIVE (${label}${audio ? '' : ', no sound'})`;
+  video.addEventListener('playing', () => setStatus(status, tag, true), { once: true });
   video.addEventListener('error', () => setStatus(status, 'stream ended'), { once: true });
-  setStatus(status, 'connecting (MP4)…');
-  video.src = `/api/cameras/mp4?stream=${encodeURIComponent(stream)}`;
+  setStatus(status, `connecting (${label})…`);
+  video.src = `/api/cameras/mp4?stream=${encodeURIComponent(stream)}${audio ? '&audio=1' : ''}`;
   video.play().catch(() => { /* muted autoplay starts on its own */ });
 }
 
-async function playWebRTC(video, status, stream) {
-  if (prefersMP4()) { playMP4(video, status, stream); return; }
+// Per-camera stream choice (the tile's quality menu), remembered in this browser.
+const MODES = {
+  auto: 'Auto (WebRTC, MP4 if blocked)',
+  webrtc: 'WebRTC · sound · fastest',
+  mp4: 'MP4 · no sound',
+  mp4a: 'MP4 + sound (FLAC)',
+  low: 'Low data 720p (MP4)',
+  hd: 'HD 1080p (MP4)',
+};
+const modeKey = (entity) => `stonesage.live.mode.${entity}`;
+function getMode(entity) { try { return localStorage.getItem(modeKey(entity)) || 'auto'; } catch (e) { return 'auto'; } }
+function setMode(entity, mode) { try { localStorage.setItem(modeKey(entity), mode); } catch (e) { /* private mode */ } }
+
+function playTile(c, video, status) {
+  const mode = getMode(c.entity);
+  const v = c.variants || {};
+  if (mode === 'mp4') return playMP4(video, status, c.stream);
+  if (mode === 'mp4a') return playMP4(video, status, c.stream, true, 'MP4');
+  if (mode === 'low' && v.low) return playMP4(video, status, v.low, false, '720p');
+  if (mode === 'hd' && v.hd) return playMP4(video, status, v.hd, false, '1080p');
+  return playWebRTC(video, status, c.stream, mode !== 'webrtc');
+}
+
+async function playWebRTC(video, status, stream, allowFallback = true) {
+  if (allowFallback && prefersMP4()) { playMP4(video, status, stream); return; }
   const pc = new RTCPeerConnection();
   livePeers.push(pc);
   const media = new MediaStream();
@@ -268,7 +292,7 @@ async function playWebRTC(video, status, stream) {
   pc.ontrack = (e) => media.addTrack(e.track);
   let fellBack = false;
   const fallBack = () => {
-    if (fellBack || pc.connectionState === 'connected') return;
+    if (!allowFallback || fellBack || pc.connectionState === 'connected') return;
     fellBack = true;
     try { localStorage.setItem(MP4_PREF, '1'); } catch (e) { /* private mode: fall back each time */ }
     try { pc.close(); } catch (e) { /* already closed */ }
@@ -342,6 +366,11 @@ function tileHTML(c, i) {
       <button type="button" ${btn} data-cam="${i}" data-ptz="right" title="Pan right">▶</button>
       ${(c.ptz.presets || []).map((p) => `<button type="button" ${btn} data-cam="${i}" data-ptz="preset" data-preset="${p.replace(/"/g, '&quot;')}">${p.trim()}</button>`).join('')}
     </div>`;
+  const modes = c.live !== 'webrtc' ? '' : `
+        <select class="form-input" data-cam="${i}" data-mode="1" title="Stream quality (remembered in this browser)" style="font-size:0.66rem; padding:0 2px; max-width:150px;">
+          ${Object.entries(MODES).filter(([k]) => (k !== 'low' || (c.variants || {}).low) && (k !== 'hd' || (c.variants || {}).hd))
+            .map(([k, label]) => `<option value="${k}" ${getMode(c.entity) === k ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>`;
   const refresh = c.live === 'snapshot'
     ? `<button type="button" ${btn} data-cam="${i}" data-refresh="1" title="${c.min_refresh_s ? `Battery camera: at most one new frame every ${Math.round(c.min_refresh_s / 60)} min` : 'New snapshot'}">⟳ Refresh</button>` : '';
   return `
@@ -350,7 +379,7 @@ function tileHTML(c, i) {
       <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; padding:4px 6px; font-size:0.72rem; background:var(--term-bg);">
         <span style="font-weight:bold; color:var(--term-text-bright);">${c.name}</span>
         <span style="display:flex; gap:6px; align-items:center;">
-          <span id="cam-status-${i}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>${refresh}
+          <span id="cam-status-${i}" style="font-family:monospace; color:var(--term-text-muted);">connecting…</span>${refresh}${modes}
         </span>
       </div>${ptzHTML}
     </div>`;
@@ -378,13 +407,20 @@ async function startLive() {
     if (b.dataset.refresh) return loadSnapshot(document.getElementById(`cam-img-${i}`), status, cams[i].entity, true);
     if (b.dataset.ptz) return ptz(cams[i].entity, b.dataset.ptz, b.dataset.preset || '', status);
   };
+  grid.onchange = (e) => {
+    const sel = e.target.closest('select[data-mode]');
+    if (!sel) return;
+    setMode(cams[+sel.dataset.cam].entity, sel.value);
+    if (sel.value === 'webrtc' || sel.value === 'auto') { try { localStorage.removeItem(MP4_PREF); } catch (err) { /* ignore */ } }
+    startLive();  // reopen the tiles with the new choice
+  };
   cams.forEach((c, i) => {
     const status = document.getElementById(`cam-status-${i}`);
     if (c.live === 'snapshot') { loadSnapshot(document.getElementById(`cam-img-${i}`), status, c.entity, false); return; }
     const video = document.getElementById(`cam-vid-${i}`);
     video.addEventListener('click', () => { video.muted = !video.muted; });
-    const play = c.live === 'webrtc' ? playWebRTC(video, status, c.stream) : playHLS(video, status, c.entity);
-    play.catch((e) => setStatus(status, e.message));
+    const play = c.live === 'webrtc' ? playTile(c, video, status) : playHLS(video, status, c.entity);
+    Promise.resolve(play).catch((e) => setStatus(status, e.message));
   });
 }
 

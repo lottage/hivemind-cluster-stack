@@ -38,8 +38,15 @@ go2rtc:                        # one connection per camera; Frigate, HA and Ston
     # Not a Frigate camera: go2rtc only connects while the StoneSage LIVE tab is watching (saves the battery).
     driveway_front_door:
       - "tapo://{FRIGATE_TAPO_CLOUD_PASSWORD}@192.168.1.228"
-  log:                         # TEMPORARY (2026-09-24): debug WebRTC from the phone over HTTPS; remove after
-    webrtc: debug
+    # On-demand variants for the StoneSage LIVE tab's quality menu; ffmpeg runs only while someone watches.
+    # CPU encode (libx264, go2rtc's zerolatency preset). The GPU routes all failed here (2026-09-25): go2rtc's
+    # "#hardware=vaapi" = hwupload without a device; scale_vaapi runs out of surfaces on the tapo stream; and a
+    # working explicit VAAPI pipeline needs an exec: source, which Frigate 0.18 blocks unless
+    # GO2RTC_ALLOW_ARBITRARY_EXEC=true (go2rtc's :1984 API has no auth, so that would allow command execution).
+    driveway_front_door_720:   # low data: 1296p -> 720p, capped ~600 kbit/s
+      - "ffmpeg:driveway_front_door#video=h264#width=1280#raw=-b:v 600k -maxrate 800k -bufsize 1600k"
+    kitchen_living_room_1080:  # HD: 4K HEVC main stream -> 1080p H.264 that every browser plays, ~2 Mbit/s
+      - "ffmpeg:kitchen_living_room#video=h264#width=1920#raw=-b:v 2000k -maxrate 2500k -bufsize 5M"
   webrtc:
     candidates:
       - 192.168.1.150:8555     # LXC 128 static address

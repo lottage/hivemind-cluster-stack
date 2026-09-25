@@ -37,9 +37,15 @@ def presets(ptz: str, get_state: Callable[[str], Optional[Dict[str, Any]]]) -> L
     return list((st.get("attributes") or {}).get("options") or [])
 
 
+def variant_streams(cfg: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
+    """HA entity -> {"low"|"hd": go2rtc stream}: the on-demand transcodes in Frigate's go2rtc config."""
+    return {e: dict(c.get("variants") or {}) for e, c in camera_entries(cfg).items() if c.get("variants")}
+
+
 def list_cameras(cfg: Dict[str, Any], get_state: Callable[[str], Optional[Dict[str, Any]]],
-                 webrtc_streams: Dict[str, str]) -> List[Dict[str, Any]]:
-    """Tiles in config order. webrtc_streams: HA entity -> go2rtc stream for cameras Frigate serves."""
+                 webrtc_streams: Dict[str, str], available: Optional[set] = None) -> List[Dict[str, Any]]:
+    """Tiles in config order. webrtc_streams: HA entity -> go2rtc stream; available: go2rtc stream names
+    (variants go2rtc does not have are left out of the tile's quality menu)."""
     out = []
     for entity, c in camera_entries(cfg).items():
         live = c.get("live", "snapshot")
@@ -50,6 +56,8 @@ def list_cameras(cfg: Dict[str, Any], get_state: Callable[[str], Optional[Dict[s
                 tile["live"] = "snapshot"  # Frigate/go2rtc down: still show something
             else:
                 tile["stream"] = webrtc_streams[entity]
+                tile["variants"] = {k: v for k, v in (c.get("variants") or {}).items()
+                                    if available is None or v in available}
         if c.get("ptz"):
             try:
                 tile["ptz"] = {"presets": presets(c["ptz"], get_state)}
