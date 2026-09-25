@@ -201,7 +201,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `ally_agents_free` (min_phase 4). Verified live with a no-op apply of `courage_default` (both targets skipped, no restart).
   Live config pre-change: `/opt/stonesage/backend/config.json.bak-engine-profiles-20260924-080452` on LXC 120.
 
-## Boost: free extra inference (branch `boost-free`, 2026-09-24, NOT deployed yet)
+## Boost: free extra inference (branch `boost-free`, live on LXC 120 since 2026-09-25 06:30, all surfaces OFF, no keys yet)
 `StoneSage/backend/boost/` pools free cloud sources behind one router. Local :8001 stays the default and the last fallback.
 - Sources (free tiers, no card): Groq and Cloudflare Workers AI (tier `no_training`), Gemini API free, OpenCode Zen free models,
   OpenRouter `:free` (tier `training`), plus opt-in edge nodes (`harness_instances[].boost: true`, tier `local`).
@@ -216,7 +216,8 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   Claude Code / Gemini CLI logins run tasks in scratch clones and return a diff; 10 jobs/engine/day; no MCP, scrubbed env.
   Not installed yet (needs the CLIs installed and John's own login as user `frontier`).
 - `GET /api/config` now masks secret fields (`backend/config_mask.py`); POSTs ignore masked values.
-- Keys: `/etc/stonesage/secrets.env` on LXC 120 (drop-in `server setup/stonesage.service.d/secrets.conf`) or config.json.
+- Keys: `/etc/stonesage/secrets.env` on LXC 120 (drop-in `server setup/stonesage.service.d/secrets.conf`, installed) or config.json.
+  Pre-deploy backup: `/root/boost-deploy-backup-20260925-062955` on LXC 120.
 
 ## Known issues
 - Qdrant (2026-09-24): the two `home_automation_registry` device-map points were corrected in place (backup
