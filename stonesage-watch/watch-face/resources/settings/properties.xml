@@ -1,0 +1,13 @@
+<properties>
+    <!-- Upper-half slots; values are metric IDs (see PROTOCOL.md) -->
+    <property id="slot1" type="number">1</property>   <!-- big, top-left: Time -->
+    <property id="slot2" type="number">8</property>   <!-- subscreen: Budget % -->
+    <property id="slot3" type="number">2</property>   <!-- middle-left: Date -->
+    <property id="slot4" type="number">6</property>   <!-- row left: Claude tokens -->
+    <property id="slot5" type="number">9</property>   <!-- row right: Local tokens -->
+    <property id="remoteLayout" type="boolean">true</property>
+    <property id="rotateAgents" type="boolean">true</property>
+    <!-- Fallback polling. Leave the token empty in git; set it at build time or in phone settings. -->
+    <property id="bridgeUrl" type="string"></property>
+    <property id="readToken" type="string"></property>
+</properties>

@@ -1,0 +1,17 @@
+# Runs inside the StoneSage LXC, next to StoneSage.
+[Unit]
+Description=StoneSage watch bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=watchbridge
+EnvironmentFile=/etc/watch-bridge.env
+WorkingDirectory=/opt/watch-bridge
+ExecStart=/opt/watch-bridge/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8890
+StateDirectory=watch-bridge
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

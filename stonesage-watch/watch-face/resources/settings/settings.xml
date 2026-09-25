@@ -1,0 +1,109 @@
+<settings>
+    <setting propertyKey="@Properties.slot1" title="@Strings.S1">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.M0</listEntry>
+            <listEntry value="1">@Strings.M1</listEntry>
+            <listEntry value="2">@Strings.M2</listEntry>
+            <listEntry value="3">@Strings.M3</listEntry>
+            <listEntry value="4">@Strings.M4</listEntry>
+            <listEntry value="5">@Strings.M5</listEntry>
+            <listEntry value="6">@Strings.M6</listEntry>
+            <listEntry value="7">@Strings.M7</listEntry>
+            <listEntry value="8">@Strings.M8</listEntry>
+            <listEntry value="9">@Strings.M9</listEntry>
+            <listEntry value="10">@Strings.M10</listEntry>
+            <listEntry value="11">@Strings.M11</listEntry>
+            <listEntry value="12">@Strings.M12</listEntry>
+            <listEntry value="13">@Strings.M13</listEntry>
+            <listEntry value="14">@Strings.M14</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.slot2" title="@Strings.S2">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.M0</listEntry>
+            <listEntry value="1">@Strings.M1</listEntry>
+            <listEntry value="2">@Strings.M2</listEntry>
+            <listEntry value="3">@Strings.M3</listEntry>
+            <listEntry value="4">@Strings.M4</listEntry>
+            <listEntry value="5">@Strings.M5</listEntry>
+            <listEntry value="6">@Strings.M6</listEntry>
+            <listEntry value="7">@Strings.M7</listEntry>
+            <listEntry value="8">@Strings.M8</listEntry>
+            <listEntry value="9">@Strings.M9</listEntry>
+            <listEntry value="10">@Strings.M10</listEntry>
+            <listEntry value="11">@Strings.M11</listEntry>
+            <listEntry value="12">@Strings.M12</listEntry>
+            <listEntry value="13">@Strings.M13</listEntry>
+            <listEntry value="14">@Strings.M14</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.slot3" title="@Strings.S3">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.M0</listEntry>
+            <listEntry value="1">@Strings.M1</listEntry>
+            <listEntry value="2">@Strings.M2</listEntry>
+            <listEntry value="3">@Strings.M3</listEntry>
+            <listEntry value="4">@Strings.M4</listEntry>
+            <listEntry value="5">@Strings.M5</listEntry>
+            <listEntry value="6">@Strings.M6</listEntry>
+            <listEntry value="7">@Strings.M7</listEntry>
+            <listEntry value="8">@Strings.M8</listEntry>
+            <listEntry value="9">@Strings.M9</listEntry>
+            <listEntry value="10">@Strings.M10</listEntry>
+            <listEntry value="11">@Strings.M11</listEntry>
+            <listEntry value="12">@Strings.M12</listEntry>
+            <listEntry value="13">@Strings.M13</listEntry>
+            <listEntry value="14">@Strings.M14</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.slot4" title="@Strings.S4">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.M0</listEntry>
+            <listEntry value="1">@Strings.M1</listEntry>
+            <listEntry value="2">@Strings.M2</listEntry>
+            <listEntry value="3">@Strings.M3</listEntry>
+            <listEntry value="4">@Strings.M4</listEntry>
+            <listEntry value="5">@Strings.M5</listEntry>
+            <listEntry value="6">@Strings.M6</listEntry>
+            <listEntry value="7">@Strings.M7</listEntry>
+            <listEntry value="8">@Strings.M8</listEntry>
+            <listEntry value="9">@Strings.M9</listEntry>
+            <listEntry value="10">@Strings.M10</listEntry>
+            <listEntry value="11">@Strings.M11</listEntry>
+            <listEntry value="12">@Strings.M12</listEntry>
+            <listEntry value="13">@Strings.M13</listEntry>
+            <listEntry value="14">@Strings.M14</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.slot5" title="@Strings.S5">
+        <settingConfig type="list">
+            <listEntry value="0">@Strings.M0</listEntry>
+            <listEntry value="1">@Strings.M1</listEntry>
+            <listEntry value="2">@Strings.M2</listEntry>
+            <listEntry value="3">@Strings.M3</listEntry>
+            <listEntry value="4">@Strings.M4</listEntry>
+            <listEntry value="5">@Strings.M5</listEntry>
+            <listEntry value="6">@Strings.M6</listEntry>
+            <listEntry value="7">@Strings.M7</listEntry>
+            <listEntry value="8">@Strings.M8</listEntry>
+            <listEntry value="9">@Strings.M9</listEntry>
+            <listEntry value="10">@Strings.M10</listEntry>
+            <listEntry value="11">@Strings.M11</listEntry>
+            <listEntry value="12">@Strings.M12</listEntry>
+            <listEntry value="13">@Strings.M13</listEntry>
+            <listEntry value="14">@Strings.M14</listEntry>
+        </settingConfig>
+    </setting>
+    <setting propertyKey="@Properties.remoteLayout" title="@Strings.Remote">
+        <settingConfig type="boolean"/>
+    </setting>
+    <setting propertyKey="@Properties.rotateAgents" title="@Strings.Rotate">
+        <settingConfig type="boolean"/>
+    </setting>
+    <setting propertyKey="@Properties.bridgeUrl" title="@Strings.Url">
+        <settingConfig type="alphaNumeric"/>
+    </setting>
+    <setting propertyKey="@Properties.readToken" title="@Strings.Tok">
+        <settingConfig type="alphaNumeric"/>
+    </setting>
+</settings>

@@ -1,0 +1,15 @@
+# Runs on bigserv. Tailscale Serve proxies to localhost only, so this forwards
+# 127.0.0.1:8890 on bigserv to the bridge in the StoneSage LXC.
+# Replace 10.0.0.120 with the LXC's LAN address.
+[Unit]
+Description=Forward localhost:8890 to StoneSage watch bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:8890,bind=127.0.0.1,fork,reuseaddr TCP:10.0.0.120:8890
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

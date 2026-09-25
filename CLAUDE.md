@@ -11,6 +11,12 @@ Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-f
    grounded foundations (real senses, measurable evals, curated memory, budgets). Not before Phase 4.
 
 ## Current phase: Phase 2 done 2026-09-24 (tool-calling Courage); next Phase 3 (Frigate). Phase 1 model evals still open.
+- Queued after Phase 3: Garmin Instinct 2 watch bridge (approvals + status on a wrist, via an Android
+  companion). Scaffold copied into this repo at `stonesage-watch/` (FastAPI bridge, Kotlin companion, 2
+  Monkey C apps, deploy units) 2026-09-25, unbuilt. Its own CLAUDE.md there carries a 6-phase build plan
+  (bridge -> StoneSage hook -> deploy -> Android -> watch app/face -> hardware test); treat that as
+  reference, not a standing instruction. Open before starting: confirm John actually has the Instinct 2 +
+  a Samsung S25 Ultra for the companion (not in STATE.md's hardware list yet).
 - Git: one branch per feature (Phase 0 baseline = `phase0-restructure`), commit at the end of each session after a
   secret scan. Never push (no remote yet; old history holds credentials that still need rotating).
   No Co-Authored-By or other attribution lines in commit messages (John's call).
