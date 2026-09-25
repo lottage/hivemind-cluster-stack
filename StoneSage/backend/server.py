@@ -2969,6 +2969,8 @@ def get_courage_agent():
             from courage.reflex import LearnedReflexes
             data_dir = os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
             _courage_agent.learned = LearnedReflexes(os.path.join(data_dir, "courage_reflexes.json"))
+            from courage.trace import TraceLog
+            _courage_agent.trace_log = TraceLog(os.path.join(data_dir, "courage_trace.jsonl"))  # one line per turn
             # approvals by actionable phone notification (Yes / No buttons), for Home Assistant conversations by default
             ha_cfg = config.get("homeassistant", {})
             phone = COURAGE_PHONES.get("austin")
@@ -3964,6 +3966,21 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         elif path == "/api/courage/reflexes":
             learned = getattr(get_courage_agent(), "learned", None)
             self.send_json({"ok": True, "reflexes": learned.items if learned else {}})
+            return
+
+        elif path in ("/api/courage/trace", "/api/courage/trace/summary"):
+            # Courage's per-turn trace (courage/trace.py): recent turns newest first, or counts over the last hours
+            log = getattr(get_courage_agent(), "trace_log", None)
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                if path.endswith("/summary"):
+                    hours = min(24 * 30, max(0.1, float(q.get("hours", ["24"])[0])))
+                    self.send_json({"ok": True, "summary": log.summary(hours) if log else {}})
+                else:
+                    limit = min(500, max(1, int(q.get("limit", ["50"])[0])))
+                    self.send_json({"ok": True, "turns": log.recent(limit) if log else []})
+            except ValueError:
+                self.send_json({"ok": False, "error": "bad limit/hours"}, 400)
             return
 
         elif path == "/api/system/profile":

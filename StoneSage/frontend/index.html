@@ -470,6 +470,7 @@
               <button type="button" class="econsole-subnav-btn active" data-layer="dashboard">[📊 DASHBOARD]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="loader" style="color:var(--term-text-bright);">[🚀 MODEL LOADER]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="boost" style="color:var(--term-accent-gold);">[⚡ BOOST]</button>
+              <button type="button" class="econsole-subnav-btn" data-layer="trace" style="color:var(--term-text-bright);">[🧭 COURAGE TRACE]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="debug">[🔍 PLAYGROUND &amp; DEBUG]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="logs">[📜 SYSTEM LOGS]</button>
             </div>
@@ -491,6 +492,11 @@
               <div id="econsole-dashboard-grid" class="econsole-grid">
                 <div style="padding:1rem; color:var(--term-text-muted);">Polling engines...</div>
               </div>
+            </div>
+
+            <!-- Sub-Layer: Courage trace, one row per Courage turn (js/courage_trace.js, backend/courage/trace.py) -->
+            <div class="econsole-layer" id="econsole-layer-trace" style="display:none;">
+              <div id="courage-trace-root"></div>
             </div>
 
             <!-- Sub-Layer: Boost, free extra inference (js/boost.js, backend/boost) -->

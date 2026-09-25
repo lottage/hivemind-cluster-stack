@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from . import reflex
 from .prompt import build_system_prompt
 from .tools import CourageTools
+from .trace import TraceLog, TurnTrace
 
 AFFIRM = re.compile(r"^\s*(yes|yeah|yep|yup|y|ok|okay|sure|do it|go ahead|go for it|approved?|confirm(ed)?|please do)\b", re.I)
 DENY = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|do not|stop|never ?mind|leave it)\b", re.I)
@@ -105,6 +106,7 @@ class CourageAgent:
         self.runs_on_fn = runs_on_fn
         self.on_approval: Optional[Callable[[str, Dict[str, Any]], bool]] = None  # e.g. push to the phone
         self.learned: Optional["reflex.LearnedReflexes"] = None  # phrasings the loop resolved, replayed without the LLM
+        self.trace_log: Optional[TraceLog] = None  # one record per turn (courage/trace.py); None = not recorded
         self.pending = pending or PendingActions()
         self.max_steps = max_steps
         self.timeout = timeout
@@ -162,7 +164,7 @@ class CourageAgent:
             return {}
 
     # ---- reflex: bare on/off orders without the LLM ------------------------------------
-    def _reflex(self, text: str):
+    def _reflex(self, text: str, tr: TurnTrace):
         """Generator; returns True when it handled the message (events already yielded)."""
         learned = self.learned.lookup(text) if self.learned else None
         if learned:
@@ -172,9 +174,12 @@ class CourageAgent:
                 return False
             args = {"domain": learned["domain"], "service": learned["service"], "entity_id": learned["entity_id"]}
             state = learned["service"].replace("turn_", "") if learned["service"] != "toggle" else None
-            handled = yield from self._switch(args, ent.get("friendly_name") or learned["name"], state, ent.get("state"))
+            tr.path = "learned"
+            handled = yield from self._switch(args, ent.get("friendly_name") or learned["name"], state, ent.get("state"), tr)
             if handled:
                 self.learned.hit(learned["key"])
+            else:
+                tr.path = "loop"
             return handled
         order = reflex.parse(text)
         if not order:
@@ -183,9 +188,13 @@ class CourageAgent:
         if not ent:
             return False
         args = {"domain": ent["domain"], "service": f"turn_{order['state']}", "entity_id": ent["entity_id"]}
-        return (yield from self._switch(args, ent.get("friendly_name") or ent["entity_id"], order["state"], ent.get("state")))
+        tr.path = "reflex"
+        handled = yield from self._switch(args, ent.get("friendly_name") or ent["entity_id"], order["state"], ent.get("state"), tr)
+        if not handled:
+            tr.path = "loop"
+        return handled
 
-    def _switch(self, args: Dict[str, Any], name: str, state: Optional[str], current: Optional[str]):
+    def _switch(self, args: Dict[str, Any], name: str, state: Optional[str], current: Optional[str], tr: TurnTrace):
         if self.tools.validate("ha_call", args):
             return False  # refused (e.g. server plug): let the loop explain
         if state and current == state:
@@ -193,7 +202,9 @@ class CourageAgent:
             return True
         verb = f"Switching {state}" if state else "Toggling"
         yield {"type": "tool_call", "name": "ha_call", "arguments": args, "status": f"{verb} {name}…"}
+        tr.tool_started()
         result = self.tools.execute("ha_call", args)
+        tr.tool("ha_call", args, result)
         yield {"type": "tool_result", "name": "ha_call", "result": result}
         ok = json.loads(result).get("ok", False) if result.startswith("{") else False
         done = f"{name} {state}." if state else f"{name} toggled."
@@ -202,15 +213,30 @@ class CourageAgent:
 
     # ---- the loop ------------------------------------------------------------
     def run(self, history: List[Dict[str, Any]], session_id: str = "default") -> Iterator[Dict[str, Any]]:
-        """Events: tool_call, tool_result, approval_required, then usage (tokens generated, tok/s) and final."""
+        """Events: tool_call, tool_result, approval_required, then usage (tokens generated, tok/s) and final.
+        Each turn is recorded in self.trace_log (courage/trace.py) when it ends, however it ends."""
         gen = [0, 0.0]
-        for ev in self._run(history, session_id, gen):
-            if ev["type"] == "final" and gen[0]:
-                yield {"type": "usage", "completion_tokens": gen[0],
-                       "tps": round(gen[0] / (gen[1] / 1000), 1) if gen[1] else 0}
-            yield ev
+        last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+        tr = TurnTrace(session_id, last_user if isinstance(last_user, str) else "")
+        try:
+            for ev in self._run(history, session_id, gen, tr):
+                if ev["type"] == "final":
+                    tr.end("answered", ev.get("content") or "")
+                    if gen[0]:
+                        yield {"type": "usage", "completion_tokens": gen[0],
+                               "tps": round(gen[0] / (gen[1] / 1000), 1) if gen[1] else 0}
+                yield ev
+        except Exception:
+            tr.end("error")
+            raise
+        finally:
+            if tr.outcome is None:
+                tr.end("abandoned")          # the client went away mid-turn (GeneratorExit)
+            if self.trace_log:
+                self.trace_log.write(tr.record())
 
-    def _run(self, history: List[Dict[str, Any]], session_id: str, gen: List[float]) -> Iterator[Dict[str, Any]]:
+    def _run(self, history: List[Dict[str, Any]], session_id: str, gen: List[float],
+             tr: TurnTrace) -> Iterator[Dict[str, Any]]:
         messages = self._build_messages(history)
         last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
 
@@ -218,14 +244,18 @@ class CourageAgent:
         if pending:
             if DENY.match(last_user):
                 self.pending.pop(session_id)
+                tr.path = "approval_no"
                 yield {"type": "final", "content": "Right. Leaving it alone."}
                 return
             if AFFIRM.match(last_user):
                 self.pending.pop(session_id)
+                tr.path = "approval_yes"
                 call_id = f"call_{pending['id']}"
                 yield {"type": "tool_call", "name": pending["name"], "arguments": pending["args"],
                        "status": self.tools.status_text(pending["name"], pending["args"]).replace("Asking to", "Going to")}
+                tr.tool_started()
                 result = self.tools.execute(pending["name"], pending["args"])
+                tr.tool(pending["name"], pending["args"], result)
                 yield {"type": "tool_result", "name": pending["name"], "result": result}
                 messages.append({"role": "assistant", "content": "", "tool_calls": [
                     {"id": call_id, "type": "function",
@@ -234,26 +264,31 @@ class CourageAgent:
             # anything else: a new request, the old action quietly expires on its own
 
         if not (pending and AFFIRM.match(last_user)):
-            handled = yield from self._reflex(last_user)
+            handled = yield from self._reflex(last_user, tr)
             if handled:
                 return
 
         nudged = False
         switched = []  # successful direct ha_calls this turn; a phrasing is learned only if it caused exactly one
         for _ in range(self.max_steps):
+            t_llm = time.time()
             try:
                 msg = self._complete(messages)
                 gen[0] += msg["_gen"][0]
                 gen[1] += msg["_gen"][1]
             except Exception as e:
-                yield {"type": "final", "content": f"My brain on :8001 isn't answering ({type(e).__name__}). Try again in a moment."}
+                text = f"My brain on :8001 isn't answering ({type(e).__name__}). Try again in a moment."
+                tr.end("llm_error", text)
+                yield {"type": "final", "content": text}
                 return
+            tr.llm((time.time() - t_llm) * 1000, msg["_gen"][0], len(msg.get("tool_calls") or []))
 
             calls = msg.get("tool_calls") or []
             if not calls:
                 msg["content"] = TRAILING_OFFER.sub("", THINK.sub("", msg.get("content") or "")).strip()
             if not calls and not nudged and PROMISE.search(msg.get("content") or ""):
                 nudged = True
+                tr.trigger("nudged")
                 messages.append({"role": "assistant", "content": msg.get("content") or ""})
                 messages.append({"role": "user", "content": NUDGE})
                 continue
@@ -261,6 +296,8 @@ class CourageAgent:
                 text = msg["content"]
                 if self.learned and len(switched) == 1:
                     self.learned.learn(last_user, *switched[0])
+                if not text:
+                    tr.trigger("empty_answer")
                 yield {"type": "final", "content": text or "I have nothing useful to add, which is rare."}
                 return
 
@@ -273,6 +310,7 @@ class CourageAgent:
                 if self.tools.needs_approval(name):
                     err = self.tools.validate(name, args)
                     if err:
+                        tr.invalid(name, args, err)
                         result = json.dumps({"ok": False, "error": err})
                         yield {"type": "tool_result", "name": name, "result": result}
                         messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
@@ -291,18 +329,24 @@ class CourageAgent:
                     skipped = len(calls) - i - 1
                     extra = f" (I've held back {skipped} other request{'s' if skipped > 1 else ''} until then.)" if skipped else ""
                     phone = " Or tap Yes on your phone." if pushed else ""
-                    yield {"type": "final", "content": f"Shall I {action['summary']}? Say yes to approve.{phone}{extra}"}
+                    text = f"Shall I {action['summary']}? Say yes to approve.{phone}{extra}"
+                    tr.end("asked_approval", text)
+                    yield {"type": "final", "content": text}
                     return
 
                 yield {"type": "tool_call", "name": name, "arguments": args, "status": self.tools.status_text(name, args)}
+                tr.tool_started()
                 result = self.tools.execute(name, args)
+                tr.tool(name, args, result)
                 yield {"type": "tool_result", "name": name, "result": result}
                 if name == "ha_call" and self.learned and result.startswith("{") and json.loads(result).get("ok"):
                     ent, _ = self.tools.resolve_entity(args.get("domain", ""), args.get("entity_id", ""))
                     switched.append((args, (ent or {}).get("friendly_name") or args.get("entity_id", "")))
                 messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
 
-        yield {"type": "final", "content": "I've gone round in circles on that one. Ask me again, more plainly?"}
+        text = "I've gone round in circles on that one. Ask me again, more plainly?"
+        tr.end("step_cap", text)
+        yield {"type": "final", "content": text}
 
     # ---- SSE for the StoneSage chat route -----------------------------------
     def sse(self, history: List[Dict[str, Any]], session_id: str = "default") -> Iterator[str]:

@@ -16,6 +16,7 @@ import { initEngineConsole } from './engine_console.js';
 import { initProfile } from './profile.js';
 import './model_loader.js';
 import './boost.js';
+import './courage_trace.js';
 
 // Early window modal helpers so click handlers are bound immediately
 window.openModelModal = function() {

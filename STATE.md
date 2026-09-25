@@ -299,9 +299,16 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `GET /api/courage/reflexes`, drop with `POST /api/courage/reflexes/forget {key}`): a direct on/off order the LLM resolved
   (exactly one action, no timers/compounds) is replayed without the LLM next time. Web chat shows the tool's status text.
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
+  Courage trace (live 2026-09-25, Phase 6 step 1, `backend/courage/trace.py`): one JSON line per turn in
+  `/opt/stonesage/data/courage_trace.jsonl` (rotates at 5 MB, one old copy): user text, path (reflex | learned |
+  approval_yes | approval_no | loop), outcome (answered | asked_approval | step_cap | llm_error | error | abandoned), total
+  ms, each model call (ms, tokens, tool calls asked for) and tool call (args, ok/error, ms), final answer, and the
+  escalation triggers RECORDED ONLY: tool_error, invalid_args, repeated_call, nudged, step_cap, llm_error, empty_answer.
+  Routes `GET /api/courage/trace?limit=`, `GET /api/courage/trace/summary?hours=`; UI Engine Console -> 🧭 COURAGE TRACE.
+  First live turns: "What's the temperature inside?" 1.5 s (2 model calls, ha_get_states 21 ms); "Where is Luna?" 4.0 s.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 276 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 284 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.
