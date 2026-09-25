@@ -88,7 +88,7 @@ class TestCourageAgent(unittest.TestCase):
         agent, _ = make_agent(llm)
         run(agent, "hi")
         system = llm.requests[0]["messages"][0]["content"]
-        self.assertIn("Camera sightings", system)
+        self.assertIn("[Who is where", system)
         self.assertIn("Luna: seen 12 min ago on Kitchen/Living Room", system)
         self.assertIn("Savannah: no recent sighting", system)
 

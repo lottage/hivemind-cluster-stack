@@ -13,6 +13,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from .prompt import home_status_text
+
 CAMERAS: Dict[str, Dict[str, str]] = {
     "kitchen_living_room": {"entity": "camera.kitchen_living_room_hd_stream", "name": "Kitchen/Living Room"},
     "driveway_front_door": {"entity": "camera.driveway_front_door_hd_stream_direct", "name": "Driveway/Front Door"},
@@ -258,13 +260,19 @@ class CourageTools:
         locs = state.get("locations") or {}
         seen = {name: {"minutes_ago": v.get("minutes_ago"), "camera": v.get("camera"), "doing": v.get("doing")}
                 for name, v in locs.items()}
+        home = {n: t for n, t in ((n, home_status_text(hs)) for n, hs in (state.get("home_status") or {}).items()) if t}
         who = (who or "").lower().strip()
         if not who:
-            return {"ok": True, "last_seen": seen,
-                    "note": "Anyone not listed has not been seen on camera recently; that does not prove they are out."}
+            return {"ok": True, "gps": home, "last_seen": seen,
+                    "note": "gps = phone/Life360 home status (trust it for home or away); last_seen = past camera views."}
         loc = seen.get(who)
         out: Dict[str, Any] = {"ok": True, "who": who, "last_seen": loc or "no recent camera sighting"}
-        if loc is None or (loc.get("minutes_ago") or 0) > STALE_MINUTES:
+        if who in home:
+            out["gps"] = home[who]
+        away = (state.get("home_status") or {}).get(who, {}).get("state") not in (None, "home", "unknown", "unavailable")
+        if away:
+            out["note"] = "GPS says they are not home, so I did not look through the cameras."
+        elif loc is None or (loc.get("minutes_ago") or 0) > STALE_MINUTES:
             cam = CAMERAS[self._camera_key(loc and loc.get("camera"))]
             out["looked_now"] = {"camera": cam["name"],
                                  "sees": self.deps.camera_look(cam["entity"], cam["name"], people_only=True)

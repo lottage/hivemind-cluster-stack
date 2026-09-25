@@ -116,6 +116,12 @@ export function renderPresence(data) {
       const lastSeen = !loc ? 'Unknown'
         : loc.last_seen || new Date(loc.mtime * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       const via = loc && loc.source === 'frigate' ? ' · Frigate' : loc && loc.source === 'patrol' ? ' · patrol' : '';
+      // GPS home status for residents (HA person: Life360 / phone)
+      const hs = (data.home_status || {})[key];
+      const gps = !hs || ['unknown', 'unavailable', null].includes(hs.state) ? ''
+        : `<div style="font-size:0.72rem; margin-top:2px; font-weight:bold; color:${hs.state === 'home' ? '#22c55e' : 'var(--term-accent-gold)'};">`
+          + `${hs.state === 'home' ? '🏠 Home' : hs.state === 'not_home' ? '🚗 Away' : `📍 ${hs.state}`} · ${hs.source_label}`
+          + `${hs.since_min != null ? ` · ${hs.since_min < 90 ? Math.round(hs.since_min) + ' min' : (hs.since_min / 60).toFixed(1) + ' h'}` : ''}</div>`;
       // Correction controls: only for a sighting that has an image to judge
       const src = loc && loc.source === 'frigate' && loc.event_id ? ['frigate', loc.event_id]
         : loc && loc.source === 'patrol' && loc.patrol_ref ? ['patrol', loc.patrol_ref]
@@ -136,7 +142,7 @@ export function renderPresence(data) {
             <span style="font-weight:bold; color:var(--term-text-bright);">${ent.name}</span>
             <span style="font-size:0.7rem; font-family:monospace;">${statusBadge}</span>
           </div>
-          <div style="font-size:0.72rem; color:var(--term-text-muted); margin-top:2px;">${ent.role || ent.breed || ent.species}</div>
+          <div style="font-size:0.72rem; color:var(--term-text-muted); margin-top:2px;">${ent.role || ent.breed || ent.species}</div>${gps}
           ${snapshotImg}
           <div style="font-size:0.68rem; color:var(--term-text-muted); margin-top:4px;">Last: ${lastSeen}${loc && loc.camera ? ` · ${loc.camera}` : ''}${via}</div>${correct}
         </div>

@@ -32,18 +32,31 @@ def _ago(minutes: Optional[float]) -> str:
     return f"seen {minutes / 60:.1f} h ago"
 
 
+def home_status_text(hs: Optional[Dict[str, Any]]) -> Optional[str]:
+    """HA person state -> 'home (Life360, 2.1 h)' / 'away (...)' / 'at Work (...)'; None when HA has nothing."""
+    if not hs or hs.get("state") in (None, "unknown", "unavailable"):
+        return None
+    st = hs["state"]
+    where = "home" if st == "home" else "away" if st == "not_home" else f"at {st}"
+    mins = hs.get("since_min")
+    since = "" if mins is None else f", {int(mins)} min" if mins < 90 else f", {mins / 60:.1f} h"
+    return f"{where} ({hs.get('source_label', 'GPS')}{since})"
+
+
 def build_presence_card(state: Optional[Dict[str, Any]], now: Optional[datetime] = None) -> str:
-    """Compact 'who is where' card from the presence hub state (get_full_presence_state())."""
+    """Compact 'who is where' card: phone GPS / Life360 home status for people (HA person entities), then the
+    last camera sighting for everyone."""
     now = now or datetime.now()
-    lines = [f"[Camera sightings, {now.strftime('%a %H:%M')}; not proof of who is home, call presence_now or camera_look for now]"]
+    lines = [f"[Who is where, {now.strftime('%a %H:%M')}: GPS says home/away; camera sightings are past views, "
+             "call presence_now or camera_look for now]"]
     locations = (state or {}).get("locations") or {}
+    home_status = (state or {}).get("home_status") or {}
     for name in WHO:
         loc = locations.get(name.lower())
-        if loc:
-            where = loc.get("camera") or loc.get("room")
-            lines.append(f"- {name}: {_ago(loc.get('minutes_ago'))}" + (f" on {where}" if where else ""))
-        else:
-            lines.append(f"- {name}: no recent sighting")
+        gps = home_status_text(home_status.get(name.lower()))
+        cam = (_ago(loc.get("minutes_ago")) + (f" on {loc.get('camera') or loc.get('room')}" if (loc.get("camera") or loc.get("room")) else "")
+               if loc else "no recent sighting")
+        lines.append(f"- {name}: {gps}; camera: {cam}" if gps else f"- {name}: {cam}")
     anon = locations.get("someone")  # Frigate saw a person it could not put a name to
     if anon and (anon.get("minutes_ago") or 0) <= 30:
         where = anon.get("camera")

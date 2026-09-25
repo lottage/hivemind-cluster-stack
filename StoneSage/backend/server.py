@@ -2706,9 +2706,39 @@ def _courage_hub_and_frigate() -> Dict[str, Any]:
     return {**state, "locations": merge_locations(state.get("locations") or {}, fp.locations())}
 
 
+_home_status_cache: Dict[str, Any] = {"at": 0.0, "data": {}}
+
+
+def _ha_home_status() -> Dict[str, Dict[str, Any]]:
+    """Residents' HA person state (phone GPS / Life360), 30 s cache: {"savannah": {state, source_label, since_min}}."""
+    if time.time() - _home_status_cache["at"] < 30:
+        return _home_status_cache["data"]
+    out: Dict[str, Dict[str, Any]] = {}
+    for name in (load_config().get("patrol") or {}).get("residents", ["Austin", "Savannah"]):
+        st = hass.get_state(f"person.{name.lower()}")
+        if not st:
+            continue
+        src = (st.get("attributes") or {}).get("source") or ""
+        since = None
+        try:
+            changed = datetime.fromisoformat(st["last_changed"].replace("Z", "+00:00"))
+            since = round((datetime.now(timezone.utc) - changed).total_seconds() / 60, 1)
+        except Exception:
+            pass
+        out[name.lower()] = {"state": st.get("state"), "source": src, "since_min": since,
+                             "source_label": "Life360" if "life360" in src else "phone GPS"}
+    _home_status_cache.update(at=time.time(), data=out)
+    return out
+
+
 def _courage_presence() -> Dict[str, Any]:
-    """Everything Courage and the cards know: hub + Frigate + PTZ patrol sightings (newest wins per identity)."""
+    """Everything Courage and the cards know: hub + Frigate + PTZ patrol sightings (newest wins per identity), and
+    the residents' GPS home status from HA (Life360 / phone)."""
     state = _courage_hub_and_frigate()
+    try:
+        state = {**state, "home_status": _ha_home_status()}
+    except Exception as e:
+        logger.warning(f"home status from HA: {e}")
     if _patrol is None:
         return state
     from frigate_presence import merge_locations

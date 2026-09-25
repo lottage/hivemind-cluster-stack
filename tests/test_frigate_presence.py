@@ -123,6 +123,27 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(out["austin"]["minutes_ago"], 12.0)   # hub still names people Frigate can't
         self.assertIn("luna", out)
 
+    def test_card_leads_with_gps_home_status(self):
+        card = build_presence_card({
+            "locations": {"savannah": {"minutes_ago": 180.0, "camera": "Kitchen/Living"}},
+            "home_status": {"savannah": {"state": "not_home", "source_label": "Life360", "since_min": 126.0},
+                            "austin": {"state": "home", "source_label": "Life360", "since_min": 12.0}}})
+        self.assertIn("- Savannah: away (Life360, 2.1 h); camera: seen 3.0 h ago on Kitchen/Living", card)
+        self.assertIn("- Austin: home (Life360, 12 min); camera: no recent sighting", card)
+        self.assertIn("- Luna: no recent sighting", card)          # pets have no GPS line
+
+    def test_presence_now_trusts_gps_away_and_skips_the_camera(self):
+        from courage import CourageDeps, CourageTools
+        looks = []
+        state = {"locations": {"savannah": {"minutes_ago": 300.0, "camera": "Kitchen/Living"}},
+                 "home_status": {"savannah": {"state": "not_home", "source_label": "Life360", "since_min": 40.0}}}
+        tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=lambda: state,
+                                         camera_look=lambda e, n, **kw: looks.append(e) or "empty room", camera_scan=None))
+        out = tools._presence_now("savannah")
+        self.assertEqual(out["gps"], "away (Life360, 40 min)")
+        self.assertEqual(looks, [])                                  # no pointless camera look
+        self.assertIn("savannah", tools._presence_now()["gps"])
+
     def test_card_shows_in_view_and_unidentified_person(self):
         card = build_presence_card({"locations": {"kylo": {"minutes_ago": 0.0, "camera": "kitchen living room"},
                                                   "someone": {"minutes_ago": 3.0, "camera": "kitchen living room"}}})
