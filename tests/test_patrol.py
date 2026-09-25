@@ -214,6 +214,41 @@ class TestSweep(unittest.TestCase):
         st = p.status()["cameras"]["camera.kitchen"]
         self.assertEqual((st["first_pan"], st["step"]), (90, 40))
 
+    def test_refused_move_is_retried_then_reported_not_taken_for_the_end_stop(self):
+        p, cam = self.make()
+        recs = []
+        p.on_sweep = recs.append
+        real = cam.press_button
+        refused = {"n": 0}
+
+        def flaky(eid):
+            if eid.endswith("right") and refused["n"] < 1:     # one refusal: the retry gets through
+                refused["n"] += 1
+                return {"ok": False, "error": "HTTP Error 500"}
+            return real(eid)
+        cam.press_button = flaky
+        self.assertEqual(p.sweep("camera.kitchen", KITCHEN)["frames"], 8)
+        self.assertIn("move_error", recs[-1]["triggers"])
+        cam.press_button = lambda eid: {"ok": False, "error": "HTTP Error 500"} if eid.endswith("right") else real(eid)
+        p.sweep("camera.kitchen", KITCHEN)
+        self.assertEqual((recs[-1]["stopped"], recs[-1]["move_error"]), ("move_failed", "HTTP Error 500"))
+        self.assertEqual(recs[-1]["returned"], "start")                # still goes back where it was
+
+    def test_a_refused_preset_save_is_retried(self):
+        p, cam = self.make()
+        real = cam.call_service
+        n = {"save": 0}
+
+        def flaky(domain, service, data, timeout=4):
+            if service == "save_preset" and n["save"] == 0:
+                n["save"] += 1
+                return {"ok": False, "error": "HTTP Error 500"}
+            return real(domain, service, data, timeout)
+        cam.call_service = flaky
+        cam.pos = 200
+        p.sweep("camera.kitchen", KITCHEN)
+        self.assertEqual(cam.pos, 200)                                  # the retry saved it, so it went back
+
     def test_run_once_reads_presence_once(self):
         p, _ = self.make()
         p.run_once()

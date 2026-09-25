@@ -45,6 +45,11 @@ class Interrupted(Exception):
     """Someone else took the camera mid-sweep."""
 
 
+class MoveFailed(Exception):
+    """HA / the camera refused a PTZ move twice. Without this a refused press looked like the right end stop
+    (the next frame is unchanged): 2026-09-25 a kitchen sweep 'ended' at 90 deg after one frame."""
+
+
 def _key(name: str) -> str:
     """Identity key, same rule as frigate_presence.norm_name: 'Aunt May' -> 'aunt-may'."""
     return re.sub(r"[^a-z0-9-]", "", (name or "").strip().lower().replace(" ", "-").replace("'", ""))
@@ -159,6 +164,15 @@ class Patrol:
             st["busy"] = True
             return True
 
+    def _twice(self, call: Callable[[], Dict[str, Any]], wait: float) -> Dict[str, Any]:
+        """A camera command, retried once after `wait` s: the Tapo cameras sometimes answer HA with a 500 while busy
+        (seen 2026-09-25 on the kitchen C260 for presses and preset saves; the retry went through)."""
+        res = call() or {}
+        if res.get("ok", True):
+            return res
+        self.sleep(wait)
+        return call() or {}
+
     def _ha_state(self, entity_id: str) -> Optional[str]:
         return (self.ha.get_state(entity_id) or {}).get("state")
 
@@ -222,9 +236,17 @@ class Patrol:
         angle_before: float = DEFAULT_ANGLE
 
         def move(button: str) -> None:
-            if self.manual_at.get(entity, 0) >= started:
-                raise Interrupted()
-            self.ha.press_button(f"button.{ptz}_move_{button}")
+            for attempt in (1, 2):
+                if self.manual_at.get(entity, 0) >= started:
+                    raise Interrupted()
+                res = self.ha.press_button(f"button.{ptz}_move_{button}") or {}
+                if res.get("ok", True):
+                    return
+                stats["move_errors"] = stats.get("move_errors", 0) + 1
+                stats["move_error"] = str(res.get("error"))[:200]
+                if attempt == 1:
+                    self.sleep(settle)                       # the camera may still be busy with the last move
+            raise MoveFailed()
 
         saved = False
         stats: Dict[str, Any] = {"vision_calls": 0, "vision_ms": 0.0, "vision_errors": 0}
@@ -236,9 +258,12 @@ class Patrol:
             except (TypeError, ValueError):
                 pass
             # Where the camera points now (John's last position, or wherever it was left) is where it goes back to
-            res = self.ha.call_service("tapo_control", "save_preset", {"entity_id": entity, "name": RETURN_PRESET},
-                                       timeout=PRESET_TIMEOUT_S)
-            saved = bool((res or {}).get("ok", True))
+            res = self._twice(lambda: self.ha.call_service("tapo_control", "save_preset",
+                                                           {"entity_id": entity, "name": RETURN_PRESET},
+                                                           timeout=PRESET_TIMEOUT_S), 2)
+            saved = bool(res.get("ok", True))
+            if not saved:
+                stats["save_error"] = str(res.get("error"))[:200]
             self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": 120})
             for _ in range(LEFT_END_MOVES):
                 move("left")
@@ -272,6 +297,8 @@ class Patrol:
                     move("right")
         except Interrupted:
             interrupted = True                               # John/Courage has the camera: no trip home either
+        except MoveFailed:
+            stopped = "move_failed"                          # keep the frames so far, then go back as usual
         except Exception as e:
             error = f"{type(e).__name__}: {e}"[:200]
             raise
@@ -280,14 +307,20 @@ class Patrol:
                 value = int(angle_before) if float(angle_before).is_integer() else angle_before
                 self.ha.call_service("number", "set_value", {"entity_id": angle_eid, "value": value})
                 if not interrupted:
-                    back = (self.ha.select_option(f"select.{ptz}_move_to_preset", RETURN_PRESET, timeout=PRESET_TIMEOUT_S)
+                    back = (self._twice(lambda: self.ha.select_option(f"select.{ptz}_move_to_preset", RETURN_PRESET,
+                                                                       timeout=PRESET_TIMEOUT_S), settle)
                             if saved else {"ok": False})
                     returned = "start"
                     if not (back or {}).get("ok", True):
                         returned = "failed"
+                        stats["return_error"] = str((back or {}).get("error") or "not saved")[:200]
                         if cam.get("home_preset"):
-                            home = self.ha.select_option(f"select.{ptz}_move_to_preset", cam["home_preset"])
+                            home = self._twice(lambda: self.ha.select_option(f"select.{ptz}_move_to_preset",
+                                                                             cam["home_preset"], timeout=PRESET_TIMEOUT_S),
+                                               settle)
                             returned = "home" if (home or {}).get("ok", True) else "failed"
+                            if returned == "failed":
+                                stats["home_error"] = str((home or {}).get("error"))[:200]
                 # Even when the save looked failed: HA's client gives up after 4 s, the camera may still have saved it
                 self.ha.call_service("tapo_control", "delete_preset", {"entity_id": entity, "preset": RETURN_PRESET})
             finally:
@@ -314,6 +347,8 @@ class Patrol:
             triggers.append("frame_error")
         if stats["vision_errors"]:
             triggers.append("vision_error")
+        if stats.get("move_errors"):
+            triggers.append("move_error")                    # a PTZ press was refused (retried once)
         if not stats.get("saved", True):
             triggers.append("save_failed")                   # could not remember the starting position
         if returned == "failed":
@@ -329,6 +364,9 @@ class Patrol:
                "triggers": triggers}
         if error:
             rec["error"] = error
+        for k in ("save_error", "return_error", "home_error", "move_error"):   # HA's own words when a camera command failed
+            if stats.get(k):
+                rec[k] = stats[k]
         try:
             self.on_sweep(rec)
         except Exception:

@@ -168,6 +168,7 @@ class TestPatrolRecords(unittest.TestCase):
         self.assertIn("return_failed", rec["triggers"])
         self.assertIn("save_failed", rec["triggers"])
         self.assertFalse(rec["saved_start"])
+        self.assertEqual(rec["home_error"], "camera offline")          # HA's words, for the next debugging session
         self.assertIn("vision_error", rec["triggers"])
 
 

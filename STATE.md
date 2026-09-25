@@ -332,9 +332,17 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   The first patrol record showed the scheduled driveway sweep going back to "Doors" instead of its start: HA calls had a
   fixed 4 s timeout, too short for a sleeping solar camera saving a preset. The preset save and return now wait 20 s
   (`patrol.PRESET_TIMEOUT_S`; `hass_client.call_service/select_option` take a timeout).
+  Every patrol camera command (move, preset save, return, home fallback) is retried once and HA's error text goes in the
+  trace (save_error / move_error / return_error / home_error; trigger move_error). Before, a refused move looked like
+  the right end stop (a kitchen sweep "ended" at 90 deg after 1 frame). Verified: driveway returns to its start with
+  the 20 s timeout. OPEN (HA side, John's call): the kitchen C260 (.146) refuses preset saves (HTTP 500, twice in a
+  row, even for a new name), so kitchen sweeps fall back to "Living Room". HA's system log: tapo_control warns that the
+  TP-Link core integration is ALSO configured for .146 ("causes instability"); "Invalid authentication data" x35
+  fetching its status (camera-account password changed 2026-09-25 morning); Tapo error -40214 x26; "Recording is
+  currently in progress" x7; a connect timeout to .146:443.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 289 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 292 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

@@ -40,6 +40,8 @@ const TRIGGER_HELP = {
   vision_error: 'patrol: the vision model failed on a frame',
   return_failed: 'patrol: could not go back to the starting position',
   interrupted: 'patrol: someone took the camera mid-sweep',
+  move_error: 'patrol: a PTZ move was refused (retried once)',
+  save_failed: 'patrol: could not remember the starting position',
 };
 
 const secs = (ms) => (ms == null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -84,6 +86,10 @@ function renderPatrol(t) {
       <div>Vision: ${t.vision?.calls ?? 0} call(s), ${secs(t.vision?.ms)}${t.vision?.errors ? `, <span style="color:var(--term-error,#ef4444)">${t.vision.errors} failed</span>` : ''}</div>
       <div>Seen: ${seen || 'nobody known'}</div>
       ${t.error ? `<div style="color:var(--term-error,#ef4444)">error: ${esc(t.error)}</div>` : ''}
+      ${t.save_error ? `<div style="color:var(--term-error,#ef4444)">saving the start: ${esc(t.save_error)}</div>` : ''}
+      ${t.return_error ? `<div style="color:var(--term-error,#ef4444)">going back: ${esc(t.return_error)}</div>` : ''}
+      ${t.home_error ? `<div style="color:var(--term-error,#ef4444)">home preset: ${esc(t.home_error)}</div>` : ''}
+      ${t.move_error ? `<div style="color:var(--term-error,#ef4444)">PTZ move refused: ${esc(t.move_error)}</div>` : ''}
     </div>`;
 }
 
