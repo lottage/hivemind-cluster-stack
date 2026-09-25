@@ -111,9 +111,13 @@ rewrite it). Secrets `FRIGATE_*` in `/etc/stonesage/secrets.env` on LXC 128 (Tap
   camera wake per `min_refresh_s` (180 s; driveway 60 s), frames shrunk to 640 px. PTZ arrows + presets on kitchen and
   driveway via HA `button.<ptz>_move_*` / `select.<ptz>_move_to_preset`, preset names read live from HA (driveway's is
   "Driveway " with a trailing space; `camera_scan` now uses HA's spelling too). Driveway camera clock is hours off.
-  **Open:** WebRTC fails from John's phone over https :8443 (signalling OK, ICE fails; desktop connects). The page now
-  posts browser ICE stats on failure to `POST /api/cameras/webrtc-report` (logged as "WebRTC failed from ..."). The
-  temporary `go2rtc: log: webrtc: debug` in Frigate's config produced no log lines; remove it once this is solved.
+  WebRTC from John's phone failed: Firefox 156 on Android 16 sends no ICE checks at all (`req=0` on every pair;
+  Android's local-network permission); Chrome on the same phone works. Fallback (2026-09-25): if WebRTC is not
+  connected within 6 s, the tile plays `GET /api/cameras/mp4?stream=` = go2rtc's fragmented MP4 (H.264 copied, no
+  transcoding, video only) relayed by StoneSage over the page's own connection, and the browser remembers it
+  (`localStorage stonesage.live.mp4`). Measured: kitchen sub ~250 kbit/s (720p, 24 fps), driveway ~1.6 Mbit/s
+  (1296p, ~15 fps). Failed WebRTC attempts still post ICE stats to `/api/cameras/webrtc-report`. The temporary
+  `go2rtc: log: webrtc: debug` in Frigate's config never logged anything; remove it at the next Frigate change.
 - Presence corrections (2026-09-25, `backend/presence_corrections.py`, cards in Residents & Pets): "✗ Wrong" and
   "Correct as ▾" (+ New profile). Frigate sightings: false_positive / sub_label; correcting to a person moves that event's
   face attempts into Frigate's face library (face_recognition enabled, model small, library empty until corrections).

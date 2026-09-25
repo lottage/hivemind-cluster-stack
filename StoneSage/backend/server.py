@@ -3674,6 +3674,40 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(img)
             return
 
+        elif path == "/api/cameras/mp4":
+            # Fallback when a browser cannot do WebRTC to the go2rtc host (Firefox on Android 16 without the
+            # local-network permission sends no ICE checks at all): go2rtc's fragmented MP4, H.264 copied (no
+            # transcoding, video only), relayed over this same HTTP(S) connection. One thread per viewer.
+            q = urllib.parse.parse_qs(parsed.query or "")
+            stream = q.get("stream", [""])[0]
+            cfg = load_config()
+            if stream not in set(_webrtc_streams(cfg).values()):
+                self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
+                return
+            go2rtc = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
+            try:
+                upstream = urllib.request.urlopen(f"{go2rtc}/api/stream.mp4?src={urllib.parse.quote(stream)}", timeout=15)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"go2rtc: {e}"}, 502)
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                while True:
+                    chunk = upstream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+                pass  # viewer closed the tile or left the page
+            finally:
+                upstream.close()
+                self.close_connection = True
+            return
+
         elif path.startswith("/api/cameras/hls/"):
             # HA's HLS stream through StoneSage (same origin: no CORS, and HTTPS pages can play it)
             import camera_ui

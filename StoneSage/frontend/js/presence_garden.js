@@ -243,16 +243,43 @@ async function reportIceFailure(pc, stream, status) {
   } catch (e) { /* diagnostics only */ }
 }
 
+// MP4 fallback: go2rtc's fragmented MP4 (H.264 as-is, video only) relayed by StoneSage over the page's own
+// HTTP(S) connection. Used when this browser cannot reach go2rtc directly (Firefox on Android 16 without the
+// local-network permission never sends an ICE check). Remembered per browser so later visits start on MP4.
+const MP4_PREF = 'stonesage.live.mp4';
+const prefersMP4 = () => { try { return localStorage.getItem(MP4_PREF) === '1'; } catch (e) { return false; } };
+
+function playMP4(video, status, stream) {
+  video.srcObject = null;
+  liveVideos.push(video);
+  video.addEventListener('playing', () => setStatus(status, '● LIVE (MP4, no sound)', true), { once: true });
+  video.addEventListener('error', () => setStatus(status, 'stream ended'), { once: true });
+  setStatus(status, 'connecting (MP4)…');
+  video.src = `/api/cameras/mp4?stream=${encodeURIComponent(stream)}`;
+  video.play().catch(() => { /* muted autoplay starts on its own */ });
+}
+
 async function playWebRTC(video, status, stream) {
+  if (prefersMP4()) { playMP4(video, status, stream); return; }
   const pc = new RTCPeerConnection();
   livePeers.push(pc);
   const media = new MediaStream();
   video.srcObject = media;
   pc.ontrack = (e) => media.addTrack(e.track);
+  let fellBack = false;
+  const fallBack = () => {
+    if (fellBack || pc.connectionState === 'connected') return;
+    fellBack = true;
+    try { localStorage.setItem(MP4_PREF, '1'); } catch (e) { /* private mode: fall back each time */ }
+    try { pc.close(); } catch (e) { /* already closed */ }
+    playMP4(video, status, stream);
+  };
+  setTimeout(fallBack, 6000);  // Firefox takes ~13 s to declare failure; don't make the viewer wait for it
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
+    if (fellBack) return;
     setStatus(status, { connected: '● LIVE', failed: 'connection failed', disconnected: 'reconnecting…' }[s] || s, s === 'connected');
-    if (s === 'failed') reportIceFailure(pc, stream, status);
+    if (s === 'failed') { reportIceFailure(pc, stream, status); fallBack(); }
   };
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.addTransceiver('audio', { direction: 'recvonly' });
