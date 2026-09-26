@@ -114,10 +114,11 @@ function switchConsoleSublayer(layerId) {
   if (pane) pane.style.display = 'block';
 
   const tabs = document.getElementById('econsole-engine-tabs');
-  if (tabs) tabs.style.display = ['loader', 'boost', 'trace'].includes(layerId) ? 'none' : 'flex';  // own pickers / not per engine
+  if (tabs) tabs.style.display = ['loader', 'boost', 'trace', 'memories'].includes(layerId) ? 'none' : 'flex';  // own pickers / not per engine
   if (layerId === 'loader' && typeof window.openModelLoader === 'function') window.openModelLoader();
   if (layerId === 'boost' && typeof window.openBoost === 'function') window.openBoost();
   if (layerId === 'trace' && typeof window.openCourageTrace === 'function') window.openCourageTrace();
+  if (layerId === 'memories' && typeof window.openCourageMemories === 'function') window.openCourageMemories();
   if (layerId === 'dashboard') pollAllEngines();
   if (layerId === 'params') renderParameterEditor();
   if (layerId === 'sizer' && typeof window.recalculateHardwareCapacity === 'function') {

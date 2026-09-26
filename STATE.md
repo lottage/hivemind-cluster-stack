@@ -326,6 +326,19 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   replies <= 300 chars (a story saying "I'll look back..." was nudged). New live eval `tests/live/test_courage_chat.py`
   (10 cases, graded: no refusal pattern, minimum length): 6/10 before, 10/10 after; tool choice 41/42 -> 42/42 single
   and mid-conversation (no regression).
+  Conversational memory (2026-09-26, `backend/courage/memory.py`): notes about the people he talks to, in
+  `/opt/stonesage/data/courage_memories.json` (local only; max 500). After an answered loop turn that did not act on the
+  house (no ha_call/notify/speak; > 11 chars), the coordinator is asked in the background for 0-2 lasting notes, written
+  to the person in the second person ("Your sister Emma..."), only from what the user said (never Courage's replies or
+  stories); a note >= 0.90 similar to one already kept only refreshes it. Each turn, BGE (:8003, query prefix) recalls
+  up to 3 notes scoring >= 0.40 (calibrated live: relevant 0.40-0.65, home commands/arithmetic 0.33-0.35) into a small
+  dated card ("use naturally, don't recite, don't add details"). `memory_search` searches these notes too, then A-MEM
+  (when it searched only A-MEM, a remembered fact came back "not found" and the tool result won). Learning shows in
+  the trace (kind memory; courage records list `recalled` ids and scores). Routes `GET /api/courage/memories`,
+  `POST /api/courage/memories/forget {id}`; UI Engine Console -> 🧠 MEMORIES. Live eval
+  `tests/live/test_courage_memory_live.py` (stored, recalled in a new conversation, small talk not stored, home tool
+  choice unchanged): passes 7/8 runs over the iterations, 3/3 on the final version; tool choice 42/42 and 41/42.
+  Verified on the live system with a test code word (learned in 0.9 s, recalled in a new conversation), then forgotten.
   Courage trace (live 2026-09-25, Phase 6 step 1, `backend/courage/trace.py`): one JSON line per turn in
   `/opt/stonesage/data/courage_trace.jsonl` (rotates at 5 MB, one old copy): user text, path (reflex | learned |
   approval_yes | approval_no | loop), outcome (answered | asked_approval | step_cap | llm_error | error | abandoned), total
@@ -352,7 +365,7 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   currently in progress" x7; a connect timeout to .146:443.
 - Camera questions were 15-100 s; vision is now ~3 s per frame on GPU, so PTZ settle and snapshot fetch dominate. Frigate planned (Phase 3).
 - Night motion from spider webs on outdoor cams.
-- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 292 tests (2026-09-25), 1 known failure (`test_ally_model_manager` context sizing).
+- Tests: `python tests/run_tests.py` (unit, LAN blocked) = 298 tests (2026-09-26), 1 known failure (`test_ally_model_manager` context sizing).
   `python tests/run_tests.py live` = read-only checks against the real stack.
 - Git: Phase 0 baseline (b3b5ebb), Phase 2 and the node-IP fix are merged into `main` (2026-09-24); `phase2-courage-tools`
   tracks `main`. No remote.

@@ -10,7 +10,7 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const S = { turns: [], summary: null, open: new Set(), onlyFlagged: false, hours: 24, kind: '', timer: null, bound: false };
-const KINDS = [['', 'All'], ['courage', '🐕 Courage'], ['boost', '⚡ Boost'], ['patrol', '🛡️ Patrol']];
+const KINDS = [['', 'All'], ['courage', '🐕 Courage'], ['memory', '🧠 Memory'], ['boost', '⚡ Boost'], ['patrol', '🛡️ Patrol']];
 
 const OUTCOME = {
   answered: ['✓', 'var(--term-success, #22c55e)'],
@@ -20,6 +20,9 @@ const OUTCOME = {
   error: ['✗', 'var(--term-error, #ef4444)'],
   abandoned: ['…', 'var(--term-text-muted)'],
   failed: ['✗', 'var(--term-error, #ef4444)'],
+  stored: ['🧠', 'var(--term-success, #22c55e)'],
+  refreshed: ['↻', 'var(--term-text-muted)'],
+  nothing: ['·', 'var(--term-text-muted)'],
   done: ['✓', 'var(--term-success, #22c55e)'],
   interrupted: ['⏸', 'var(--term-accent-gold, #eab308)'],
   no_frames: ['✗', 'var(--term-error, #ef4444)'],
@@ -42,6 +45,7 @@ const TRIGGER_HELP = {
   interrupted: 'patrol: someone took the camera mid-sweep',
   move_error: 'patrol: a PTZ move was refused (retried once)',
   save_failed: 'patrol: could not remember the starting position',
+  memory_error: 'memory: learning from a conversation failed',
 };
 
 const secs = (ms) => (ms == null ? '–' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -95,11 +99,19 @@ function renderPatrol(t) {
 
 function rowText(t) {
   if (t.kind === 'boost') return `⚡ ${esc(t.surface)} · ${esc(t.class)}${t.provider ? ` → ${esc(t.provider)}` : ''}`;
+  if (t.kind === 'memory') return `🧠 ${t.stored?.length ? esc(t.stored.join(' · ')) : t.refreshed ? 'confirmed a note it already had' : 'nothing worth keeping'}`;
   if (t.kind === 'patrol') return `🛡️ ${esc(t.camera)} · ${t.frames} frame(s)${(t.seen || []).length ? ` · saw ${esc([...new Set(t.seen.flatMap((x) => x.seen))].join(', '))}` : ''}`;
   return esc(t.user);
 }
 
 function renderSteps(t) {
+  if (t.kind === 'memory') {
+    return `<div style="margin:4px 0 6px 18px; font-size:0.7rem; line-height:1.5;">
+      ${(t.stored || []).map((x) => `<div>🧠 stored: ${esc(x)}</div>`).join('') || '<div>nothing stored</div>'}
+      ${t.refreshed ? `<div>↻ ${t.refreshed} note(s) it already had</div>` : ''}
+      ${t.error ? `<div style="color:var(--term-error,#ef4444)">error: ${esc(t.error)}</div>` : ''}
+      <div style="color:var(--term-text-muted)">${secs(t.ms)} · session ${esc(t.session)}</div></div>`;
+  }
   if (t.kind === 'boost') return renderBoost(t);
   if (t.kind === 'patrol') return renderPatrol(t);
   const rows = (t.steps || []).map((s) => {
@@ -113,6 +125,7 @@ function renderSteps(t) {
   return `<div style="margin:4px 0 6px 18px; font-size:0.7rem; line-height:1.5;">
       ${rows || '<div style="color:var(--term-text-muted)">no model or tool calls</div>'}
       <div style="margin-top:3px; color:var(--term-text-muted)">Answer: ${esc(t.final) || '–'}</div>
+      ${(t.recalled || []).length ? `<div>🧠 recalled ${t.recalled.length} memory note(s) (scores ${t.recalled.map((r) => r.score).join(', ')})</div>` : ''}
       <div style="color:var(--term-text-muted)">Model total ${secs(t.llm?.ms)} over ${t.llm?.calls ?? 0} call(s), ${t.llm?.tokens ?? 0} tokens · session ${esc(t.session)}</div>
     </div>`;
 }

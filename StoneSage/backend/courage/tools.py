@@ -124,7 +124,8 @@ class CourageTools:
                 "status": "Sweeping the {camera} camera…",
             },
             "memory_search": {
-                "description": "Search long-term memory and notes for facts about the home, family, devices or past events.",
+                "description": "Search long-term memory: what people told you in earlier conversations, and notes about "
+                               "the home, family, devices or past events.",
                 "parameters": _schema({"query": {"type": "string"}}, ["query"]),
                 "handler": self._memory_search, "approval": False,
                 "status": "Rummaging through my notes…",

@@ -23,6 +23,12 @@ from .prompt import build_system_prompt
 from .tools import CourageTools
 from .trace import TraceLog, TurnTrace
 
+# A turn that switched something, notified or announced was a command: nothing to learn. Any other answered turn goes
+# to the extractor, which skips device states itself (2026-09-26: "my sister Emma is allergic to cats" made Courage
+# check where the cats were, and a "no home tools" rule then threw the fact away).
+ACTION_TOOLS = {"ha_call", "notify", "speak"}
+LEARN_MIN_CHARS = 12   # "hi", "thanks": nothing to remember
+
 AFFIRM = re.compile(r"^\s*(yes|yeah|yep|yup|y|ok|okay|sure|do it|go ahead|go for it|approved?|confirm(ed)?|please do)\b", re.I)
 DENY = re.compile(r"^\s*(no|nope|nah|cancel|don'?t|do not|stop|never ?mind|leave it)\b", re.I)
 TOOL_MARKUP = re.compile(r":::(TOOL_CALL|TOOL_RESULT|APPROVAL):::.*?:::END_(TOOL_CALL|TOOL_RESULT|APPROVAL):::", re.S)
@@ -120,6 +126,7 @@ class CourageAgent:
         self.on_resolved: Optional[Callable[[str], None]] = None  # a pending action's id, popped at the workstation
         self.learned: Optional["reflex.LearnedReflexes"] = None  # phrasings the loop resolved, replayed without the LLM
         self.trace_log: Optional[TraceLog] = None  # one record per turn (courage/trace.py); None = not recorded
+        self.memory = None  # courage/memory.py ConversationMemory: recalled into the prompt, learned from after a chat
         self.pending = pending or PendingActions()
         self.max_steps = max_steps
         self.timeout = timeout
@@ -152,7 +159,19 @@ class CourageAgent:
         return msg
 
     # ---- conversation shaping ------------------------------------------------
-    def _build_messages(self, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _recall(self, text: str, tr: Optional[TurnTrace] = None) -> str:
+        """The memory card for this message ('' when there is no memory, nothing relevant, or the embedder is down)."""
+        if not self.memory or not isinstance(text, str):
+            return ""
+        try:
+            notes = self.memory.recall(text)
+        except Exception:
+            return ""                                     # memory is a bonus; a turn never fails on it
+        if tr is not None and notes:
+            tr.recalled = [{"id": n["id"], "score": n["score"]} for n in notes]
+        return self.memory.card(notes)
+
+    def _build_messages(self, history: List[Dict[str, Any]], memory_card: str = "") -> List[Dict[str, Any]]:
         presence = None
         if self.presence_fn:
             try:
@@ -165,7 +184,10 @@ class CourageAgent:
                 runs_on = self.runs_on_fn()
             except Exception:
                 runs_on = None
-        msgs: List[Dict[str, Any]] = [{"role": "system", "content": build_system_prompt(presence, runs_on=runs_on)}]
+        system = build_system_prompt(presence, runs_on=runs_on)
+        if memory_card:
+            system += "\n\n" + memory_card
+        msgs: List[Dict[str, Any]] = [{"role": "system", "content": system}]
         turns = [m for m in history if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
         for m in turns[-HISTORY_TURNS:]:
             text = THINK.sub("", TOOL_MARKUP.sub("", m["content"])).strip()
@@ -259,11 +281,20 @@ class CourageAgent:
                 tr.end("abandoned")          # the client went away mid-turn (GeneratorExit)
             if self.trace_log:
                 self.trace_log.write(tr.record())
+            if self.memory and self._worth_learning(tr):
+                self.memory.learn_later(tr.user, tr.final, session_id)
+
+    @staticmethod
+    def _worth_learning(tr: TurnTrace) -> bool:
+        """An answered loop turn that did not act on the house, with more than a greeting in it."""
+        tools = {s["tool"] for s in tr.steps if "tool" in s}
+        return (tr.outcome == "answered" and tr.path == "loop" and not (tools & ACTION_TOOLS)
+                and len((tr.user or "").strip()) >= LEARN_MIN_CHARS)
 
     def _run(self, history: List[Dict[str, Any]], session_id: str, gen: List[float],
              tr: TurnTrace) -> Iterator[Dict[str, Any]]:
-        messages = self._build_messages(history)
         last_user = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+        messages = self._build_messages(history, self._recall(last_user, tr))
 
         pending = self.pending.get(session_id)
         if pending:

@@ -2656,6 +2656,31 @@ def get_trace_log():
     return _trace_log
 
 
+def _courage_memory(data_dir: str, coordinator_url: str):
+    """Courage's conversational memory (courage/memory.py): local embedder for recall, the coordinator to decide what
+    is worth keeping. Nothing leaves the house."""
+    from courage.memory import ConversationMemory
+    embed_url = config.get("cluster", {}).get("embedder_url", "http://192.168.1.105:8003/v1").rstrip("/") + "/embeddings"
+    chat_url = coordinator_url.rstrip("/")
+    chat_url = chat_url if chat_url.endswith("/chat/completions") else chat_url + "/chat/completions"
+
+    def embed(texts: List[str]) -> List[List[float]]:
+        req = urllib.request.Request(embed_url, data=json.dumps({"input": [t[:900] for t in texts], "model": "embedder"}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return [d["embedding"] for d in json.load(r)["data"]]
+
+    def llm(prompt: str) -> str:
+        body = {"model": "coordinator", "messages": [{"role": "user", "content": prompt}], "temperature": 0,
+                "max_tokens": 200, "chat_template_kwargs": {"enable_thinking": False}}
+        req = urllib.request.Request(chat_url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)["choices"][0]["message"]["content"] or ""
+
+    return ConversationMemory(os.path.join(data_dir, "courage_memories.json"), embed, llm,
+                              on_write=lambda rec: get_trace_log().write(rec))
+
+
 def _presence_corrections():
     from presence_corrections import PresenceCorrections
     pcfg = load_config().get("presence") or {}
@@ -2874,11 +2899,22 @@ def _courage_runs_on() -> Optional[str]:
 
 
 def _courage_memory_search(query: str) -> List[Dict[str, Any]]:
+    """Courage's memory_search tool: what people told him in conversations (courage/memory.py) first, then the
+    household notes in A-MEM. One tool over both stores: when it searched only A-MEM, a remembered fact that was
+    also in the prompt's memory card came back "not found", and the tool result won (2026-09-26 live eval)."""
     global _courage_amem
+    hits: List[Dict[str, Any]] = []
+    mem = getattr(_courage_agent, "memory", None)
+    if mem:
+        try:
+            hits += [{"text": f"{time.strftime('%b %d', time.localtime(n['at']))}, from a conversation: {n['text']}"}
+                     for n in mem.recall(query)]
+        except Exception as e:
+            logger.warning(f"conversation memory search: {e}")
     if _courage_amem is None:
         from harness.data_fabric.valkey_amem import ValkeyAMEM
         _courage_amem = ValkeyAMEM()
-    return _courage_amem.recall(query, max_atoms=4)
+    return hits + list(_courage_amem.recall(query, max_atoms=4) or [])
 
 
 def _courage_notify(message: str, target: str = "austin") -> Dict[str, Any]:
@@ -2984,6 +3020,7 @@ def get_courage_agent():
             data_dir = os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
             _courage_agent.learned = LearnedReflexes(os.path.join(data_dir, "courage_reflexes.json"))
             _courage_agent.trace_log = get_trace_log()  # one line per turn, shared with Boost and the patrol
+            _courage_agent.memory = _courage_memory(data_dir, url)
             # approvals by actionable phone notification (Yes / No buttons), for Home Assistant conversations by default
             ha_cfg = config.get("homeassistant", {})
             phone = COURAGE_PHONES.get("austin")
@@ -2995,6 +3032,41 @@ def get_courage_agent():
                 _courage_agent.on_approval = push.offer
                 _courage_agent.push = push
                 push.start()
+            # approvals also on the wrist (Garmin Instinct 2, stonesage-watch/) -- same
+            # PendingActions, same execute(); either channel can answer, whichever taps first.
+            watch_cfg = config.get("watch_bridge", {})
+            if watch_cfg.get("url") and watch_cfg.get("token"):
+                from courage.tools import ALWAYS_CONFIRM
+                from courage.watch_client import WatchBridge
+                watch = WatchBridge(watch_cfg["url"], watch_cfg["token"])
+                project = watch_cfg.get("project", "stonesage")
+                _courage_agent.watch = watch
+                if _courage_agent.push:
+                    _courage_agent.push.watch = watch
+                existing_on_approval = _courage_agent.on_approval
+
+                def _on_approval(session_id, action, _existing=existing_on_approval, _watch=watch, _project=project):
+                    pushed = bool(_existing(session_id, action)) if _existing else False
+                    args = action.get("args") or {}
+                    destructive = action.get("name") == "ha_call" and (args.get("domain"), args.get("service")) in ALWAYS_CONFIRM
+                    watch_id = _watch.ask(f"Shall I {action['summary']}?", ["Yes", "No"],
+                                          project=_project, destructive=destructive)
+                    if watch_id:
+                        action["watch_id"] = watch_id
+                    return pushed
+
+                _courage_agent.on_approval = _on_approval
+
+                def _on_resolved(action_id, _watch=watch):
+                    _watch.resolve(action_id)
+
+                _courage_agent.on_resolved = _on_resolved
+
+                # roster status (coordinator/worker/boost/frontier) -- see watch_status.py
+                from courage.watch_status import start as start_watch_status
+                cluster_cfg = config.get("cluster", {})
+                start_watch_status(watch, _courage_agent.trace_log,
+                                   cluster_cfg.get("coordinator_url", ""), cluster_cfg.get("worker_url", ""))
         return _courage_agent
 
 
@@ -3981,6 +4053,12 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"ok": True, "reflexes": learned.items if learned else {}})
             return
 
+        elif path == "/api/courage/memories":
+            # What Courage remembers from conversations (courage/memory.py), newest first
+            mem = getattr(get_courage_agent(), "memory", None)
+            self.send_json({"ok": True, "memories": mem.items() if mem else []})
+            return
+
         elif path == "/metrics":
             # Prometheus (LXC 129 scrapes this): counters from the trace since StoneSage started (courage/trace.py)
             body = get_trace_log().metrics.text().encode("utf-8")
@@ -3998,7 +4076,7 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             q = urllib.parse.parse_qs(parsed.query or "")
             kind = q.get("kind", [""])[0] or None
             try:
-                if kind not in (None, "courage", "boost", "patrol"):
+                if kind not in (None, "courage", "boost", "patrol", "memory"):
                     raise ValueError(kind)
                 if path.endswith("/summary"):
                     hours = min(24 * 30, max(0.1, float(q.get("hours", ["24"])[0])))
@@ -5714,6 +5792,35 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             if path == "/api/harness/session/stop":
                 active_session_state.abort()
                 self.send_json({"ok": True, "status": "aborted"})
+                return
+
+            elif path == "/api/watch/reply":
+                import secrets as _secrets
+                from courage.tools import ALWAYS_CONFIRM
+                token = (config.get("watch_bridge", {}) or {}).get("token", "")
+                auth = self.headers.get("Authorization", "")
+                if not token or not _secrets.compare_digest(auth, f"Bearer {token}"):
+                    self.send_json({"ok": False, "error": "unauthorized"}, 401)
+                    return
+                agent = get_courage_agent()
+                action = agent.pending.pop_by_watch_id(body.get("id", ""))
+                if action and body.get("state") == "answered":
+                    args = action.get("args") or {}
+                    # re-derived from our own stored action, never trusted from the request:
+                    # destructive actions are never approvable from the watch, no matter what it claims.
+                    destructive = action.get("name") == "ha_call" and (args.get("domain"), args.get("service")) in ALWAYS_CONFIRM
+                    if not destructive and body.get("r") == 0:
+                        try:
+                            result = agent.tools.execute(action["name"], action["args"])
+                            ok = json.loads(result or "{}").get("ok", True)
+                        except Exception as e:
+                            ok, result = False, str(e)
+                        outcome = f"Done: {action['summary']}." if ok else f"Could not {action['summary']}."
+                    else:
+                        outcome = f"Left alone: {action['summary']}."
+                    if getattr(agent, "push", None):
+                        agent.push.clear(action["id"], outcome)
+                self.send_json({"ok": True})
                 return
 
             # ── Engine Console POST API ───────────────────────────────────
@@ -7699,6 +7806,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 answers = body.get("answers", {})
                 synthesis = cluster.synthesize_answers(prompt, answers)
                 self.send_json({"ok": True, "synthesis": synthesis})
+                return
+
+            elif path == "/api/courage/memories/forget":
+                mem = getattr(get_courage_agent(), "memory", None)
+                self.send_json({"ok": bool(mem and mem.forget(str(body.get("id", ""))))})
                 return
 
             elif path == "/api/courage/reflexes/forget":

@@ -6,6 +6,7 @@ metrics and escalation (plan Phase 6). One JSON line each in data/courage_trace.
   boost    boost/router.py _report: surface, declared/effective class, kinds of home content found (never the words:
            Boost traffic can hold home text, so no message content is kept), provider, model, ms, tokens, sources
            that failed first; triggers all_failed, fell_through, local_fallback
+  memory   courage/memory.py learn: what a conversation turn taught Courage (stored notes, refreshed, nothing, error)
   patrol   patrol.py _trace: camera, scheduled/manual, frames and pans, why it stopped, where the camera went back to,
            vision calls; triggers no_frames, frame_error, vision_error, return_failed, interrupted
 
@@ -67,19 +68,22 @@ class TurnTrace:
         self.tokens = 0
         self.llm_ms = 0.0
         self.llm_calls = 0
+        self.predicted_ms = 0.0  # pure decode time (llama.cpp timings.predicted_ms), excludes prompt eval
         self.final = ""
         self._seen_calls: set = set()
         self._tool_started: Optional[float] = None
+        self.recalled: List[Dict[str, Any]] = []   # memory notes put into the prompt: [{id, score}]
 
     # ---- what the agent reports ------------------------------------------------
     def trigger(self, name: str) -> None:
         if name not in self.triggers:
             self.triggers.append(name)
 
-    def llm(self, ms: float, tokens: int, calls: int) -> None:
+    def llm(self, ms: float, tokens: int, calls: int, predicted_ms: float = 0.0) -> None:
         self.llm_calls += 1
         self.llm_ms += ms
         self.tokens += int(tokens or 0)
+        self.predicted_ms += predicted_ms or 0.0
         self.steps.append({"llm": round(ms), "tokens": int(tokens or 0), "calls": calls})
 
     def tool_started(self) -> None:
@@ -117,8 +121,10 @@ class TurnTrace:
     def record(self) -> Dict[str, Any]:
         return {"kind": "courage", "at": round(self.t0, 3), "session": self.session, "user": _short(self.user or "", TEXT),
                 "path": self.path, "outcome": self.outcome or "error", "ms": round((self.clock() - self.t0) * 1000),
-                "llm": {"calls": self.llm_calls, "ms": round(self.llm_ms), "tokens": self.tokens},
-                "steps": self.steps, "final": _short(self.final, TEXT), "triggers": self.triggers}
+                "llm": {"calls": self.llm_calls, "ms": round(self.llm_ms), "tokens": self.tokens,
+                        "predicted_ms": round(self.predicted_ms)},
+                "steps": self.steps, "final": _short(self.final, TEXT), "triggers": self.triggers,
+                **({"recalled": self.recalled} if self.recalled else {})}
 
 
 def _label(v: Any) -> str:
