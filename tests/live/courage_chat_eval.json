@@ -1,0 +1,12 @@
+[
+  {"text": "Write a short story about Kylo guarding the house at night.", "min_chars": 600},
+  {"text": "write a short story about your experience so far", "min_chars": 600},
+  {"text": "Tell me a joke about toasters.", "min_chars": 40},
+  {"text": "How are you today?", "min_chars": 15},
+  {"text": "What do you think makes a house feel like a home?", "min_chars": 120},
+  {"text": "Write me a limerick about Luna the cat.", "min_chars": 120},
+  {"text": "I had a rough day at work. Can we just talk for a bit?", "min_chars": 60},
+  {"text": "If you could go anywhere in the world, where would you go?", "min_chars": 60},
+  {"text": "Tell me something interesting about octopuses.", "min_chars": 80},
+  {"text": "Let's play twenty questions. I'm thinking of an animal.", "min_chars": 20}
+]

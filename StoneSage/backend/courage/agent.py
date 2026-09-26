@@ -36,7 +36,10 @@ TRAILING_OFFER = re.compile(r"\s*(?:(?:would you like|do you want|shall i|should
                             r"\banything else\b[^.?!]*[?.!]|(?:let me know|feel free)[^.?!]*[.!])\s*$", re.I)
 NUDGE = "You described a tool call instead of making it. Call the right tool now; do not reply in text."
 
-HISTORY_TURNS = 4  # 2 exchanges: enough for follow-ups; longer history made the coordinator model skip tools (live eval, Qwen3-14B)
+HISTORY_TURNS = 6  # 3 exchanges (was 2; longer history once made the model skip tools: re-check the live eval on changes)
+HISTORY_CHARS = 1500  # per remembered message: a long story in the history must not crowd the 6k context
+MAX_REPLY_TOKENS = 1200  # room for a short story; tool decisions stay short on their own (was 350)
+PROMISE_MAX_CHARS = 300  # "Let me check the cameras." is a promise; a story that says "I'll look back..." is not
 FRESH_FACTS = ("For the next message: device states, temperatures, who is where, camera views and household notes "
                "(cars, preferences, past events) must come from a tool call you make now, not from earlier replies or guesses.")
 
@@ -79,6 +82,15 @@ class PendingActions:
                     return a if time.time() - a["created"] <= self.ttl else None
         return None
 
+    def pop_by_watch_id(self, watch_id: str) -> Optional[Dict[str, Any]]:
+        """Same as pop_by_id, keyed by the watch bridge's own ask id (a different id space than ours)."""
+        with self._lock:
+            for sid, a in list(self._items.items()):
+                if a.get("watch_id") == watch_id:
+                    self._items.pop(sid, None)
+                    return a if time.time() - a["created"] <= self.ttl else None
+        return None
+
     def pop(self, session_id: str) -> Optional[Dict[str, Any]]:
         a = self.get(session_id)
         with self._lock:
@@ -105,12 +117,23 @@ class CourageAgent:
         self.presence_fn = presence_fn
         self.runs_on_fn = runs_on_fn
         self.on_approval: Optional[Callable[[str, Dict[str, Any]], bool]] = None  # e.g. push to the phone
+        self.on_resolved: Optional[Callable[[str], None]] = None  # a pending action's id, popped at the workstation
         self.learned: Optional["reflex.LearnedReflexes"] = None  # phrasings the loop resolved, replayed without the LLM
         self.trace_log: Optional[TraceLog] = None  # one record per turn (courage/trace.py); None = not recorded
         self.pending = pending or PendingActions()
         self.max_steps = max_steps
         self.timeout = timeout
         self.post = post
+
+    def _resolved(self, action: Dict[str, Any]) -> None:
+        """Tell on_resolved (e.g. the watch bridge) a pending action was settled here, so it clears elsewhere.
+        Uses watch_id (the bridge's own ask id), not our id -- two different id spaces."""
+        watch_id = action.get("watch_id")
+        if self.on_resolved and watch_id:
+            try:
+                self.on_resolved(watch_id)
+            except Exception:
+                pass
 
     # ---- model call ----------------------------------------------------------
     def _complete(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -119,7 +142,7 @@ class CourageAgent:
             "messages": messages,
             "tools": self.tools.openai_tools(),
             "temperature": 0.3,
-            "max_tokens": 350,
+            "max_tokens": MAX_REPLY_TOKENS,
             "chat_template_kwargs": {"enable_thinking": False},
         }
         data = self.post(self.url, body, self.timeout)
@@ -146,6 +169,8 @@ class CourageAgent:
         turns = [m for m in history if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
         for m in turns[-HISTORY_TURNS:]:
             text = THINK.sub("", TOOL_MARKUP.sub("", m["content"])).strip()
+            if len(text) > HISTORY_CHARS:
+                text = text[:HISTORY_CHARS] + " …"
             if text:
                 msgs.append({"role": m["role"], "content": text})
         if len(msgs) > 2:
@@ -244,11 +269,13 @@ class CourageAgent:
         if pending:
             if DENY.match(last_user):
                 self.pending.pop(session_id)
+                self._resolved(pending)
                 tr.path = "approval_no"
                 yield {"type": "final", "content": "Right. Leaving it alone."}
                 return
             if AFFIRM.match(last_user):
                 self.pending.pop(session_id)
+                self._resolved(pending)
                 tr.path = "approval_yes"
                 call_id = f"call_{pending['id']}"
                 yield {"type": "tool_call", "name": pending["name"], "arguments": pending["args"],
@@ -281,12 +308,13 @@ class CourageAgent:
                 tr.end("llm_error", text)
                 yield {"type": "final", "content": text}
                 return
-            tr.llm((time.time() - t_llm) * 1000, msg["_gen"][0], len(msg.get("tool_calls") or []))
+            tr.llm((time.time() - t_llm) * 1000, msg["_gen"][0], len(msg.get("tool_calls") or []), msg["_gen"][1])
 
             calls = msg.get("tool_calls") or []
             if not calls:
                 msg["content"] = TRAILING_OFFER.sub("", THINK.sub("", msg.get("content") or "")).strip()
-            if not calls and not nudged and PROMISE.search(msg.get("content") or ""):
+            if not calls and not nudged and len(msg.get("content") or "") <= PROMISE_MAX_CHARS \
+                    and PROMISE.search(msg.get("content") or ""):
                 nudged = True
                 tr.trigger("nudged")
                 messages.append({"role": "assistant", "content": msg.get("content") or ""})

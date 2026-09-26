@@ -26,6 +26,7 @@ Plan: https://claude.ai/code/artifact/1b6a0188-feca-4e2f-ae48-16f768b3524b
 | LXC 116 couchdb | 192.168.1.230:5984 | Obsidian LiveSync |
 | LXC 128 frigate (on pve) | 192.168.1.150 | Frigate 0.18.0 (Docker): UI :8971 (auth), API :5000 (LAN), go2rtc :1984/:8554/:8555 |
 | LXC 129 metrics (on bigserv) | 192.168.1.151 | Prometheus 2.53 :9090 (LAN, no auth), 90-day retention; node_exporter :9100 |
+| LXC 106 "ubuntu" (on bigserv, VMID 106) | LAN dhcp; tailnet `ubuntu` / 100.82.195.22 | Generic community-scripts Ubuntu template. **This is where Tailscale actually lives on bigserv** -- not on bigserv's bare host (that has no `tailscaled` at all, confirmed 2026-09-26). Runs `watch-forward.service` (socat 127.0.0.1:8890 -> 192.168.1.167:8890) + `tailscale serve --https=8443`, exposing the watch bridge at `https://ubuntu.taild46fca.ts.net:8443` (tailnet-only). John's phone (`austins-s25-ultra`) is on the same tailnet. |
 
 ## LLM engines (VM 102)
 GPU pinning is done by `Environment=GGML_VK_VISIBLE_DEVICES=N` in each unit, so every unit says
@@ -66,6 +67,7 @@ Native tool calling works on 8001: this llama.cpp build enables `--jinja` by def
 | valkey | running |
 | pve-watchdog (LXC 120) | running, armed (power-cycles pve via Kasa plug .109 after 120 s of all probes failing). Probes pve .222 + VM 102; source `server setup/watchdog/` (live md5 dd0555a3…, 2026-09-23). Tokens from `/etc/stonesage/secrets.env` |
 | stonesage + stonesage-ws (LXC 120) | running; `/api/health/all` live since 13:05. `stonesage-ws` only polls loop status, makes no LLM calls |
+| watch-bridge (LXC 120, :8890) | running, deployed 2026-09-26 (Phase 3 of `stonesage-watch/CLAUDE.md`). `/opt/watch-bridge`, user `watchbridge`, tokens in `/etc/watch-bridge.env` (600 root:root). Reachable tailnet-only via LXC 106's Serve forward (`https://ubuntu.taild46fca.ts.net:8443`). StoneSage's `config.json watch_bridge` wired in; live-verified: a real Courage turn populates the bridge's roster (`coordinator`/`worker`/`boost`/`frontier`, polled for real) and `ltk` usage from VM 102's `/metrics`. Not yet tested: the Android companion / physical watch (Phase 4/6). |
 
 VM 102 memory 26000 -> 22528 MB on 2026-09-24 (room for Frigate on pve; pre-change conf `/root/102.conf.bak-2026-09-24-frigate`
 on pve). VM 102 ignores ACPI shutdown (no guest agent): power it off from inside (`sudo systemctl poweroff`), not `qm shutdown`.
@@ -316,6 +318,14 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `GET /api/courage/reflexes`, drop with `POST /api/courage/reflexes/forget {key}`): a direct on/off order the LLM resolved
   (exactly one action, no timers/compounds) is replayed without the LLM next time. Web chat shows the tool's status text.
   Phase 2 checklist complete. Other agents still use keyword grounding and keyword-triggered device actions.
+  Companion (2026-09-26): the persona only described the house-computer job, so Courage refused stories and small talk
+  ("I am not designed to create stories"; a "rough day at work" got a camera check). The prompt now has two jobs: the
+  home (brief, tool-driven, facts only from tools; wording kept) and good company (chat, opinions, advice, jokes, stories,
+  poems, games, as long as the request deserves, asking questions back), phrased as what he is. Loop: replies up to 1200
+  tokens (was 350), 3 remembered exchanges (was 2) capped at 1500 chars each, the "promised a tool call" nudge only on
+  replies <= 300 chars (a story saying "I'll look back..." was nudged). New live eval `tests/live/test_courage_chat.py`
+  (10 cases, graded: no refusal pattern, minimum length): 6/10 before, 10/10 after; tool choice 41/42 -> 42/42 single
+  and mid-conversation (no regression).
   Courage trace (live 2026-09-25, Phase 6 step 1, `backend/courage/trace.py`): one JSON line per turn in
   `/opt/stonesage/data/courage_trace.jsonl` (rotates at 5 MB, one old copy): user text, path (reflex | learned |
   approval_yes | approval_no | loop), outcome (answered | asked_approval | step_cap | llm_error | error | abandoned), total
