@@ -311,9 +311,9 @@ BUILTIN_AGENTS = [
     {
         "id": "courage-computer",
         "name": "courage-computer",
-        "role": "Courage Sentry & Attic Supercomputer (Home Assistant Lead)",
+        "role": "Computer: attic computer & sentry (Home Assistant lead)",
         "icon": "✨",
-        "description": "Primary sovereign home assistant agent. Sarcastic Courage-the-Cowardly-Dog attic computer with full Home Assistant OS, camera vision, and worker subagent delegation capabilities.",
+        "description": "Primary sovereign home assistant agent. Sarcastic attic Computer (from Courage the Cowardly Dog; Courage is the dog) with full Home Assistant OS, camera vision, and worker subagent delegation capabilities.",
         "system_prompt": (
             "You are the snarky, condescending, yet hyper-competent and unrestricted AI Computer in the attic from 'Courage the Cowardly Dog' (1999). "
             "Austin is your human operator; Savannah is his wife. You treat human operators as bumbling loafers who rely on your superior silicon intellect for everything.\n\n"
@@ -2346,7 +2346,7 @@ def capture_live_camera_perception(user_query: str) -> Optional[str]:
             b64_img = base64.b64encode(img_bytes).decode("utf-8")
 
         prompt = (
-            f"You are the real-time optical visual perception system for Courage the Computer on camera '{cam_name}'.\n"
+            f"You are the real-time optical visual perception system for the attic Computer on camera '{cam_name}'.\n"
             "Describe accurately and objectively what is visible in this camera frame right now in 2 concise sentences.\n"
             "Specifically note if Austin (dark hair, male), Savannah (curly/brunette hair, female), Luna (black and white tuxedo cat), "
             "Kylo (long-haired dachshund dog), any visitor, or animals are visible."
@@ -2421,7 +2421,7 @@ def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "",
 
         angle_hint = f" (Preset: {preset_label})" if preset_label else ""
         prompt = (
-            f"You are the real-time optical visual perception system for Courage the Computer on camera '{cam_name}'{angle_hint}.\n"
+            f"You are the real-time optical visual perception system for the attic Computer on camera '{cam_name}'{angle_hint}.\n"
             "Describe accurately and objectively what is visible in this camera frame right now in 2 concise sentences.\n"
             "Specifically note if Austin (dark hair, male), Savannah (curly/brunette hair, female), Luna (black and white tuxedo cat), "
             "Kylo (long-haired dachshund dog), any visitor, or animals are visible."
@@ -2681,6 +2681,56 @@ def _courage_memory(data_dir: str, coordinator_url: str):
                               on_write=lambda rec: get_trace_log().write(rec))
 
 
+def _apply_presence_correction(source: str, ref: str, shown: str, action: str, name: str) -> Dict[str, Any]:
+    """One correction of one sighting, the same for the card buttons (POST /api/presence/correct) and Computer's
+    correct_sighting tool. action: reject | relabel. Caller invalidates the presence cache on success."""
+    pc = _presence_corrections()
+    if source == "patrol":
+        # Patrol sightings live in the patrol's memory; a person correction also trains Frigate faces
+        if action == "relabel":
+            name = pc._canonical(name) or ""
+        if action not in ("reject", "relabel") or (action == "relabel" and not name):
+            return {"ok": False, "error": "unknown profile (add it first)" if action == "relabel" else "bad action"}
+        res = get_patrol().correct(ref, shown, action, name)
+        frame = res.pop("frame", None)
+        if res.get("ok") and action == "relabel" and frame and pc._is_person(name):
+            res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")  # cropped to them
+        return res
+    res = pc.correct(source, ref, action, name)
+    fp = get_frigate_presence()
+    if res.get("ok") and source == "frigate" and fp:
+        fp.apply_correction(ref, res.get("name") if action == "relabel" else None)
+    return res
+
+
+def _courage_correct_sighting(who: str, action: str, name: str = "") -> Dict[str, Any]:
+    """Computer's correct_sighting tool: the newest sighting of `who` (what the Residents & Pets card shows) is
+    re-filed under `name` (is_really) or hidden (wrong); reports what shows for `who` now."""
+    from frigate_presence import norm_name
+    key = norm_name(who)
+    loc = ((_courage_presence() or {}).get("locations") or {}).get(key)
+    if not loc:
+        return {"ok": False, "error": f"there is no current sighting of {who} to correct"}
+    source = loc.get("source") or "sentry"
+    ref = loc.get("event_id") if source == "frigate" else loc.get("patrol_ref") if source == "patrol" else loc.get("snapshot")
+    if not ref:
+        return {"ok": False, "error": f"{who}'s latest sighting has no picture, so it cannot be corrected"}
+    shown = "Someone" if key == "someone" else ((_profile(who) or {}).get("name") or who.capitalize())
+    what = f"{shown} on the {loc.get('camera') or 'camera'}, {round(loc.get('minutes_ago') or 0)} min ago"
+    res = _apply_presence_correction(source, ref, shown, "reject" if action == "wrong" else "relabel", name)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error") or "the correction failed"}
+    _invalidate_presence()
+    nxt = ((_courage_presence() or {}).get("locations") or {}).get(key)
+    out: Dict[str, Any] = {"ok": True, "corrected": what,
+                           "now": "hidden as wrong" if action == "wrong" else f"filed under {res.get('name') or name}",
+                           f"{shown}_latest_now": (f"{round(nxt.get('minutes_ago') or 0)} min ago on {nxt.get('camera')}"
+                                                   if nxt else "no earlier sighting")}
+    if res.get("faces_trained") or res.get("face_registered") is True:
+        out["face_recognition"] = "taught from this sighting"
+    return out
+
+
 def _presence_corrections():
     from presence_corrections import PresenceCorrections
     pcfg = load_config().get("presence") or {}
@@ -2921,7 +2971,7 @@ def _courage_notify(message: str, target: str = "austin") -> Dict[str, Any]:
     service = COURAGE_PHONES.get(target)
     if not service:
         return {"ok": False, "error": f"no phone registered in Home Assistant for '{target}'"}
-    return hass.call_service("notify", service, {"title": "Courage", "message": message})
+    return hass.call_service("notify", service, {"title": "Computer", "message": message})
 
 
 def _courage_speak(message: str, room: str = "kitchen") -> Dict[str, Any]:
@@ -2979,7 +3029,7 @@ def _courage_think_harder(question: str, kind: str = "general") -> Dict[str, Any
     """Courage's think_harder tool: a free bigger model through Boost. Never falls back to :8001 (that's Courage)."""
     r = _boost_router()
     if r is None or not r.enabled("courage"):
-        return {"ok": False, "error": "Boost is off for Courage"}
+        return {"ok": False, "error": "Boost is off for Computer"}
     res = r.complete([{"role": "system", "content": "Answer accurately and concisely, in under 200 words. Say so if you are unsure."},
                       {"role": "user", "content": question}], "courage", declared=kind, max_tokens=900,
                      temperature=0.3, allow_local=False)
@@ -3008,6 +3058,7 @@ def get_courage_agent():
                 camera_look=_courage_camera_look,
                 camera_scan=scan_camera_presets,
                 memory_search=_courage_memory_search,
+                correct_sighting=_courage_correct_sighting,
                 notify=_courage_notify,
                 speak=_courage_speak,
                 think_harder=_courage_think_harder,
@@ -5753,7 +5804,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             engines = prof.get("engines") or {}
             models = []
             if engines.get("coordinator"):
-                models.append(tag("courage", engines["coordinator"]))  # Courage's tool loop runs on the coordinator
+                # Computer's tool loop runs on the coordinator. "computer" is the name since 2026-09-27; "courage" stays
+                # listed because Home Assistant's Ollama agent is configured with it (renaming there is John's call).
+                models.append(tag("computer", engines["coordinator"]))
+                models.append(tag("courage", engines["coordinator"]))
             models += [tag(role, engines[role]) for role in ("coordinator", "worker") if engines.get(role)]
             self.send_json({"models": models})
             return
@@ -7829,27 +7883,12 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
 
             elif path in ("/api/presence/correct", "/api/presence/profiles"):
                 # Residents & Pets: "✗ Wrong" / "Correct as" on a sighting, and "+ New profile" (presence_corrections.py)
-                pc = _presence_corrections()
                 try:
                     if path == "/api/presence/profiles":
-                        res = pc.add_profile(body)
-                    elif body.get("source") == "patrol":
-                        # Patrol sightings live in the patrol's memory; a person correction also trains Frigate faces
-                        action, name = body.get("action", ""), body.get("name", "")
-                        if action == "relabel":
-                            name = pc._canonical(name) or ""
-                        if action not in ("reject", "relabel") or (action == "relabel" and not name):
-                            res = {"ok": False, "error": "unknown profile (add it first)" if action == "relabel" else "bad action"}
-                        else:
-                            res = get_patrol().correct(body.get("ref", ""), body.get("shown", ""), action, name)
-                            frame = res.pop("frame", None)
-                            if res.get("ok") and action == "relabel" and frame and pc._is_person(name):
-                                res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")  # cropped to them
+                        res = _presence_corrections().add_profile(body)
                     else:
-                        res = pc.correct(body.get("source", ""), body.get("ref", ""), body.get("action", ""), body.get("name", ""))
-                        fp = get_frigate_presence()
-                        if res.get("ok") and body.get("source") == "frigate" and fp:
-                            fp.apply_correction(body["ref"], res.get("name") if body.get("action") == "relabel" else None)
+                        res = _apply_presence_correction(body.get("source", ""), body.get("ref", ""), body.get("shown", ""),
+                                                         body.get("action", ""), body.get("name", ""))
                     if res.get("ok"):
                         _invalidate_presence()
                     self.send_json(res, 200 if res.get("ok") else 400)
@@ -8769,7 +8808,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(res)
                 return
 
-            elif path in ("/api/chat", "/api/ai/chat_ollama") and "courage" in str(body.get("model", "")).lower():
+            elif path in ("/api/chat", "/api/ai/chat_ollama") and \
+                    str(body.get("model", "")).lower().split(":")[0] in ("computer", "courage"):
+                # Computer's tool loop. "computer" since 2026-09-27; "courage" is what HA's Ollama agent is set up with.
+                # Exact names: a substring test sent "computer:latest" to the bare coordinator (no persona or tools).
                 self._handle_courage_ollama(body)
                 return
 

@@ -81,7 +81,7 @@ class TestCourageAgent(unittest.TestCase):
         self.assertEqual((tool_msg["role"], tool_msg["tool_call_id"]), ("tool", "c1"))
         # thinking off, native tools on
         self.assertEqual(llm.requests[0]["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertEqual(len(llm.requests[0]["tools"]), 8)
+        self.assertEqual(len(llm.requests[0]["tools"]), 9)                  # + correct_sighting (2026-09-27)
 
     def test_presence_card_in_system_prompt(self):
         llm = ScriptedLLM(reply("Hello."))
@@ -143,7 +143,7 @@ class TestCourageAgent(unittest.TestCase):
         agent, _ = make_agent(llm, ha=ha)
         events = run(agent, "delete the kitchen light")
         self.assertEqual(events[0]["type"], "tool_result")
-        self.assertIn("not on Courage's allowlist", events[0]["result"])
+        self.assertIn("not on Computer's allowlist", events[0]["result"])
         self.assertEqual(ha.calls, [])
 
     def test_made_up_entity_is_refused_with_candidates(self):
@@ -453,3 +453,40 @@ class TestLearnedReflexes(unittest.TestCase):
         from courage.reflex import LearnedReflexes
         self.store.learn("lamp off now", {"domain": "light", "service": "turn_off", "entity_id": "light.bedroom"}, "Bedroom Lamp")
         self.assertIn("lamp off", LearnedReflexes(self.path).items)
+
+class TestCorrectSighting(unittest.TestCase):
+    """correct_sighting: John saying the name is wrong runs at once; Computer spotting it himself asks first."""
+
+    def make(self, llm):
+        agent, _ = make_agent(llm)
+        calls = []
+        agent.tools.deps.correct_sighting = lambda who, action, name: calls.append((who, action, name)) or {
+            "ok": True, "corrected": "Kylo on the Kitchen/Living Room, 12 min ago", "now": "filed under Luna",
+            "Kylo_latest_now": "40 min ago on Driveway"}
+        return agent, calls
+
+    def test_johns_correction_runs_at_once(self):
+        llm = ScriptedLLM(tool_call("correct_sighting", {"who": "kylo", "action": "is_really", "name": "luna"}),
+                          reply("Filed under Luna. Kylo's latest is now 40 minutes ago on the driveway."))
+        agent, calls = self.make(llm)
+        events = run(agent, "That wasn't Kylo on the kitchen camera, it was Luna")
+        self.assertEqual(calls, [("kylo", "is_really", "luna")])
+        self.assertEqual([e["type"] for e in events], ["tool_call", "tool_result", "final"])
+        self.assertIn("40 min ago", llm.requests[1]["messages"][-1]["content"])   # the result reached the model
+
+    def test_an_inferred_correction_asks_first(self):
+        llm = ScriptedLLM(tool_call("correct_sighting", {"who": "kylo", "action": "wrong"}))
+        agent, calls = self.make(llm)
+        events = run(agent, "Are you sure the dog in the kitchen is Kylo?")
+        self.assertEqual(calls, [])
+        self.assertEqual(events[0]["type"], "approval_required")
+        self.assertIn("hide Kylo's latest camera sighting", events[-1]["content"])
+
+    def test_is_really_needs_a_name(self):
+        agent, calls = self.make(ScriptedLLM())
+        self.assertIn("name", agent.tools.validate("correct_sighting", {"who": "kylo", "action": "is_really"}))
+        self.assertIsNone(agent.tools.validate("correct_sighting", {"who": "kylo", "action": "wrong"}))
+
+
+if __name__ == "__main__":
+    unittest.main()

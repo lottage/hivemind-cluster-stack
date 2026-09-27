@@ -20,15 +20,15 @@ function render() {
         ? `<span style="font-size:0.7rem; color:var(--term-accent-gold)">forget it?</span>
            <button type="button" class="preset-btn" data-forget-yes="${esc(n.id)}" style="padding:1px 6px; font-size:0.7rem;">✓ Yes</button>
            <button type="button" class="preset-btn" data-forget-no="1" style="padding:1px 6px; font-size:0.7rem;">✗ No</button>`
-        : `<button type="button" class="preset-btn" data-forget="${esc(n.id)}" style="padding:1px 6px; font-size:0.7rem;" title="Courage forgets this">🗑 Forget</button>`}
+        : `<button type="button" class="preset-btn" data-forget="${esc(n.id)}" style="padding:1px 6px; font-size:0.7rem;" title="Computer forgets this">🗑 Forget</button>`}
     </div>`).join('');
   root.innerHTML = `
     <div class="harness-card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <span>🧠 COURAGE'S MEMORIES — learned from your conversations, recalled when they fit (${S.notes.length})</span>
+      <span>🧠 COMPUTER'S MEMORIES — learned from your conversations, recalled when they fit (${S.notes.length})</span>
       <button type="button" class="term-cmd-btn" id="cmem-refresh" style="font-size:0.72rem;">[🔄 REFRESH]</button>
     </div>
     <div style="font-size:0.72rem; color:var(--term-text-muted); margin-bottom:6px;">
-      Kept on LXC 120 only. Home tasks and small talk are not remembered; Courage's own stories never are.
+      Kept on LXC 120 only. Home tasks and small talk are not remembered; Computer's own stories never are.
     </div>
     ${rows || '<div style="color:var(--term-text-muted); padding:6px 0;">Nothing yet. Talk to him.</div>'}`;
 }

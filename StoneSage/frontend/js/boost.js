@@ -9,7 +9,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const SURFACES = [
   ['chat', 'Chat', 'the model menu gains ⚡ Boost entries'],
-  ['courage', 'Courage', 'think_harder tool for hard questions'],
+  ['courage', 'Computer', 'think_harder tool for hard questions'],
   ['loops', 'Harness loops', '/node use boost; max background share of each quota'],
   ['workspaces', 'Workspaces', 'workspace chat on Boost; frontier jobs'],
 ];

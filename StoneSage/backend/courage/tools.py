@@ -56,6 +56,9 @@ DIRECT_SERVICE_WORDS: Dict[str, str] = {
 DIRECT_TOOL_WORDS: Dict[str, str] = {
     "notify": r"\b(send|notify|text|message|ping|push|remind)\b",
     "speak": r"\b(announce|say|tell|broadcast|shout|yell|call out)\b",
+    # "that wasn't Kylo, it was Luna": John telling him the name is wrong. Computer spotting it himself asks first.
+    "correct_sighting": r"\b(wasn'?t|was not|isn'?t|is not|wrong|mistake|mislabel\w*|actually|really|it was|that was|"
+                        r"correct(ion)?|relabel|fix|not (him|her|them|me)|mixed up)\b",
 }
 
 FILLER_WORDS ={"any", "all", "every", "the", "a", "an", "my", "our", "house", "home", "right", "now", "currently", "on", "off"}
@@ -77,6 +80,10 @@ class CourageDeps:
     memory_search: Callable[[str], List[Dict[str, Any]]] = field(default=lambda q: [])
     notify: Callable[[str, str], Dict[str, Any]] = field(default=lambda msg, target: {"ok": False, "error": "notify not wired"})
     speak: Callable[[str, str], Dict[str, Any]] = field(default=lambda msg, room: {"ok": False, "error": "speak not wired"})
+    # who (name on the sighting now), action ("is_really" | "wrong"), name -> the same correction as the Residents & Pets
+    # card buttons (server._courage_correct_sighting)
+    correct_sighting: Callable[[str, str, str], Dict[str, Any]] = field(
+        default=lambda who, action, name: {"ok": False, "error": "corrections not wired"})
     # question, kind -> {"ok", "answer", "source"}; None = Boost off for Courage (the tool is not offered at all)
     think_harder: Optional[Callable[[str, str], Dict[str, Any]]] = None
     think_harder_available: Callable[[], bool] = field(default=lambda: True)  # the Boost toggle, read per turn
@@ -153,6 +160,18 @@ class CourageTools:
                 "status": "Asking to make an announcement…",
             },
         }
+        self.specs["correct_sighting"] = {
+            "description": "Fix who a camera sighting shows, when the name on it is wrong ('that wasn't Kylo, it was "
+                           "Luna'). Acts on the newest sighting of `who` (the name shown now; 'someone' for an unidentified "
+                           "person). action is_really re-files it under `name` (for a person this also teaches face "
+                           "recognition); wrong hides it. The previous sighting then shows.",
+            "parameters": _schema({"who": {"type": "string", "description": "name on the sighting now, e.g. kylo"},
+                                   "action": {"type": "string", "enum": ["is_really", "wrong"]},
+                                   "name": {"type": "string", "description": "who it really was (for is_really)"}},
+                                  ["who", "action"]),
+            "handler": self._correct_sighting, "approval": True,
+            "status": "Correcting {who}'s sighting…",
+        }
         if deps.think_harder is not None:
             self.specs["think_harder"] = {
                 "description": "Ask a much larger model for help with a hard question: reasoning, maths, science, coding or "
@@ -195,7 +214,7 @@ class CourageTools:
         if name == "ha_call":
             domain, service, eid = args.get("domain", ""), args.get("service", ""), args.get("entity_id", "")
             if service not in ALLOWED_SERVICES.get(domain, []):
-                return f"{domain}.{service} is not on Courage's allowlist"
+                return f"{domain}.{service} is not on Computer's allowlist"
             if not eid.startswith(f"{domain}."):
                 return f"entity '{eid}' is not a {domain} entity"
             if domain == "switch" and service in ("turn_off", "toggle") and any(w in eid.lower() for w in INFRA_WORDS):
@@ -204,6 +223,13 @@ class CourageTools:
             if entity is None and candidates is not None:
                 hint = f" Closest: {', '.join(candidates)}." if candidates else f" Call ha_get_states for {domain} to find it."
                 return f"no entity '{eid}' in Home Assistant.{hint}"
+        if name == "correct_sighting":
+            if args.get("action") not in ("is_really", "wrong"):
+                return "action must be is_really or wrong"
+            if args.get("action") == "is_really" and not (args.get("name") or "").strip():
+                return "say who it really was (name)"
+            if not (args.get("who") or "").strip():
+                return "whose sighting? (who)"
         if name in ("camera_look", "camera_scan") and args.get("camera") not in CAMERAS:
             return f"unknown camera '{args.get('camera')}'"
         return None
@@ -241,6 +267,11 @@ class CourageTools:
             return f"notify {args.get('target', 'austin')}: \"{args.get('message', '')}\""
         if name == "speak":
             return f"announce in {args.get('room', 'kitchen')}: \"{args.get('message', '')}\""
+        if name == "correct_sighting":
+            who = str(args.get("who", "")).capitalize()
+            if args.get("action") == "wrong":
+                return f"hide {who}'s latest camera sighting as wrong"
+            return f"mark {who}'s latest camera sighting as really {str(args.get('name', '')).capitalize()}"
         return f"{name}({json.dumps(args)})"
 
     def is_direct_command(self, name: str, args: Dict[str, Any], user_text: str) -> bool:
@@ -348,6 +379,9 @@ class CourageTools:
         payload["entity_id"] = entity_id
         res = self.deps.ha_call(domain, service, payload) or {}
         return {"ok": bool(res.get("ok")), "done": f"{domain}.{service} {entity_id}", "error": res.get("error")}
+
+    def _correct_sighting(self, who: str, action: str, name: str = "") -> Dict[str, Any]:
+        return self.deps.correct_sighting(who, action, name)
 
     def _notify(self, message: str, target: str = "austin") -> Dict[str, Any]:
         return self.deps.notify(message, target)

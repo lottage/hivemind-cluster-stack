@@ -29,13 +29,13 @@ NOTE_CHARS = 240
 
 EXTRACT = (
     "You keep a companion's long-term memory. From the exchange below, write down only what is worth remembering "
-    "for weeks about the person talking to Courage and their household: events in their life, plans, people they "
-    "mention, preferences, feelings that matter, things they asked Courage to remember. "
-    "Write only what the user said; Courage's reply is context, never a source (not what he checked, inferred or "
+    "for weeks about the person talking to Computer and their household: events in their life, plans, people they "
+    "mention, preferences, feelings that matter, things they asked Computer to remember. "
+    "Write only what the user said; Computer's reply is context, never a source (not what he checked, inferred or "
     "invented, and never his stories). Skip small talk, jokes, requests for stories and house device states. "
     "Write each note to the person, in the second person (\"Your sister Emma...\", \"You had a rough day...\").\n"
     'Reply with JSON only: {"notes": ["one short sentence", ...]} with at most 2 notes, or {"notes": []}. '
-    "Most exchanges have nothing worth keeping.\n\nThe user said: {user}\nCourage replied: {reply}"
+    "Most exchanges have nothing worth keeping.\n\nThe user said: {user}\nComputer replied: {reply}"
 )
 
 

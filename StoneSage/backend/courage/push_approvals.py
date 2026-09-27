@@ -33,6 +33,7 @@ class PushApprovals:
         self._post = post or self._ha_post
         self._thread: Optional[threading.Thread] = None
         self.last_event: Optional[Dict[str, Any]] = None
+        self.watch = None  # set from server.py when the watch bridge is configured
 
     # -------------------------------------------------------------- sending ----
     def _ha_post(self, path: str, body: Dict[str, Any]) -> Any:
@@ -45,7 +46,7 @@ class PushApprovals:
         data: Dict[str, Any] = {"tag": f"courage-{action_id}", "group": "courage"}
         if buttons:
             data["actions"] = [{"action": f"{YES}{action_id}", "title": "Yes"}, {"action": f"{NO}{action_id}", "title": "No"}]
-        self._post(f"/api/services/notify/{self.service}", {"title": "Courage", "message": message, "data": data})
+        self._post(f"/api/services/notify/{self.service}", {"title": "Computer", "message": message, "data": data})
 
     def wants_push(self, session_id: str) -> bool:
         if self.policy == "always":
@@ -64,6 +65,13 @@ class PushApprovals:
         except Exception as e:
             logger.warning(f"approval push failed: {e}")
             return False
+
+    def clear(self, action_id: str, outcome: str) -> None:
+        """Update the phone notification with an outcome -- used when another channel (the watch) answered first."""
+        try:
+            self._notify(outcome, action_id, buttons=False)
+        except Exception as e:
+            logger.warning(f"outcome push failed: {e}")
 
     # ------------------------------------------------------------- receiving ----
     def handle_action(self, action_str: str) -> Optional[str]:
@@ -88,6 +96,8 @@ class PushApprovals:
             self._notify(outcome, action_id, buttons=False)
         except Exception as e:
             logger.warning(f"outcome push failed: {e}")
+        if self.watch and found and found.get("watch_id"):
+            self.watch.resolve(found["watch_id"])  # clears the watch's card too -- different id space than ours
         return outcome
 
     async def _listen(self) -> None:

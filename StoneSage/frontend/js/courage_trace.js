@@ -10,7 +10,7 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const S = { turns: [], summary: null, open: new Set(), onlyFlagged: false, hours: 24, kind: '', timer: null, bound: false };
-const KINDS = [['', 'All'], ['courage', '🐕 Courage'], ['memory', '🧠 Memory'], ['boost', '⚡ Boost'], ['patrol', '🛡️ Patrol']];
+const KINDS = [['', 'All'], ['courage', '🖥️ Computer'], ['memory', '🧠 Memory'], ['boost', '⚡ Boost'], ['patrol', '🛡️ Patrol']];
 
 const OUTCOME = {
   answered: ['✓', 'var(--term-success, #22c55e)'],
@@ -157,7 +157,7 @@ function render() {
   if (!root) return;
   root.innerHTML = `
     <div class="harness-card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-      <span>🧭 TRACE — Courage turns, Boost calls and patrol sweeps, with escalation triggers</span>
+      <span>🧭 TRACE — Computer turns, Boost calls and patrol sweeps, with escalation triggers</span>
       <span style="display:flex; gap:8px; align-items:center; font-size:0.72rem; flex-wrap:wrap;">
         <span>${KINDS.map(([k, label]) => `<button type="button" class="preset-btn${S.kind === k ? ' active' : ''}" data-kind="${k}"
           style="padding:1px 6px; font-size:0.7rem;${S.kind === k ? ' outline:1px solid var(--term-accent-gold);' : ''}">${label}</button>`).join('')}</span>

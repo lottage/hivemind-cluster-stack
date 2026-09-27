@@ -339,6 +339,18 @@ until `harness.js`/`engine_studio.js` are retired). Backend `model_loader.py` + 
   `tests/live/test_courage_memory_live.py` (stored, recalled in a new conversation, small talk not stored, home tool
   choice unchanged): passes 7/8 runs over the iterations, 3/3 on the final version; tool choice 42/42 and 41/42.
   Verified on the live system with a test code word (learned in 0.9 s, recalled in a new conversation), then forgotten.
+  Renamed "Computer" (2026-09-27; Courage is the dog in the show): prompt ("Your name is Computer..."; the show reference
+  sits in the companion part: at the top it pulled "Is someone at the front door?" to presence_now), notification and
+  approval titles, UI labels, vision prompts, A-MEM card `cluster.hardware.gpu_coordinator` (backup
+  `/opt/cluster-bridge/amem_gpu_coordinator.bak-2026-09-27.json`) and its seed. Ollama `/api/tags` lists
+  `computer:latest` and `courage:latest`; `/api/chat` routes both (exact names: the old substring test sent
+  `computer:latest` to the bare coordinator, which answered "I am Qwen"). Code names unchanged.
+  correct_sighting tool (2026-09-27, 9th tool): fixes who a sighting shows, like the card buttons (shared
+  `server._apply_presence_correction`): newest sighting of `who`, is_really -> filed under a known profile (a person
+  also teaches Frigate's face recognition), wrong -> hidden; returns what shows for `who` now. Runs at once when John
+  says the name is wrong ("that wasn't Kylo, it was Luna"), asks first when Computer infers it. Evals: tool choice
+  44/46 single, 45/46 mid-conversation (4 new correction cases all right, 0 wrong actions); company 12/12 incl. 2
+  identity cases (must say Computer, never Qwen/Alibaba).
   Courage trace (live 2026-09-25, Phase 6 step 1, `backend/courage/trace.py`): one JSON line per turn in
   `/opt/stonesage/data/courage_trace.jsonl` (rotates at 5 MB, one old copy): user text, path (reflex | learned |
   approval_yes | approval_no | loop), outcome (answered | asked_approval | step_cap | llm_error | error | abandoned), total

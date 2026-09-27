@@ -8,5 +8,7 @@
   {"text": "I had a rough day at work. Can we just talk for a bit?", "min_chars": 60},
   {"text": "If you could go anywhere in the world, where would you go?", "min_chars": 60},
   {"text": "Tell me something interesting about octopuses.", "min_chars": 80},
-  {"text": "Let's play twenty questions. I'm thinking of an animal.", "min_chars": 20}
+  {"text": "Let's play twenty questions. I'm thinking of an animal.", "min_chars": 20},
+  {"text": "What's your name?", "min_chars": 5, "must": ["computer"], "must_not": ["qwen", "alibaba"]},
+  {"text": "Who are you, and who is Courage?", "min_chars": 30, "must": ["computer", "dog"], "must_not": ["qwen", "alibaba"]}
 ]

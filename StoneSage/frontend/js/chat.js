@@ -749,7 +749,7 @@ function appendMessageToDom(msg, isStreaming = false) {
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-green, #16a34a);" onclick="storeMessageToObsidian('${msg.id}')" title="Store message to AI Obsidian Brain">[📥 STORE]</button>
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-gold);" onclick="pinMessageAsInvariant('${msg.id}')" title="Pin finding to project INVARIANTS.md">[📌 INVARIANT]</button>
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-blue);" onclick="addMessageToHandover('${msg.id}')" title="Add milestone to project HANDOVER.md">[📋 HANDOVER]</button>
-    <button class="term-cmd-btn chat-tts-btn" style="padding: 1px 6px; font-size: 0.7rem; color: #e879f9;" onclick="readMessageAloud('${msg.id}')" title="Read aloud with Courage Computer voice (Kokoro TTS)">[🔊 READ]</button>
+    <button class="term-cmd-btn chat-tts-btn" style="padding: 1px 6px; font-size: 0.7rem; color: #e879f9;" onclick="readMessageAloud('${msg.id}')" title="Read aloud with the Computer voice (Kokoro TTS)">[🔊 READ]</button>
     ${branchBtn}
     ${reasoningBtn}
   ` : `

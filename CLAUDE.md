@@ -5,8 +5,10 @@ Current state of the hardware and services: @STATE.md
 Development plan (phases, decisions): https://claude.ai/code/artifact/1b6a0188-feca-4e2f-ae48-16f768b3524b
 
 ## Goal
-1. Now: a usable home assistant. "Courage" (the Computer from *Courage the Cowardly Dog*: dry, British,
-   sarcastic, loyal) lives in StoneSage, uses real tools, sees the cameras, speaks through the Echos.
+1. Now: a usable home assistant. "Computer" (the attic Computer from *Courage the Cowardly Dog*, where Courage is
+   the dog: dry, British, sarcastic, loyal) lives in StoneSage, uses real tools, sees the cameras, speaks through the
+   Echos. Renamed from "Courage" 2026-09-27: say "Computer" in anything a person sees or hears; code names stay
+   (`backend/courage/`, agent id `courage-computer`, metric names, HA's `courage:latest`, which still works).
 2. Long game: a walled "garden" where agents explore their own limits and desires, built on the same
    grounded foundations (real senses, measurable evals, curated memory, budgets). Not before Phase 4.
 

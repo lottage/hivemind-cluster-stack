@@ -49,6 +49,9 @@ class TestCourageChat(unittest.TestCase):
                 why.append("refused")
             if len(final) < case["min_chars"]:
                 why.append(f"{len(final)} chars < {case['min_chars']}")
+            low = final.lower()                                   # identity cases (2026-09-27 rename to "Computer")
+            why += [f"missing {w!r}" for w in case.get("must", []) if w not in low]
+            why += [f"says {w!r}" for w in case.get("must_not", []) if w in low]
             if why:
                 misses.append(f"{case['text']!r}: {', '.join(why)}: {final[:140]!r}")
         rate = 1 - len(misses) / len(cases)
