@@ -58,7 +58,10 @@ def main() -> int:
         # (seeded with copies of the committed files, which some tests read)
         scratch = tempfile.mkdtemp(prefix="stonesage-unit-")
         profiles = os.path.join(scratch, "agent_profiles")
-        shutil.copytree(os.path.join(REPO_ROOT, "server setup", "cluster-bridge", "agent_profiles"), profiles)
+        committed = os.path.join(REPO_ROOT, "server setup", "cluster-bridge", "agent_profiles")
+        # the real profiles are private (absent from the public snapshot); tests/fixtures holds the two base agents tests use
+        fixtures = os.path.join(TESTS_DIR, "fixtures", "agent_profiles")
+        shutil.copytree(committed if os.path.isdir(committed) else fixtures, profiles)
         data = os.path.join(scratch, "data")
         os.makedirs(data)
         tools_json = os.path.join(REPO_ROOT, "data", "custom_tools.json")
@@ -66,6 +69,9 @@ def main() -> int:
             shutil.copy2(tools_json, data)
         os.environ["STONESAGE_AGENT_PROFILES_DIR"] = profiles
         os.environ["STONESAGE_DATA_DIR"] = data
+        # Several tests save the config (workspace roots, active instance). They write to scratch, never to the real
+        # config.json (which holds the operator's secrets); absent at first, so reads fall back to config.example.json.
+        os.environ["STONESAGE_CONFIG_FILE"] = os.path.join(scratch, "config.json")
         install_network_guard()
         suite = unittest.defaultTestLoader.discover(TESTS_DIR, pattern="test_*.py", top_level_dir=TESTS_DIR)
     elif mode == "live":

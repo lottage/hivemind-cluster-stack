@@ -1,0 +1,51 @@
+# DRAFT 2026-09-26, not installed. Lease layout "longctx_max": Bonsai 2 27B split across both GPUs, full 262K window.
+# See docs/plan-2026-09-26-local-loop/DESIGN.md. Started and stopped only by StoneSage's engine lease, never enabled.
+# Evicts Courage (coordinator + worker) AND the vision model: meant for overnight / stack-idle windows.
+# The embedder stays on the 6600. Only one longctx layout runs at a time (all listen on :8005).
+[Unit]
+Description=Llama-Server (PrismML fork) Bonsai 2 27B PTQ1_0 262K, split RX 6750 XT + RX 6600 (Vulkan)
+After=network.target
+Conflicts=llama-coordinator.service llama-worker.service vision-server.service llama-longctx.service llama-longctx-6600.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+# Both GPUs visible: Vulkan0 = RX 6750 XT, Vulkan1 = RX 6600 (same order as the single-GPU units).
+Environment="GGML_VK_VISIBLE_DEVICES=0,1"
+ExecStartPre=/usr/local/bin/wait-for-gpus.sh
+# Layer split: each GPU holds its layers' weights AND their KV (only 16 of 64 layers keep KV).
+# Free (paper estimate): 6750 ~11.4 GiB, 6600 ~7.1 GiB after the embedder. Need: 5.5 GiB weights
+# + 8.5 GiB q8_0 KV at 262144 + ~1.2 GiB state/compute (two buffers) ~= 15.2 of 18.5 GiB.
+# -ts 11,7 splits layers in proportion to free memory; adjust after reading fdinfo on both cards.
+ExecStart=/opt/llama-prism/current/llama-server \
+    --model /opt/models/prism/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+    --host 0.0.0.0 \
+    --port 8005 \
+    --device Vulkan0,Vulkan1 \
+    --split-mode layer \
+    -ts 11,7 \
+    -ngl 99 \
+    -c 262144 \
+    -np 1 \
+    -b 2048 \
+    -ub 512 \
+    --flash-attn on \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --cache-reuse 256 \
+    -n 16384 \
+    --jinja \
+    --alias longctx \
+    --metrics \
+    --slots \
+    --props
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

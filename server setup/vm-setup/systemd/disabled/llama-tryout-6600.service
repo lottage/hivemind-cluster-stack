@@ -1,0 +1,15 @@
+[Unit]
+Description=Llama-Server Model Tryout slot on RX 6600 (Vulkan, :8009) - lease-gated, DESIGN.md section E
+After=network.target
+Conflicts=vision-server.service llama-longctx-6600.service llama-longctx-max.service llama-tryout-6750.service
+
+[Service]
+Type=simple
+User=root
+Environment="GGML_VK_VISIBLE_DEVICES=1"
+ExecStartPre=/usr/local/bin/wait-for-gpus.sh
+ExecStart=/usr/local/bin/llama-tryout.sh
+# no restart: a model that crashes fails the lease's health check and the lease reverts
+Restart=no
+StandardOutput=journal
+StandardError=journal

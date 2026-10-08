@@ -14,6 +14,7 @@ const S = {
   state: null, target: null, node: null, library: [], libNode: null,
   sel: null, params: {}, plan: null, filter: 'llm', query: '', sort: 'fit',
   review: null, job: null, jobTimer: null, planTimer: null, loading: false,
+  profiles: null, profJob: null, profTimer: null,
 };
 
 async function api(path, body) {
@@ -89,17 +90,33 @@ function renderLibrary() {
   items.sort((a, b) => S.sort === 'size' ? b.size_gb - a.size_gb : S.sort === 'name' ? a.name.localeCompare(b.name)
     : (order[quickFit(a)] - order[quickFit(b)]) || (b.is_loaded - a.is_loaded) || b.size_gb - a.size_gb);
   if (!items.length) return '<div class="ml-empty">No models match.</div>';
+  // provenance (Phase 6): which llama-server builds can load each model; tag the ones not every build can run
+  const builds = new Set(S.library.flatMap((m) => m.loadable_by || []));
   return items.map((m) => {
     const fit = quickFit(m);
+    const needs = m.loadable_by && m.loadable_by.length < builds.size
+      ? `<i class="ml-bad-text" title="Only these llama-server builds can load it (tensor types / architecture)">needs ${esc(m.loadable_by.join(' / ') || 'a build not installed')}</i>` : '';
     return `<button type="button" class="ml-model ${S.sel?.key === m.key ? 'active' : ''}" data-model="${esc(m.key)}">
       <span class="ml-fit ml-fit-${fit}" title="${fit.replace('_', ' ')}"></span>
       <span class="ml-model-name">${esc(m.name)}${m.is_loaded ? ' <em>loaded</em>' : ''}</span>
-      <span class="ml-tags">${[m.params, m.quant, m.arch, m.trained_ctx && `${kfmt(m.trained_ctx)} ctx`, gb(m.size_gb)].filter(Boolean).map((x) => `<i>${esc(x)}</i>`).join('')}${m.vision ? '<i>vision</i>' : ''}${m.tools ? '<i>tools</i>' : ''}</span>
+      <span class="ml-tags">${[m.params, m.quant, m.arch, m.trained_ctx && `${kfmt(m.trained_ctx)} ctx`, gb(m.size_gb)].filter(Boolean).map((x) => `<i>${esc(x)}</i>`).join('')}${m.vision ? '<i>vision</i>' : ''}${m.tools ? '<i>tools</i>' : ''}${needs}</span>
     </button>`;
   }).join('');
 }
 
 // ----------------------------------------------------------------- plan ----
+// Provenance from the GGUF header (backend/provenance.py): base model, who quantized it, source, which builds run it
+function lineageLine(m) {
+  const l = m.lineage || {};
+  const bits = [
+    (l.base_models || []).length && `from ${l.base_models.map((b) => b.name || b.repo_url).join(', ')}`,
+    l.finetune && `finetune: ${l.finetune}`, l.quantized_by && `quantized by ${l.quantized_by}`,
+    l.source && `source ${l.source}`, m.loadable_by && `runs on ${m.loadable_by.join(' / ') || 'no installed build'}`,
+    m.sha256 && `sha256 ${m.sha256.slice(0, 12)}`,
+  ].filter(Boolean);
+  return bits.length ? `<div class="ml-lineage"><small>${esc(bits.join(' · '))}</small></div>` : '';
+}
+
 function draftOptions() {
   if (!S.sel || !S.target?.startsWith('engine:')) return [];
   const p = parseFloat(S.sel.params) || 99;
@@ -128,6 +145,7 @@ function renderPlan() {
       <div><b>${esc(m.name)}</b> <small>${esc([m.params, m.quant, m.arch].filter(Boolean).join(' · '))}</small></div>
       <div class="ml-verdict ml-${verdict[0]}">${verdict[1]}${plan?.calibrated ? ' · calibrated' : ''}</div>
     </div>
+    ${lineageLine(m)}
     <div class="ml-membar" title="${esc(plan?.budget_label || '')}">
       ${mem ? `<span class="ml-m ml-m-other" style="width:${pct(mem.others_gb)}" title="other engines ${gb(mem.others_gb)}"></span>
       <span class="ml-m ml-m-weights" style="width:${pct(mem.weights_gb)}" title="weights ${gb(mem.weights_gb)}"></span>
@@ -273,11 +291,71 @@ function renderReview() {
     <div class="ml-actions"><button type="button" class="ml-primary" data-act="apply" ${r.kind === 'unit' && !r.changed ? 'disabled' : ''}>Apply</button><button type="button" data-act="cancel">Cancel</button></div></div>`;
 }
 
+// ------------------------------------------------------------- profiles ----
+// Engine Profiles (backend/engine_profiles.py, config.json "engine_profiles"): named "which model where" bundles.
+const PROF_BADGE = { active: ['ml-ok', 'live'], available: ['', 'ready'], model_missing: ['ml-bad', 'missing'], unspecified: ['ml-warn', 'no model'] };
+
+function renderProfiles() {
+  const list = S.profiles?.profiles || [];
+  if (!list.length) return '';
+  const j = S.profJob;
+  const chips = list.map((p) => {
+    const t = Object.entries(p.targets);
+    const live = t.length && t.every(([, v]) => v.status === 'active');
+    const rows = t.map(([id, v]) => {
+      const [cls, word] = PROF_BADGE[v.status] || ['ml-bad', v.status];
+      return `<small title="${esc(v.model || '')}">${esc(id.split(':')[1])}: <span class="${cls}">${esc(word)}</span></small>`;
+    }).join('');
+    const blocked = !p.unlocked || live || (j && j.status === 'running');
+    const why = !p.unlocked ? `Needs project phase ${p.min_phase} (now ${S.profiles.project_phase})` : live ? 'Already live' : p.description;
+    return `<button type="button" class="ml-chip ${live ? 'active' : ''} ${blocked ? 'locked' : ''}" data-profile="${esc(p.name)}" title="${esc(why)}">
+      <b>${!p.unlocked ? '🔒 ' : ''}${esc(p.name)}</b>${rows}</button>`;
+  }).join('');
+  let status = '';
+  if (j) {
+    const cls = { done: 'ok', partial: 'warn' }[j.status] || '';
+    const res = Object.entries(j.results || {}).map(([id, r]) => `<li><b>${esc(id)}</b> ${esc(r.skipped || r.error || r.status || '')}${(r.steps || []).length ? ` <small>(${esc(r.steps[r.steps.length - 1].text)})</small>` : ''}</li>`).join('');
+    status = `<div class="ml-review"><div class="ml-review-head">Profile ${esc(j.profile)}: ${esc(j.step || '')} <span class="ml-verdict ml-${cls}">${esc(j.status)}</span></div>
+      <ol class="ml-steps">${res}</ol>${j.status !== 'running' ? '<button type="button" data-act="profclose">Close</button>' : ''}</div>`;
+  }
+  return `<div class="ml-node ml-profiles"><div class="ml-node-head">📋 <b>Profiles</b> <small>one click, every listed engine; unlisted engines are left alone</small></div>
+    <div class="ml-chips">${chips}</div>${status}</div>`;
+}
+
+async function loadProfiles() {
+  S.profiles = await api('/api/engine-profiles').catch(() => null);
+  paint();
+}
+
+async function applyProfile(name) {
+  const p = (S.profiles?.profiles || []).find((x) => x.name === name);
+  if (!p || !p.unlocked || S.profJob?.status === 'running') return;
+  const todo = Object.entries(p.targets).filter(([, v]) => v.status === 'available').map(([id, v]) => `  ${id} → ${(v.model || '').split('/').pop()}`);
+  if (!todo.length) return;
+  if (!confirm(`Apply profile "${name}"?\n\nThese engines restart with a new model (each rolls back on its own if it fails):\n${todo.join('\n')}`)) return;
+  const res = await api('/api/engine-profiles/apply', { name });
+  if (!res.ok) { S.profJob = { profile: name, status: 'failed', step: res.error }; return paint(); }
+  S.profJob = { profile: name, status: 'running', step: 'Starting…' }; paint();
+  clearInterval(S.profTimer);
+  S.profTimer = setInterval(async () => {
+    S.profJob = await api(`/api/engine-profiles/job?id=${res.job}`);
+    paint();
+    if (S.profJob.status && S.profJob.status !== 'running') {
+      clearInterval(S.profTimer);
+      if (window.refreshProfile) window.refreshProfile();
+      S.state = await api('/api/loader/state?fresh=1');
+      S.libNode = null;
+      loadProfiles();
+    }
+  }, 2000);
+}
+
 // ------------------------------------------------------------- behaviour ----
 function paint() {
   const root = $('#model-loader-root');
   if (!root) return;
   root.innerHTML = `
+    ${renderProfiles()}
     <div class="ml-topology">${renderTopology()}</div>
     <div class="ml-main">
       <section class="ml-library">
@@ -377,8 +455,9 @@ async function onClick(e) {
     paint();
     return PLAN_FLAGS.has(f) ? schedulePlan(0) : undefined;
   }
-  const el = e.target.closest('[data-target],[data-model],[data-filter],[data-act],[data-quick]');
+  const el = e.target.closest('[data-target],[data-model],[data-filter],[data-act],[data-quick],[data-profile]');
   if (!el) return;
+  if (el.dataset.profile) return applyProfile(el.dataset.profile);
   if (el.dataset.target) return selectTarget(el.dataset.target);
   if (el.dataset.model) {
     const keepGpus = S.params.gpu_indexes;
@@ -398,6 +477,7 @@ async function onClick(e) {
   if (act === 'refresh') { S.state = await api('/api/loader/state?fresh=1'); S.libNode = null; if (S.target) return selectTarget(S.target); return paint(); }
   if (act === 'review') { S.review = await api('/api/loader/preview', payload()); return paint(); }
   if (act === 'cancel') { S.review = null; return paint(); }
+  if (act === 'profclose') { S.profJob = null; return paint(); }
   if (act === 'close') { S.job = null; S.review = null; return selectTarget(S.target); }
   if (act === 'apply') {
     const res = await api('/api/loader/apply', payload({ token: S.review.token }));
@@ -478,6 +558,7 @@ export async function openModelLoader() {
   root.innerHTML = '<div class="ml-empty">Reading the cluster…</div>';
   S.state = await api('/api/loader/state');
   paint();
+  loadProfiles();
   if (!S.target) {
     const first = allTargets().find((t) => t.editable);
     if (first) selectTarget(first.id);

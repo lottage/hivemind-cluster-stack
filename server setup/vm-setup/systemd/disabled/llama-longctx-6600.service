@@ -1,0 +1,49 @@
+# DRAFT 2026-09-26, not installed. Lease layout "longctx_6600": Bonsai 2 27B on the RX 6600 only.
+# See docs/plan-2026-09-26-local-loop/DESIGN.md. Started and stopped only by StoneSage's engine lease, never enabled.
+# Courage (coordinator + worker on the 6750 XT) stays up; the vision model is evicted for the lease (camera questions
+# and patrol vision are offline). The embedder stays on the 6600, so RAG keeps working.
+# Only one longctx layout runs at a time (all listen on :8005).
+[Unit]
+Description=Llama-Server (PrismML fork) Bonsai 2 27B PTQ1_0 on RX 6600 (Vulkan)
+After=network.target
+Conflicts=vision-server.service llama-longctx.service llama-longctx-max.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+# VISIBLE=1 is the RX 6600; with it set, Vulkan0 below means "the 6600".
+Environment="GGML_VK_VISIBLE_DEVICES=1"
+ExecStartPre=/usr/local/bin/wait-for-gpus.sh
+# Budget (paper estimate): 8.18 GB - 0.59 embedder - 5.95 weights - ~0.6 state/compute ~= 0.85 GiB KV.
+# q8_0 K / q4_0 V = 26 KiB/token -> ~34K; start at 32768 and grow after reading fdinfo drm-memory-vram.
+# No --mmproj: the 0.63 GB vision tower would leave ~0.3 GiB for KV.
+ExecStart=/opt/llama-prism/current/llama-server \
+    --model /opt/models/prism/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+    --host 0.0.0.0 \
+    --port 8005 \
+    --device Vulkan0 \
+    -ngl 99 \
+    -c 32768 \
+    -np 1 \
+    -b 2048 \
+    -ub 512 \
+    --flash-attn on \
+    -ctk q8_0 \
+    -ctv q4_0 \
+    --cache-reuse 256 \
+    -n 16384 \
+    --jinja \
+    --alias longctx \
+    --metrics \
+    --slots \
+    --props
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

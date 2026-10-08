@@ -13,7 +13,7 @@
   <link rel="apple-touch-icon" href="/icon.svg">
 
   <link rel="stylesheet" id="xterm-css-link" href="/vendor/xterm/xterm.css?v=4.0.4">
-  <link rel="stylesheet" href="/style.css?v=4.3.1">
+  <link rel="stylesheet" href="/style.css?v=4.3.2">
 
   <!-- xterm.js Terminal Engine -->
   <script id="xterm-core-script" src="/vendor/xterm/xterm.js?v=4.0.4"></script>
@@ -132,7 +132,7 @@
               <span class="status-badge online chat-ws-badge" id="chat-workspace-badge">📁 [WS: Active]</span>
               <span class="chat-agent-label">🤖 AGENT:</span>
               <select class="topbar-select chat-agent-select" id="chat-agent-select" title="Select Sovereign Agent Persona">
-                <option value="courage-computer" selected>✨ courage-computer (Courage Sentry &amp; Attic Supercomputer)</option>
+                <option value="courage-computer" selected>✨ courage-computer (Computer: attic computer &amp; sentry)</option>
                 <option value="coder-agent">⚡ coder-agent (Systems Architect &amp; Coder)</option>
                 <option value="wildlife-agent">🌲 wildlife-agent (Perimeter &amp; Fauna Vision)</option>
                 <option value="archivist-agent">📜 archivist-agent (Vector Memory &amp; A-MEM)</option>
@@ -172,6 +172,7 @@
               </div>
               <div class="right-actions">
                 <span id="convo-status" style="font-size:0.72rem; color:var(--term-accent-gold); margin-right:4px; min-width:0;"></span>
+                <button type="button" class="prompt-btn" id="chat-barge-btn" onclick="toggleBargeIn()" title="Interrupt is OFF. Tap to let you talk over Computer (experimental)." style="background:transparent; border:1px solid #7c3aed; color:#7c3aed; padding:0 6px;">&#9995;</button>
                 <button type="button" class="prompt-btn" id="chat-convo-btn" onclick="toggleConvoMode()" title="Conversation Mode: Hands-free voice loop (Record → Transcribe → Send → TTS → Repeat)" style="background:transparent; border:1px solid #7c3aed; color:#7c3aed;">🗣️ CONVO</button>
                 <button type="button" class="prompt-btn" id="chat-mic-btn" onclick="toggleChatMic()" title="Push-to-Talk: Transcribe speech to prompt (Local Whisper STT)" style="background:transparent; border:1px solid var(--term-border-dim);">🎤 MIC</button>
                 <button type="button" class="prompt-btn stop" id="chat-stop-btn">■ STOP</button>
@@ -469,6 +470,9 @@
             <div class="econsole-subnav" style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">
               <button type="button" class="econsole-subnav-btn active" data-layer="dashboard">[📊 DASHBOARD]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="loader" style="color:var(--term-text-bright);">[🚀 MODEL LOADER]</button>
+              <button type="button" class="econsole-subnav-btn" data-layer="boost" style="color:var(--term-accent-gold);">[⚡ BOOST]</button>
+              <button type="button" class="econsole-subnav-btn" data-layer="trace" style="color:var(--term-text-bright);">[🧭 TRACE]</button>
+              <button type="button" class="econsole-subnav-btn" data-layer="memories" style="color:var(--term-text-bright);">[🧠 MEMORIES]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="debug">[🔍 PLAYGROUND &amp; DEBUG]</button>
               <button type="button" class="econsole-subnav-btn" data-layer="logs">[📜 SYSTEM LOGS]</button>
             </div>
@@ -490,6 +494,21 @@
               <div id="econsole-dashboard-grid" class="econsole-grid">
                 <div style="padding:1rem; color:var(--term-text-muted);">Polling engines...</div>
               </div>
+            </div>
+
+            <!-- Sub-Layer: Courage trace, one row per Courage turn (js/courage_trace.js, backend/courage/trace.py) -->
+            <div class="econsole-layer" id="econsole-layer-trace" style="display:none;">
+              <div id="courage-trace-root"></div>
+            </div>
+
+            <!-- Sub-Layer: Courage's conversational memory (js/courage_memories.js, backend/courage/memory.py) -->
+            <div class="econsole-layer" id="econsole-layer-memories" style="display:none;">
+              <div id="courage-memories-root"></div>
+            </div>
+
+            <!-- Sub-Layer: Boost, free extra inference (js/boost.js, backend/boost) -->
+            <div class="econsole-layer" id="econsole-layer-boost" style="display:none;">
+              <div id="boost-root"></div>
             </div>
 
             <!-- Sub-Layer: Model Loader (js/model_loader.js; replaces the parameter editor and VRAM sizer) -->
@@ -1686,10 +1705,14 @@
 
             <!-- Resident & Pet Real Presence Grid -->
             <div style="margin-bottom:10px;">
-              <div style="font-size:0.72rem; font-weight:bold; color:var(--term-text-muted); margin-bottom:6px;">👥 RESIDENTS &amp; PETS (24/7 VISION RE-ID):</div>
+              <div style="display:flex; gap:6px; margin-bottom:6px;">
+                <button type="button" class="preset-btn active" id="presence-tab-people" onclick="showPresenceTab('people')">[👥 RESIDENTS &amp; PETS]</button>
+                <button type="button" class="preset-btn" id="presence-tab-live" onclick="showPresenceTab('live')">[📹 LIVE CAMERAS]</button>
+              </div>
               <div id="presence-locations-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px;">
                 <div style="color:var(--term-text-muted); font-size:0.75rem;">Loading real-time presence telemetry...</div>
               </div>
+              <div id="presence-live-grid" style="display:none; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:8px;"></div>
             </div>
 
             <!-- Appliance Telemetry Row -->
@@ -1701,7 +1724,7 @@
             <!-- Courage Voice Interaction Bar -->
             <div style="border-top:1px dashed var(--term-border-dim); padding-top:8px;">
               <div style="display:flex; gap:6px; margin-bottom:6px;">
-                <input type="text" id="courage-query-input" class="form-input" placeholder="Ask Courage a question (e.g. Is the laundry done? Where is Luna? What is tomorrow's schedule?)..." style="flex:1; font-size:0.82rem;">
+                <input type="text" id="courage-query-input" class="form-input" placeholder="Ask Computer a question (e.g. Is the laundry done? Where is Luna? What is tomorrow's schedule?)..." style="flex:1; font-size:0.82rem;">
                 <button type="button" class="term-cmd-btn" id="courage-ask-btn" onclick="askCourage()" style="background:var(--term-accent-gold); color:#000; font-weight:bold; padding:4px 12px;">
                   [🗣️ ASK COURAGE]
                 </button>

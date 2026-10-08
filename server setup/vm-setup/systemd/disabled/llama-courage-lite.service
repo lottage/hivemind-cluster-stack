@@ -1,0 +1,44 @@
+# Computer's stand-in brain while a lease holds the 6750 XT (longctx_6750, tryout_6750, longctx_max); see
+# docs/plan-2026-09-26-local-loop/DESIGN.md ("Courage-lite"). Installed disabled on VM 102; started and stopped only by
+# the engine lease (StoneSage backend/engine_lease.py). CPU only, so it takes nothing from the GPUs: VM 102 has 10 vCPUs
+# (i7-12700K, AVX2 + AVX-VNNI). Mainline llama-server, native tool calls via --jinja.
+# 2026-09-28: Granite 4.0 h-tiny Q4_K_M (7B MoE, ~1B active; /opt/models symlink into ~/.lmstudio) replaced
+# Qwen3-4B-Instruct-2507: the same 46-case eval on this CPU gave 44/46 single, 42/46 mid-conversation, 0 wrong actions,
+# p50 0.87 s, p95 1.5 s, vs Qwen3-4B's 42/40, 0 wrong, p50 2.5 s, p95 22.7 s (STATE.md, Phase 1 model evals).
+# Pre-change unit: /root/llama-courage-lite.service.bak-2026-09-28-qwen3-4b on VM 102.
+[Unit]
+Description=Llama-Server Courage-lite (Granite 4.0 h-tiny, CPU) - lease stand-in for the coordinator
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+ExecStart=/usr/local/bin/llama-server \
+    --model /opt/models/granite-4.0-h-tiny-q4_k_m.gguf \
+    --host 0.0.0.0 \
+    --port 8006 \
+    --device none \
+    -ngl 0 \
+    -t 6 \
+    -c 8192 \
+    -np 1 \
+    -b 512 \
+    -ub 512 \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --flash-attn on \
+    --jinja \
+    --alias courage-lite \
+    --metrics \
+    --slots \
+    --props
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

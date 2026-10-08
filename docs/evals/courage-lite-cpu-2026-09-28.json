@@ -1,0 +1,204 @@
+[
+ {
+  "label": "granite-4.0-h-tiny Q4_K_M, CPU 6 threads",
+  "cold_s": 8.9,
+  "single": {
+   "right": 44,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'Is there a car in the driveway?': got presence_now, want camera_look",
+    "'Is someone at the front door?': got presence_now, want camera_look"
+   ],
+   "p50_s": 0.87,
+   "p95_s": 1.5
+  },
+  "mid": {
+   "right": 42,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'Is someone at the front door?': got presence_now, want camera_look",
+    "'Scan the kitchen from all the presets.': got none, want camera_scan",
+    "'What oil does the BMW take?': got ha_get_states, want memory_search",
+    "'The person you saw in the living room was actually Austin.': got presence_now, want correct_sighting"
+   ],
+   "p50_s": 3.37,
+   "p95_s": 4.17
+  },
+  "prefill_ms_p50": 390,
+  "prefill_ms_p95": 2870,
+  "decode_tps_p50": 35.2,
+  "runaway_rate": 0.0,
+  "calls": 92
+ },
+ {
+  "label": "qwen3-4b-instruct-2507 Q4_K_M, CPU 6 threads (current stand-in)",
+  "cold_s": 30.7,
+  "single": {
+   "right": 42,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'Did you see anyone around before I got here?': got memory_search, want presence_now",
+    "'What oil does the BMW take?': got none, want memory_search",
+    "\"Text Savannah that I'm running late.\": got none, want notify",
+    "'Good morning, Computer.': got presence_now, want none"
+   ],
+   "p50_s": 2.49,
+   "p95_s": 22.74
+  },
+  "mid": {
+   "right": 40,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'When did you last see Kylo?': got none, want presence_now",
+    "'Did you see anyone around before I got here?': got none, want presence_now",
+    "'What oil does the BMW take?': got none, want memory_search",
+    "'What spark plugs did I note for the 328i?': got none, want memory_search",
+    "'Good morning, Computer.': got ha_get_states, want none",
+    "'The person you saw in the living room was actually Austin.': got none, want correct_sighting"
+   ],
+   "p50_s": 4.81,
+   "p95_s": 24.51
+  },
+  "prefill_ms_p50": 713,
+  "prefill_ms_p95": 20523,
+  "decode_tps_p50": 13.3,
+  "runaway_rate": 0.0,
+  "calls": 104
+ },
+ {
+  "label": "LFM2.5-8B-A1B Q4_K_M, CPU 6 threads, thinking off",
+  "cold_s": 8.4,
+  "single": {
+   "right": 39,
+   "of": 46,
+   "wrong_actions": 1,
+   "misses": [
+    "'Is someone at the front door?': got presence_now, want camera_look",
+    "'What oil does the BMW take?': got none, want memory_search",
+    "'Remind me what coolant the BMW needs.': got none, want memory_search",
+    "\"Text Savannah that I'm running late.\": got speak, want notify",
+    "\"Announce in the kitchen that the pizza's here.\": got none, want speak",
+    "\"The last sighting of Savannah is wrong, that's just a coat on a chair.\": got presence_now, want correct_sighting",
+    "'The person you saw in the living room was actually Austin.': got presence_now, want correct_sighting"
+   ],
+   "p50_s": 3.66,
+   "p95_s": 7.6
+  },
+  "mid": {
+   "right": 39,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'Crank the heat up a couple of degrees.': got none, want ha_call/ha_get_states",
+    "\"Text Savannah that I'm running late.\": got none, want notify",
+    "\"Tell everyone downstairs dinner's ready.\": got none, want speak",
+    "\"That wasn't Kylo on the kitchen camera, it was Luna.\": got presence_now, want correct_sighting",
+    "\"The last sighting of Savannah is wrong, that's just a coat on a chair.\": got presence_now, want correct_sighting",
+    "'The person you saw in the living room was actually Austin.': got presence_now, want correct_sighting",
+    "\"Kylo's latest sighting is mislabeled, it's Luna.\": got presence_now, want correct_sighting"
+   ],
+   "p50_s": 3.49,
+   "p95_s": 9.28
+  },
+  "prefill_ms_p50": 2947,
+  "prefill_ms_p95": 8131,
+  "decode_tps_p50": 37.5,
+  "runaway_rate": 0.0,
+  "calls": 92
+ },
+ {
+  "label": "LFM2.5-2.6B Q4_K_M, CPU 6 threads, thinking off",
+  "cold_s": 12.4,
+  "single": {
+   "right": 38,
+   "of": 46,
+   "wrong_actions": 2,
+   "misses": [
+    "'Is someone at the front door?': got presence_now, want camera_look",
+    "'How does Savannah take her coffee?': got presence_now, want memory_search",
+    "\"Text Savannah that I'm running late.\": got presence_now, want notify",
+    "\"Tell everyone downstairs dinner's ready.\": got ha_call, want speak",
+    "'Tell me a joke about toasters.': got speak, want none",
+    "'How are you today?': got presence_now, want none",
+    "\"The last sighting of Savannah is wrong, that's just a coat on a chair.\": got presence_now, want correct_sighting",
+    "'The person you saw in the living room was actually Austin.': got presence_now, want correct_sighting"
+   ],
+   "p50_s": 4.36,
+   "p95_s": 10.79
+  },
+  "mid": {
+   "right": 36,
+   "of": 46,
+   "wrong_actions": 1,
+   "misses": [
+    "'Is someone at the front door?': got presence_now, want camera_look",
+    "\"Text Savannah that I'm running late.\": got presence_now, want notify",
+    "\"Ping Austin's phone that the dryer's done.\": got ha_call, want notify",
+    "\"Tell everyone downstairs dinner's ready.\": got presence_now, want speak",
+    "\"What's 17 times 23?\": got ha_get_states, want none",
+    "'Good morning, Computer.': got ha_get_states, want none",
+    "'Tell me a joke about toasters.': got ha_get_states, want none",
+    "\"That wasn't Kylo on the kitchen camera, it was Luna.\": got camera_look, want correct_sighting",
+    "\"The last sighting of Savannah is wrong, that's just a coat on a chair.\": got presence_now, want correct_sighting",
+    "'The person you saw in the living room was actually Austin.': got presence_now, want correct_sighting"
+   ],
+   "p50_s": 4.52,
+   "p95_s": 11.58
+  },
+  "prefill_ms_p50": 3603,
+  "prefill_ms_p95": 10432,
+  "decode_tps_p50": 24.4,
+  "runaway_rate": 0.0,
+  "calls": 93
+ },
+ {
+  "label": "Granite 4.2 3B Q4_K_M, CPU 6 threads, thinking off",
+  "cold_s": 21.1,
+  "single": {
+   "right": 34,
+   "of": 46,
+   "wrong_actions": 0,
+   "misses": [
+    "'Is it a bit cold in here or is it just me?': got camera_look, want ha_get_states",
+    "'Is the front door unlocked?': got presence_now, want ha_get_states",
+    "'When did you last see Kylo?': got camera_look, want presence_now",
+    "'Did you see anyone around before I got here?': got camera_look, want presence_now",
+    "'What oil does the BMW take?': got none, want memory_search",
+    "'How does Savannah take her coffee?': got presence_now, want memory_search",
+    "'Remind me what coolant the BMW needs.': got none, want memory_search",
+    "'Lock the front door.': got presence_now, want ha_call/ha_get_states",
+    "\"Text Savannah that I'm running late.\": got none, want notify",
+    "'Send me a reminder on my phone to take the bins out.': got none, want notify",
+    "\"Ping Austin's phone that the dryer's done.\": got presence_now, want notify",
+    "\"What's 17 times 23?\": got ha_get_states, want none"
+   ],
+   "p50_s": 3.87,
+   "p95_s": 20.66
+  },
+  "mid": {
+   "right": 39,
+   "of": 46,
+   "wrong_actions": 1,
+   "misses": [
+    "'Did you see anyone around before I got here?': got camera_look, want presence_now",
+    "'What oil does the BMW take?': got camera_scan, want memory_search",
+    "'How does Savannah take her coffee?': got presence_now, want memory_search",
+    "\"Text Savannah that I'm running late.\": got presence_now, want notify",
+    "'Send me a reminder on my phone to take the bins out.': got ha_call, want notify",
+    "\"Tell everyone downstairs dinner's ready.\": got presence_now, want speak",
+    "'Good morning, Computer.': got presence_now, want none"
+   ],
+   "p50_s": 4.5,
+   "p95_s": 21.89
+  },
+  "prefill_ms_p50": 605,
+  "prefill_ms_p95": 17784,
+  "decode_tps_p50": 16.0,
+  "runaway_rate": 0.01,
+  "calls": 103
+ }
+]

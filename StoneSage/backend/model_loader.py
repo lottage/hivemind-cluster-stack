@@ -57,6 +57,9 @@ ALIASES = {"-m": "--model", "-md": "--spec-draft-model", "--model-draft": "--spe
 SAMPLING_FLAGS = {"temp": "--temp", "top_p": "--top-p", "top_k": "--top-k", "min_p": "--min-p",
                   "repeat_penalty": "--repeat-penalty", "presence_penalty": "--presence-penalty"}
 
+LEASE = None  # engine_lease.EngineLease, set by server.py: no engine changes while a lease holds the GPUs
+PROVENANCE = None  # provenance.Provenance, set by server.py: lineage in the library, hard block in preview (Phase 6)
+
 _jobs: Dict[str, Dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _apply_lock = threading.Lock()  # one engine change at a time
@@ -291,6 +294,11 @@ def get_library(node_id: str, fresh: bool = False) -> Dict[str, Any]:
                 "heads": _int(m.get("heads")), "experts": m.get("experts"), "is_loaded": m.get("is_loaded"),
                 "geometry": "gguf" if (_int(m.get("layers")) and kv and _int(m.get("heads"))) else "partial",
             })
+            prov = PROVENANCE.lookup(m["path"]) if PROVENANCE else None
+            if prov:
+                from provenance import lineage
+                items[-1].update(sha256=prov.get("sha256"), loadable_by=prov.get("loadable_by"),
+                                 lineage=lineage(prov.get("gguf") or {}))
         return {"node": node_id, "models": items}
     inst_id = node_id.split(":", 1)[1]
     inst = next((i for i in cfg.get("harness_instances", []) if i.get("id") == inst_id), None)
@@ -516,6 +524,11 @@ def preview(req: Dict[str, Any]) -> Dict[str, Any]:
     model = lib.get(req.get("model"))
     if not model:
         return {"ok": False, "error": "model not found on the inference host"}
+    if PROVENANCE:   # hard block, no override: a model this unit's llama-server build cannot load (e.g. needs a fork)
+        for path in [model["key"]] + ([req["draft"]] if req.get("draft") else []):
+            why = PROVENANCE.check(path, text)
+            if why:
+                return {"ok": False, "blocked": True, "error": why}
     ctx, slots = int(req.get("ctx_per_slot") or 4096), int(req.get("slots") or 1)
     flag_set(u, "--model", model["key"])
     flag_set(u, "-c", str(ctx * slots))
@@ -579,6 +592,8 @@ def get_job(job_id: str) -> Dict[str, Any]:
 
 
 def apply(req: Dict[str, Any]) -> Dict[str, Any]:
+    if LEASE is not None and LEASE.lease and str(req.get("target", "")).startswith("engine:"):
+        return {"ok": False, "error": f"An engine lease ({LEASE.lease['layout']}) holds the GPUs; release it first."}
     pv = preview(req)
     if not pv.get("ok"):
         return pv

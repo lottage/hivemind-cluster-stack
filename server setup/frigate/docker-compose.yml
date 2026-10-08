@@ -1,0 +1,29 @@
+# Frigate on LXC 128 "frigate" (192.168.1.150, pve node, UHD 770 iGPU via /dev/dri/renderD128). Deployed to /opt/frigate.
+# Credentials come only from /etc/stonesage/secrets.env (FRIGATE_* variables, see secrets.env.example);
+# Frigate substitutes {FRIGATE_*} in config.yml, including the go2rtc stream URLs.
+services:
+  frigate:
+    container_name: frigate
+    image: ghcr.io/blakeblackshear/frigate:stable
+    restart: unless-stopped
+    stop_grace_period: 30s
+    shm_size: "256mb"          # 2 cameras at detect resolution; raise when adding cameras
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128   # OpenVINO detector + VAAPI decode
+    env_file:
+      - /etc/stonesage/secrets.env
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /opt/frigate/config:/config
+      - /opt/frigate/media:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 500000000
+    ports:
+      - "8971:8971"            # authenticated UI/API
+      - "5000:5000"            # unauthenticated API: LAN only, used by StoneSage
+      - "8554:8554"            # go2rtc RTSP restream
+      - "8555:8555/tcp"        # go2rtc WebRTC
+      - "8555:8555/udp"
+      - "1984:1984"            # go2rtc API (WebRTC signalling for the StoneSage camera tab)

@@ -1,0 +1,48 @@
+# DRAFT 2026-09-26, not installed. Lease layout "longctx_6750": Bonsai 2 27B (ternary PTQ1_0) on the RX 6750 XT.
+# Siblings: llama-longctx-6600.service (Courage stays up), llama-longctx-max.service (both GPUs, 262K).
+# See docs/plan-2026-09-26-local-loop/DESIGN.md. Started and stopped only by StoneSage's engine lease, never enabled.
+# Takes the whole RX 6750 XT, so it conflicts with the coordinator and worker: starting it stops them.
+# Starting them again (lease revert) stops this one, because Conflicts= works in both directions.
+[Unit]
+Description=Llama-Server (PrismML fork) Bonsai 2 27B PTQ1_0 long context (RX 6750 XT - Vulkan)
+After=network.target
+Conflicts=llama-coordinator.service llama-worker.service llama-longctx-6600.service llama-longctx-max.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/models
+Environment="GGML_VK_VISIBLE_DEVICES=0"
+# Same boot-race guard as the other engines (llama-wait-gpus.conf), inline because this unit is new.
+ExecStartPre=/usr/local/bin/wait-for-gpus.sh
+# 131072 x 1 with q8_0 K/V ~= 4.3 GiB KV on top of 5.95 GB weights (paper estimate: check fdinfo drm-memory-vram).
+# q5_0 KV is several times slower in this fork: don't. No --mmproj (saves 0.63 GB).
+ExecStart=/opt/llama-prism/current/llama-server \
+    --model /opt/models/prism/Ternary-Bonsai-2-27B-PTQ1_0.gguf \
+    --host 0.0.0.0 \
+    --port 8005 \
+    --device Vulkan0 \
+    -ngl 99 \
+    -c 131072 \
+    -np 1 \
+    -b 2048 \
+    -ub 512 \
+    --flash-attn on \
+    -ctk q8_0 \
+    -ctv q8_0 \
+    --cache-reuse 256 \
+    -n 16384 \
+    --jinja \
+    --alias longctx \
+    --metrics \
+    --slots \
+    --props
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

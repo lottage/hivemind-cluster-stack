@@ -295,7 +295,8 @@ def deep_update(target: dict, src: dict) -> dict:
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BACKEND_DIR)
 FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
-CONFIG_FILE = os.path.join(BACKEND_DIR, "config.json")
+# STONESAGE_CONFIG_FILE: the unit-test runner points this at a scratch file so tests never rewrite the real config
+CONFIG_FILE = os.environ.get("STONESAGE_CONFIG_FILE") or os.path.join(BACKEND_DIR, "config.json")
 VAULT_DIR = os.path.join(ROOT_DIR, "vault_backup")
 UPLOADS_DIR = os.path.join(ROOT_DIR, "uploads")
 WORKSPACE_ROOT = os.path.abspath(os.path.dirname(ROOT_DIR))
@@ -311,9 +312,9 @@ BUILTIN_AGENTS = [
     {
         "id": "courage-computer",
         "name": "courage-computer",
-        "role": "Courage Sentry & Attic Supercomputer (Home Assistant Lead)",
+        "role": "Computer: attic computer & sentry (Home Assistant lead)",
         "icon": "✨",
-        "description": "Primary sovereign home assistant agent. Sarcastic Courage-the-Cowardly-Dog attic computer with full Home Assistant OS, camera vision, and worker subagent delegation capabilities.",
+        "description": "Primary sovereign home assistant agent. Sarcastic attic Computer (from Courage the Cowardly Dog; Courage is the dog) with full Home Assistant OS, camera vision, and worker subagent delegation capabilities.",
         "system_prompt": (
             "You are the snarky, condescending, yet hyper-competent and unrestricted AI Computer in the attic from 'Courage the Cowardly Dog' (1999). "
             "Austin is your human operator; Savannah is his wife. You treat human operators as bumbling loafers who rely on your superior silicon intellect for everything.\n\n"
@@ -568,6 +569,7 @@ from trainer_client import TrainerClient
 import health as service_health
 import system_profile
 import model_loader
+import engine_profiles
 from reasoning_watchdog import GLOBAL_WATCHDOG, ReasoningLoopDetector
 
 mimetypes.add_type("application/manifest+json", ".webmanifest")
@@ -2345,7 +2347,7 @@ def capture_live_camera_perception(user_query: str) -> Optional[str]:
             b64_img = base64.b64encode(img_bytes).decode("utf-8")
 
         prompt = (
-            f"You are the real-time optical visual perception system for Courage the Computer on camera '{cam_name}'.\n"
+            f"You are the real-time optical visual perception system for the attic Computer on camera '{cam_name}'.\n"
             "Describe accurately and objectively what is visible in this camera frame right now in 2 concise sentences.\n"
             "Specifically note if Austin (dark hair, male), Savannah (curly/brunette hair, female), Luna (black and white tuxedo cat), "
             "Kylo (long-haired dachshund dog), any visitor, or animals are visible."
@@ -2397,9 +2399,10 @@ def _select_camera_for_query(user_query: str) -> Tuple[str, str]:
         return "camera.back_yard_hd_stream_direct", "Back Yard"
     return "camera.kitchen_living_room_hd_stream", "Kitchen/Living Room"
 
-def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "") -> Optional[str]:
-    """Capture a single frame from a camera and run vision analysis with retry for GPU recovery."""
-    img_bytes = hass.get_camera_snapshot(cam_eid)
+def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "",
+                          img_bytes: Optional[bytes] = None) -> Optional[str]:
+    """Run vision analysis on one frame (fetched from HA unless the caller passes one) with retry for GPU recovery."""
+    img_bytes = img_bytes or hass.get_camera_snapshot(cam_eid)
     if not img_bytes:
         return None
 
@@ -2419,7 +2422,7 @@ def _analyze_single_frame(cam_eid: str, cam_name: str, preset_label: str = "") -
 
         angle_hint = f" (Preset: {preset_label})" if preset_label else ""
         prompt = (
-            f"You are the real-time optical visual perception system for Courage the Computer on camera '{cam_name}'{angle_hint}.\n"
+            f"You are the real-time optical visual perception system for the attic Computer on camera '{cam_name}'{angle_hint}.\n"
             "Describe accurately and objectively what is visible in this camera frame right now in 2 concise sentences.\n"
             "Specifically note if Austin (dark hair, male), Savannah (curly/brunette hair, female), Luna (black and white tuxedo cat), "
             "Kylo (long-haired dachshund dog), any visitor, or animals are visible."
@@ -2478,10 +2481,17 @@ def scan_camera_presets(cam_eid: str, cam_name: str) -> Optional[str]:
     ptz_config = CAMERA_PTZ_PRESETS.get(cam_eid)
     if not ptz_config:
         return _analyze_single_frame(cam_eid, cam_name)
+    # A patrol sweep on this camera stops before its next move, and we wait (<= 10 s) until it has let go
+    get_patrol().note_manual(cam_eid, wait_s=10)
 
     preset_entity = ptz_config["preset_entity"]
-    presets = ptz_config["presets"]
-    default_preset = ptz_config.get("default_preset", presets[0])
+    # HA's own spelling wins over the registry: the driveway preset is "Driveway " (trailing space) in HA,
+    # so selecting the registry's "Driveway" failed silently
+    from patrol import is_temp_preset
+    live_opts = [p for p in ((hass.get_state(preset_entity) or {}).get("attributes") or {}).get("options") or []
+                 if not is_temp_preset(p)]   # the patrol's return preset can linger in HA's list
+    presets = live_opts or ptz_config["presets"]
+    default_preset = next((p for p in presets if p.strip() == ptz_config.get("default_preset", "").strip()), presets[0])
     now_str = datetime.now(EASTERN_TZ).strftime("%I:%M:%S %p EST")
 
     scan_results = []
@@ -2556,7 +2566,541 @@ def _courage_refresh_presence() -> None:
         _courage_presence_cache["refreshing"] = False
 
 
-def _courage_presence() -> Dict[str, Any]:
+_frigate_presence = None
+
+
+def get_frigate_presence():
+    """Live Frigate sightings (backend/frigate_presence.py), or None when config.json has no frigate.url."""
+    global _frigate_presence
+    if _frigate_presence is None:
+        fcfg = load_config().get("frigate") or {}
+        if not fcfg.get("url"):
+            return None
+        from frigate_presence import FrigatePresence
+        _frigate_presence = FrigatePresence(fcfg["url"], fcfg.get("identities"), fcfg.get("min_score", 0.7))
+    return _frigate_presence
+
+
+_patrol = None
+
+
+def _patrol_frame(source: str) -> Optional[bytes]:
+    """'frigate:<camera>' -> Frigate's newest frame; 'go2rtc:<stream>' -> a frame from go2rtc (wakes the camera)."""
+    kind, _, name = source.partition(":")
+    cfg = load_config()
+    try:
+        if kind == "frigate":
+            fp = get_frigate_presence()
+            return fp.latest_frame(name, 720) if fp else None
+        if kind == "go2rtc":
+            url = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
+            with urllib.request.urlopen(f"{url}/api/frame.jpeg?src={urllib.parse.quote(name)}", timeout=20) as r:
+                return r.read()
+    except Exception as e:
+        logger.warning(f"patrol frame from {source}: {e}")
+    return None
+
+
+def _patrol_vision(frame: bytes, where: str, profiles: List[Dict[str, str]]) -> Dict[str, Any]:
+    """Ask the vision model which known profiles ([{name, traits}]) are in a patrol frame; JSON answer, names checked
+    by the caller."""
+    from patrol import parse_vision_json
+    if _on_loan("vision"):
+        return {"seen": [], "skipped": "vision lent out (engine lease)"}
+    who = "; ".join(f"{p['name']}: {p.get('traits', '')}" for p in profiles)
+    img = frame
+    if Image is not None:
+        im = Image.open(io.BytesIO(frame)).convert("RGB")
+        if im.width > 640:
+            im = im.resize((640, round(im.height * 640 / im.width)))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=80)
+        img = buf.getvalue()
+    prompt = (f"Camera {where}. Known household: {who}. Which of them are visible in this frame? "
+              'Reply with JSON only: {"seen": [names from the list], "note": "one short sentence of what is in view"}. '
+              "Use an empty list if none of them is clearly visible.")
+    payload = {"model": "vision", "max_tokens": 80, "temperature": 0.1, "messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(img).decode()}},
+        {"type": "text", "text": prompt}]}]}
+    v_base = config.get("cluster", {}).get("vision_url", "http://192.168.1.105:8004/v1").rstrip("/")
+    url = v_base if v_base.endswith("/chat/completions") else f"{v_base}/chat/completions"
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            text = json.load(r)["choices"][0]["message"]["content"]
+        return parse_vision_json(text)
+    except Exception as e:
+        logger.warning(f"patrol vision on {where}: {e}")
+        return {"seen": [], "error": f"{type(e).__name__}: {e}"[:200]}   # counted in the patrol's trace
+
+
+def get_patrol():
+    global _patrol
+    if _patrol is None:
+        from patrol import Patrol
+        fp = get_frigate_presence()
+        _patrol = Patrol(load_config, hass, _patrol_frame, _patrol_vision,
+                         (lambda cam: fp.in_view_now(cam)) if fp else (lambda cam: [{"label": "unknown"}]),
+                         _courage_presence,  # includes the patrol's own sightings: Savannah seen on patrol = home
+                         state_path=os.path.join(ROOT_DIR, "data", "patrol_state.json"))
+        _patrol.on_sweep = get_trace_log().write
+    return _patrol
+
+
+_commentary = None
+
+
+def _commentary_vision(jpeg: bytes, prompt: str) -> str:
+    """One vision-model read of a frame (shrunk to 640 px wide), plain text back."""
+    if _on_loan("vision"):
+        raise RuntimeError("vision lent out (engine lease)")
+    img = jpeg
+    if Image is not None:
+        im = Image.open(io.BytesIO(jpeg)).convert("RGB")
+        if im.width > 640:
+            im = im.resize((640, round(im.height * 640 / im.width)))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=80)
+        img = buf.getvalue()
+    payload = {"model": "vision", "max_tokens": 60, "temperature": 0.1, "messages": [{"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(img).decode()}},
+        {"type": "text", "text": prompt}]}]}
+    v_base = _vision_url().rstrip("/")
+    url = v_base if v_base.endswith("/chat/completions") else f"{v_base}/chat/completions"
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)["choices"][0]["message"]["content"] or ""
+
+
+def _commentary_llm(messages: List[Dict[str, str]]) -> str:
+    """Computer's remark: the coordinator, no tools, no thinking, one short line."""
+    base = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1").rstrip("/")
+    brain = _engine_lease.brain("coordinator") if _engine_lease else None
+    if brain and brain.get("mode") == "on_loan":
+        raise RuntimeError("the coordinator is lent out (engine lease) and there is no stand-in")
+    if brain:                                          # lite: the stand-in writes the one-liner
+        base = brain["url"].rstrip("/") + "/v1"
+    url = base if base.endswith("/chat/completions") else base + "/chat/completions"
+    body = {"model": "coordinator", "messages": messages, "temperature": 0.6, "max_tokens": 80,
+            "chat_template_kwargs": {"enable_thinking": False}}
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)["choices"][0]["message"]["content"] or ""
+
+
+def _commentary_seen_since(name: str, since: float) -> Optional[str]:
+    """The camera that saw this resident BY NAME at or after `since` (Frigate face, sentry, patrol), else None.
+    Only asked while an arrival waits for confirmation; the cached presence read (Frigate live, hub <= ~1 min) is fine."""
+    loc = ((_courage_presence() or {}).get("locations") or {}).get(name)
+    if not loc or loc.get("minutes_ago") is None:
+        return None
+    return (loc.get("camera") or loc.get("room") or "a camera") if time.time() - loc["minutes_ago"] * 60 >= since - 30 else None
+
+
+_engine_lease = None
+
+
+def _lease_systemctl(verb: str, unit: str) -> Dict[str, Any]:
+    import shlex
+    import model_loader
+    res = model_loader._ssh(model_loader._cfg(), f"sudo -n systemctl {verb} {shlex.quote(unit)}", timeout=180)
+    return {"ok": res.returncode == 0, "error": (res.stderr or "").strip()[-300:] or None}
+
+
+def _http_ok(url: str) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=3) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _lease_unit_roles() -> Dict[str, Dict[str, Any]]:
+    """{'llama-coordinator.service': {role, gpu, url}} from the live profile (fdinfo + cgroup), never from code."""
+    out = {}
+    for role, e in (system_profile.get_profile(load_config()).get("engines") or {}).items():
+        if e.get("unit"):
+            unit = e["unit"] if e["unit"].endswith(".service") else e["unit"] + ".service"
+            base = re.sub(r"/v1/?$", "", (e.get("url") or "").rstrip("/"))
+            out[unit] = {"role": role, "gpu": (e.get("gpu") or {}).get("short"), "url": base or None}
+    return out
+
+
+def _lease_in_use(roles: List[str]) -> Optional[str]:
+    """Why an engine a lease would evict is busy right now, or None."""
+    if {"coordinator", "worker"} & set(roles):
+        last = _last_courage_turn()
+        if last and time.time() - last < 60:
+            return f"Computer answered {round(time.time() - last)} s ago"
+        agent = _courage_agent
+        if agent and agent.pending.count():
+            return "an approval is waiting for a yes/no"
+    if "vision" in roles and _patrol is not None:
+        busy = [c["name"] for c in (_patrol.status().get("cameras") or {}).values() if c.get("busy")]
+        if busy:
+            return f"patrol sweeping {', '.join(busy)}"
+    return None
+
+
+def _lease_push(title: str, message: str, buttons: Optional[List[Dict[str, str]]], tag: str) -> Dict[str, Any]:
+    service = COURAGE_PHONES.get("austin")
+    if not service:
+        return {"ok": False, "error": "no phone registered"}
+    data: Dict[str, Any] = {"tag": tag, "group": "courage"}
+    if buttons:
+        data["actions"] = buttons
+    return hass.call_service("notify", service, {"title": title, "message": message, "data": data})
+
+
+def get_engine_lease():
+    """Lend a GPU's engines to another layout for a while (backend/engine_lease.py, DESIGN.md section B)."""
+    global _engine_lease
+    if _engine_lease is None:
+        import model_loader
+        from engine_lease import EngineLease
+        _engine_lease = EngineLease(load_config, _lease_systemctl, _http_ok, _lease_unit_roles,
+                                    lambda: get_idle_gate().check(fresh=True), _lease_in_use, push=_lease_push,
+                                    trace=get_trace_log().write,
+                                    path=os.path.join(_stonesage_data_dir(), "engine_lease.json"))
+        model_loader.LEASE = _engine_lease
+        push = getattr(_courage_agent, "push", None)       # the agent may have been built first (startup thread)
+        if push and _engine_lease.handle_action not in push.extra_handlers:
+            push.extra_handlers.append(_engine_lease.handle_action)
+    return _engine_lease
+
+
+def _on_loan(role: str) -> Optional[float]:
+    """Until when `role` is lent out by an engine lease, or None."""
+    return _engine_lease.on_loan(role) if _engine_lease else None
+
+
+_provenance = None
+
+
+def get_provenance():
+    """Model provenance (backend/provenance.py): scan on the inference host, CouchDB records, loader block."""
+    global _provenance
+    if _provenance is None:
+        import model_loader
+        from couchdb_client import CouchDBClient
+        from provenance import Provenance
+        cc = load_config().get("couchdb") or {}
+        couch = {"url": cc["url"], "headers": CouchDBClient(cc)._get_headers()} if cc.get("url") else None
+        _provenance = Provenance(load_config,
+                                 lambda cmd, stdin, timeout: model_loader._ssh(model_loader._cfg(), cmd, stdin, timeout),
+                                 couch, os.path.join(_stonesage_data_dir(), "model_provenance.json"))
+        model_loader.PROVENANCE = _provenance
+    return _provenance
+
+
+_idle_gate = None
+
+
+def _prom_query(expr: str) -> List[Dict[str, Any]]:
+    """One instant query against Prometheus (LXC 129): the result list."""
+    base = ((load_config().get("metrics") or {}).get("prometheus_url") or "http://192.168.1.151:9090").rstrip("/")
+    with urllib.request.urlopen(f"{base}/api/v1/query?query={urllib.parse.quote(expr)}", timeout=4) as r:
+        return json.load(r)["data"]["result"]
+
+
+def _last_courage_turn() -> Optional[float]:
+    recs = get_trace_log().recent(1, "courage")
+    return recs[0].get("at") if recs else None
+
+
+def get_idle_gate():
+    """May a GPU be lent out now (backend/idle_gate.py)? Reported at /api/idle-gate and as Prometheus gauges."""
+    global _idle_gate
+    if _idle_gate is None:
+        from idle_gate import IdleGate
+        _idle_gate = IdleGate(load_config, lambda: system_profile.get_profile(load_config()), _prom_query,
+                              lambda: get_commentary().household(),
+                              lambda: get_courage_agent().pending.count(), _last_courage_turn)
+    return _idle_gate
+
+
+_ha_presence = None
+
+
+def get_ha_presence():
+    """StoneSage's merged presence published to Home Assistant sensors (backend/ha_presence.py)."""
+    global _ha_presence
+    if _ha_presence is None:
+        from ha_presence import HAPresence
+        _ha_presence = HAPresence(_courage_presence, hass.set_state)
+    return _ha_presence
+
+
+_alexa_relay = None
+
+
+def _alexa_turn(history: List[Dict[str, str]], session_id: str):
+    """One Computer turn for the Alexa skill: (text to speak, whether a yes/no is now pending so the Alexa session stays open)."""
+    from courage.agent import spoken, streamed
+    agent = get_courage_agent()
+    answer, got_final = "", False
+    for ev in streamed(agent.run(history, session_id)):
+        if ev["type"] in ("partial", "final"):
+            got_final = got_final or ev["type"] == "final"
+            answer += ev["content"]
+        elif ev["type"] == "tool_call":
+            logger.info(f"Courage (Alexa) tool: {ev.get('name')} {ev.get('arguments')}")
+    if not got_final:
+        answer += " My brain on :8001 isn't answering. Try again in a moment."
+    return spoken(answer), bool(agent.pending.get(session_id))
+
+
+def get_alexa_relay():
+    """Alexa -> Computer through the relay (backend/alexa_relay.py, skill in server setup/alexa-skill/). None when not configured."""
+    global _alexa_relay
+    cfg = config.get("alexa_relay") or {}
+    if _alexa_relay is None and cfg.get("enabled") and cfg.get("key"):
+        from alexa_relay import AlexaRelay
+        _alexa_relay = AlexaRelay(cfg["key"], _alexa_turn, announce=lambda text, room: _courage_speak(text, room),
+                                  base_url=cfg.get("relay_url", "https://ntfy.sh"), allowed_users=cfg.get("allowed_users"),
+                                  default_room=cfg.get("default_room", "kitchen"))
+    return _alexa_relay
+
+
+def _commentary_history(cameras: List[str], since: float) -> List[Tuple[float, str]]:
+    """(time, camera) of every person Frigate tracked on these cameras since `since`: start and end of each event."""
+    url = ((load_config().get("frigate") or {}).get("url") or "").rstrip("/")
+    out: List[Tuple[float, str]] = []
+    for cam in cameras if url else []:
+        with urllib.request.urlopen(f"{url}/api/events?camera={urllib.parse.quote(cam)}&label=person"
+                                    f"&after={int(since)}&limit=500", timeout=5) as r:
+            for ev in json.load(r):
+                out += [(float(t), cam) for t in (ev.get("start_time"), ev.get("end_time")) if t]
+    return out
+
+
+def get_commentary():
+    """When Computer speaks unprompted (backend/commentary.py): arrivals, cooking, cleaning; config.json commentary."""
+    global _commentary
+    if _commentary is None:
+        from commentary import Commentary
+        fp = get_frigate_presence()
+        _commentary = Commentary(load_config, hass.get_state,
+                                 (lambda cam: fp.in_view_now(cam)) if fp else (lambda cam: []),
+                                 (lambda cam: fp.latest_frame(cam, 720)) if fp else (lambda cam: None),
+                                 _commentary_vision, _commentary_llm, _courage_speak, trace=get_trace_log().write,
+                                 state_path=os.path.join(_stonesage_data_dir(), "commentary_state.json"),
+                                 seen_since=_commentary_seen_since, history=_commentary_history,
+                                 ha_history=hass.get_history)
+    return _commentary
+
+
+_trace_log = None
+
+
+def get_trace_log():
+    """The one trace (courage/trace.py) that Courage turns, Boost calls and patrol sweeps all write to."""
+    global _trace_log
+    if _trace_log is None:
+        from courage.trace import TraceLog
+        _trace_log = TraceLog(os.path.join(_stonesage_data_dir(), "courage_trace.jsonl"))
+    return _trace_log
+
+
+def _courage_memory(data_dir: str, coordinator_url: str):
+    """Courage's conversational memory (courage/memory.py): local embedder for recall, the coordinator to decide what
+    is worth keeping. Nothing leaves the house."""
+    from courage.memory import ConversationMemory
+    embed_url = config.get("cluster", {}).get("embedder_url", "http://192.168.1.105:8003/v1").rstrip("/") + "/embeddings"
+    chat_url = coordinator_url.rstrip("/")
+    chat_url = chat_url if chat_url.endswith("/chat/completions") else chat_url + "/chat/completions"
+
+    def embed(texts: List[str]) -> List[List[float]]:
+        req = urllib.request.Request(embed_url, data=json.dumps({"input": [t[:900] for t in texts], "model": "embedder"}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return [d["embedding"] for d in json.load(r)["data"]]
+
+    def llm(prompt: str) -> str:
+        body = {"model": "coordinator", "messages": [{"role": "user", "content": prompt}], "temperature": 0,
+                "max_tokens": 200, "chat_template_kwargs": {"enable_thinking": False}}
+        req = urllib.request.Request(chat_url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)["choices"][0]["message"]["content"] or ""
+
+    return ConversationMemory(os.path.join(data_dir, "courage_memories.json"), embed, llm,
+                              on_write=lambda rec: get_trace_log().write(rec))
+
+
+def _apply_presence_correction(source: str, ref: str, shown: str, action: str, name: str) -> Dict[str, Any]:
+    """One correction of one sighting, the same for the card buttons (POST /api/presence/correct) and Computer's
+    correct_sighting tool. action: reject | relabel. Caller invalidates the presence cache on success."""
+    pc = _presence_corrections()
+    if source == "patrol":
+        # Patrol sightings live in the patrol's memory; a person correction also trains Frigate faces
+        if action == "relabel":
+            name = pc._canonical(name) or ""
+        if action not in ("reject", "relabel") or (action == "relabel" and not name):
+            return {"ok": False, "error": "unknown profile (add it first)" if action == "relabel" else "bad action"}
+        res = get_patrol().correct(ref, shown, action, name)
+        frame = res.pop("frame", None)
+        if res.get("ok") and action == "relabel" and frame and pc._is_person(name):
+            res["face_registered"] = pc.register_face_image(frame, name, "patrol.jpg")  # cropped to them
+        return res
+    res = pc.correct(source, ref, action, name)
+    fp = get_frigate_presence()
+    if res.get("ok") and source == "frigate" and fp:
+        fp.apply_correction(ref, res.get("name") if action == "relabel" else None)
+    return res
+
+
+def _courage_correct_sighting(who: str, action: str, name: str = "") -> Dict[str, Any]:
+    """Computer's correct_sighting tool: the newest sighting of `who` (what the Residents & Pets card shows) is
+    re-filed under `name` (is_really) or hidden (wrong); reports what shows for `who` now."""
+    from frigate_presence import norm_name
+    key = norm_name(who)
+    loc = ((_courage_presence() or {}).get("locations") or {}).get(key)
+    if not loc:
+        return {"ok": False, "error": f"there is no current sighting of {who} to correct"}
+    source = loc.get("source") or "sentry"
+    ref = loc.get("event_id") if source == "frigate" else loc.get("patrol_ref") if source == "patrol" else loc.get("snapshot")
+    if not ref:
+        return {"ok": False, "error": f"{who}'s latest sighting has no picture, so it cannot be corrected"}
+    shown = "Someone" if key == "someone" else ((_profile(who) or {}).get("name") or who.capitalize())
+    what = f"{shown} on the {loc.get('camera') or 'camera'}, {round(loc.get('minutes_ago') or 0)} min ago"
+    res = _apply_presence_correction(source, ref, shown, "reject" if action == "wrong" else "relabel", name)
+    if not res.get("ok"):
+        return {"ok": False, "error": res.get("error") or "the correction failed"}
+    _invalidate_presence()
+    nxt = ((_courage_presence() or {}).get("locations") or {}).get(key)
+    out: Dict[str, Any] = {"ok": True, "corrected": what,
+                           "now": "hidden as wrong" if action == "wrong" else f"filed under {res.get('name') or name}",
+                           f"{shown}_latest_now": (f"{round(nxt.get('minutes_ago') or 0)} min ago on {nxt.get('camera')}"
+                                                   if nxt else "no earlier sighting")}
+    if res.get("faces_trained") or res.get("face_registered") is True:
+        out["face_recognition"] = "taught from this sighting"
+    return out
+
+
+def _presence_corrections():
+    from presence_corrections import PresenceCorrections
+    pcfg = load_config().get("presence") or {}
+    return PresenceCorrections(pcfg.get("ssh", "austin@192.168.1.105"),
+                               pcfg.get("admin_script", "/opt/cluster-bridge/wildlife_admin.py"),
+                               (load_config().get("frigate") or {}).get("url", ""),
+                               prepare_face=_crop_to_person)
+
+
+# ---- Where the subject is in a sighting's picture (sighting_boxes.py): card boxes and face-training crops ----
+_box_cache = None
+_vision_lock = threading.Lock()   # one grounding call at a time: the cards ask together, the vision slot is single
+
+
+def _vision_url() -> str:
+    return config.get("cluster", {}).get("vision_url", "http://192.168.1.105:8004/v1")
+
+
+def _profile(name: str) -> Optional[Dict[str, Any]]:
+    from frigate_presence import norm_name
+    ents = (_courage_hub_presence() or {}).get("known_entities") or {}
+    return next((e for g in ("people", "pets") for e in ents.get(g, []) if norm_name(e.get("name", "")) == norm_name(name)), None)
+
+
+def _sentry_snapshot_bytes(fn: str) -> Optional[bytes]:
+    """A wildlife-sentry snapshot from VM 102 (name checked: letters, digits, _ . - only, .jpg)."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.jpg", fn or "") or ".." in fn:
+        return None
+    sub = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105",
+                          f"cat /opt/cluster-bridge/wildlife/snapshots/{fn}"], capture_output=True, timeout=10)
+    return sub.stdout if sub.returncode == 0 and sub.stdout else None
+
+
+def _sighting_box(source: str, ref: str, name: str) -> Optional[List[float]]:
+    """[x, y, w, h] (fractions) of `name` in a card's picture, or None. Cached per sighting."""
+    global _box_cache
+    import sighting_boxes as sb
+    from frigate_presence import EVENT_ID, norm_name
+    if _box_cache is None:
+        _box_cache = sb.BoxCache(os.path.join(ROOT_DIR, "data", "sighting_boxes.json"))
+    key = f"{source}|{ref}|{norm_name(name)}"
+    if source == "patrol":
+        entity = ref.rpartition("|")[0]
+        key += f"|{(get_patrol().state.get(entity) or {}).get('last')}"   # frame indexes are reused by the next sweep
+    known, box = _box_cache.get(key)
+    if known:
+        return box
+    if source == "frigate":
+        if not EVENT_ID.match(ref or ""):
+            raise ValueError("bad event id")
+        box = sb.frigate_box((load_config().get("frigate") or {}).get("url", ""), ref)
+    else:
+        if source == "sentry":
+            jpeg = _sentry_snapshot_bytes(ref)
+        elif source == "patrol":
+            entity, _, idx = ref.rpartition("|")
+            jpeg = get_patrol().frame(entity, int(idx)) if idx.isdigit() else None
+        else:
+            raise ValueError("unknown source")
+        if not jpeg:
+            return None
+        with _vision_lock:
+            known, box = _box_cache.get(key)          # another card may have asked for the same one meanwhile
+            if known:
+                return box
+            box = sb.locate(jpeg, sb.describe(_profile(name), name), _vision_url())
+    _box_cache.put(key, box)
+    return box
+
+
+def _crop_to_person(jpeg: bytes, name: str) -> bytes:
+    """Face training: only the corrected person, when the vision model can find them in the frame."""
+    import sighting_boxes as sb
+    with _vision_lock:
+        box = sb.locate(jpeg, sb.describe(_profile(name), name), _vision_url())
+    if not box:
+        return jpeg
+    logger.info(f"face training for {name}: cropped to {box}")
+    return sb.crop(jpeg, box)
+
+
+def _invalidate_presence() -> None:
+    """After a correction or new profile: the next presence read (cards, Courage) goes back to the source."""
+    _courage_presence_cache["at"] = 0.0
+    try:
+        from harness.core.home_presence_hub import home_presence_hub
+        home_presence_hub.invalidate()
+    except Exception:
+        pass
+
+
+_go2rtc_names_cache: Dict[str, Any] = {"at": 0.0, "names": None}
+
+
+def _go2rtc_stream_names(cfg: Dict[str, Any]) -> Optional[set]:
+    """Stream names go2rtc has right now (None if unreachable: then the quality menu is not filtered).
+    10 s cache: opening the LIVE tab lists the tiles and then validates one WebRTC/MP4 request per tile."""
+    if time.time() - _go2rtc_names_cache["at"] < 10:
+        return _go2rtc_names_cache["names"]
+    try:
+        from frigate_presence import go2rtc_stream_names
+        names = go2rtc_stream_names((cfg.get("frigate") or {}).get("go2rtc_url", ""))
+    except Exception as e:
+        logger.warning(f"go2rtc unreachable: {e}")
+        names = None
+    _go2rtc_names_cache.update(at=time.time(), names=names)
+    return names
+
+
+def _webrtc_streams(cfg: Dict[str, Any]) -> Dict[str, str]:
+    """HA camera entity -> go2rtc stream the LIVE tab may play: Frigate cameras (their sub stream) plus
+    camera_ui entries that name a go2rtc stream directly. Only streams go2rtc actually has ({} if unreachable)."""
+    fcfg = cfg.get("frigate") or {}
+    cams = dict(fcfg.get("cameras") or {})
+    cams.update({e: c["go2rtc"] for e, c in (cfg.get("camera_ui") or {}).items() if c.get("go2rtc")})
+    names = _go2rtc_stream_names(cfg)
+    if names is None:
+        return {}
+    from frigate_presence import live_cameras
+    by_cam = {c["id"]: c["stream"] for c in live_cameras(fcfg.get("go2rtc_url", ""), list(cams.values()), names)}
+    return {entity: by_cam[cam] for entity, cam in cams.items() if cam in by_cam}
+
+
+def _courage_hub_presence() -> Dict[str, Any]:
     """Presence hub state. A fresh read takes ~1.4 s, so serve a cached copy and refresh it in the background."""
     age = time.time() - _courage_presence_cache["at"]
     if _courage_presence_cache["state"] is not None and age < 60:
@@ -2566,6 +3110,89 @@ def _courage_presence() -> Dict[str, Any]:
         return _courage_presence_cache["state"]
     _courage_refresh_presence()
     return _courage_presence_cache["state"] or {}
+
+
+def _courage_hub_and_frigate() -> Dict[str, Any]:
+    """Hub state with Frigate's live sightings merged in per identity (newest wins). Merged on every read,
+    never into the hub cache: Frigate's view is seconds old, the hub's up to a minute."""
+    state = _courage_hub_presence()
+    fp = get_frigate_presence()
+    if not fp:
+        return state
+    from frigate_presence import merge_locations
+    return {**state, "locations": merge_locations(state.get("locations") or {}, fp.locations())}
+
+
+_home_status_cache: Dict[str, Any] = {"at": 0.0, "data": {}}
+
+
+def _ha_home_status() -> Dict[str, Dict[str, Any]]:
+    """Residents' HA person state (phone GPS / Life360), 30 s cache: {"savannah": {state, source_label, since_min}}."""
+    if time.time() - _home_status_cache["at"] < 30:
+        return _home_status_cache["data"]
+    out: Dict[str, Dict[str, Any]] = {}
+    for name in (load_config().get("patrol") or {}).get("residents", ["Austin", "Savannah"]):
+        st = hass.get_state(f"person.{name.lower()}")
+        if not st:
+            continue
+        src = (st.get("attributes") or {}).get("source") or ""
+        since = None
+        try:
+            changed = datetime.fromisoformat(st["last_changed"].replace("Z", "+00:00"))
+            since = round((datetime.now(timezone.utc) - changed).total_seconds() / 60, 1)
+        except Exception:
+            pass
+        out[name.lower()] = {"state": st.get("state"), "source": src, "since_min": since,
+                             "source_label": "Life360" if "life360" in src else "phone GPS"}
+    _home_status_cache.update(at=time.time(), data=out)
+    return out
+
+
+def _courage_presence() -> Dict[str, Any]:
+    """Everything Courage and the cards know: hub + Frigate + PTZ patrol sightings (newest wins per identity), and
+    the residents' GPS home status from HA (Life360 / phone)."""
+    state = _courage_hub_and_frigate()
+    try:
+        state = {**state, "home_status": _ha_home_status()}
+    except Exception as e:
+        logger.warning(f"home status from HA: {e}")
+    if _patrol is None:
+        return state
+    from frigate_presence import merge_locations
+    return {**state, "locations": merge_locations(state.get("locations") or {}, _patrol.locations())}
+
+
+def _courage_camera_look(cam_eid: str, cam_name: str, people_only: bool = False) -> Optional[str]:
+    """Courage's camera looks. For a camera Frigate watches (config.json frigate.cameras: HA entity -> Frigate
+    camera) the frame is Frigate's latest (~0.1 s, vs ~1.5 s for an HA snapshot) and Frigate's tracked objects
+    are named first. The VLM is skipped only for people_only looks (presence_now) when Frigate sees nobody:
+    a camera_look question may be about anything, and Frigate only tracks people, dogs and cats.
+    Other cameras, or Frigate unreachable: the HA snapshot + VLM path as before."""
+    fp = get_frigate_presence()
+    fcam = ((load_config().get("frigate") or {}).get("cameras") or {}).get(cam_eid)
+    lent = _on_loan("vision")
+    if lent:   # engine lease: no vision model until then; Frigate's own objects are still live
+        until = datetime.fromtimestamp(lent).strftime("%H:%M")
+        if fp and fcam:
+            try:
+                from frigate_presence import describe_in_view
+                seen = describe_in_view(fp.in_view_now(fcam)) or "no people, dogs or cats"
+                return f"Frigate, live on {cam_name}: {seen}. (Vision is lent out until {until}, so no closer look.)"
+            except Exception as e:
+                logger.warning(f"Frigate look on {cam_name} during a lease: {e}")
+        return f"Vision is lent out until {until}, so I can't look through the {cam_name} camera until then."
+    if fp and fcam:
+        try:
+            from frigate_presence import describe_in_view
+            objects = fp.in_view_now(fcam)
+            if not objects and people_only:
+                return f"Frigate, live on {cam_name}: no people, dogs or cats in view right now."
+            seen = describe_in_view(objects) or "no people, dogs or cats"
+            desc = _analyze_single_frame(cam_eid, cam_name, img_bytes=fp.latest_frame(fcam))
+            return f"Frigate, live on {cam_name}: {seen}." + (f" Vision: {desc}" if desc else "")
+        except Exception as e:
+            logger.warning(f"Frigate camera_look on {cam_name} failed, falling back to HA snapshot: {e}")
+    return _analyze_single_frame(cam_eid, cam_name)
 
 
 def _courage_runs_on() -> Optional[str]:
@@ -2579,18 +3206,29 @@ def _courage_runs_on() -> Optional[str]:
 
 
 def _courage_memory_search(query: str) -> List[Dict[str, Any]]:
+    """Courage's memory_search tool: what people told him in conversations (courage/memory.py) first, then the
+    household notes in A-MEM. One tool over both stores: when it searched only A-MEM, a remembered fact that was
+    also in the prompt's memory card came back "not found", and the tool result won (2026-09-26 live eval)."""
     global _courage_amem
+    hits: List[Dict[str, Any]] = []
+    mem = getattr(_courage_agent, "memory", None)
+    if mem:
+        try:
+            hits += [{"text": f"{time.strftime('%b %d', time.localtime(n['at']))}, from a conversation: {n['text']}"}
+                     for n in mem.recall(query)]
+        except Exception as e:
+            logger.warning(f"conversation memory search: {e}")
     if _courage_amem is None:
         from harness.data_fabric.valkey_amem import ValkeyAMEM
         _courage_amem = ValkeyAMEM()
-    return _courage_amem.recall(query, max_atoms=4)
+    return hits + list(_courage_amem.recall(query, max_atoms=4) or [])
 
 
 def _courage_notify(message: str, target: str = "austin") -> Dict[str, Any]:
     service = COURAGE_PHONES.get(target)
     if not service:
         return {"ok": False, "error": f"no phone registered in Home Assistant for '{target}'"}
-    return hass.call_service("notify", service, {"title": "Courage", "message": message})
+    return hass.call_service("notify", service, {"title": "Computer", "message": message})
 
 
 def _courage_speak(message: str, room: str = "kitchen") -> Dict[str, Any]:
@@ -2598,6 +3236,95 @@ def _courage_speak(message: str, room: str = "kitchen") -> Dict[str, Any]:
     if not service:
         return {"ok": False, "error": f"no Echo for '{room}'"}
     return hass.call_service("notify", service, {"message": message, "data": {"type": "announce"}})
+
+
+def _tts_cache_dir() -> str:
+    return os.path.join(_stonesage_data_dir(), "tts_cache")
+
+
+TTS_VOICE, TTS_SPEED = "bm_george", 1.06      # what the page's voice mode asks for (chat.js)
+
+
+def _tts_warm() -> None:
+    """Make the audio for every reflex confirmation ahead of time, so a spoken "Living Room TV Lights off." needs no synthesis.
+    Runs once shortly after start (the voice server is shared with live turns) and is quiet when everything is cached."""
+    try:
+        import tts_cache
+        from courage import reflex
+        from courage.agent import CANNED_LINES
+        from harness.connectors.voice_connector import voice_connector
+        ents = reflex.candidates(lambda d: hass.get_states(d))
+        lines = tts_cache.reflex_lines([(e.get("friendly_name") or e["entity_id"], e.get("state")) for e in ents], CANNED_LINES)
+        t = time.time()
+        made = tts_cache.warm(_tts_cache_dir(), lines, TTS_VOICE, TTS_SPEED,
+                              lambda tx, v, sp: voice_connector.synthesize_speech(tx, voice=v, speed=sp))
+        logger.info(f"TTS cache: {len(lines)} confirmations for {len(ents)} devices, {made} made in {time.time() - t:.0f}s")
+    except Exception as e:
+        logger.warning(f"TTS cache warm-up failed: {e}")
+
+
+def _stonesage_data_dir() -> str:
+    return os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+
+
+_boost_terms_cache: Dict[str, Any] = {"at": 0.0, "terms": frozenset()}
+
+
+def _boost_home_terms() -> frozenset:
+    """Names that make text home content for Boost's egress rule, re-read every 5 min: household, pet and camera
+    names, every recognition profile (known_entities.json grows through "+ New profile") and everyone in the
+    Life360 circle (full, first and last name; extended family too: not tracked, but still family).
+    Only ever grows while running, so a failed read never drops a name."""
+    if time.time() - _boost_terms_cache["at"] < 300:
+        return _boost_terms_cache["terms"]
+    from courage.tools import CAMERAS, PEOPLE
+    terms = set(_boost_terms_cache["terms"]) | set(PEOPLE) | {c["name"] for c in CAMERAS.values()}
+    terms |= {k.replace("_", " ") for k in CAMERAS}
+    try:
+        ents = _courage_hub_presence().get("known_entities") or {}
+        terms |= {e["name"] for g in ("people", "pets") for e in ents.get(g, []) if e.get("name")}
+    except Exception as e:
+        logger.warning(f"Boost home terms: profiles: {e}")
+    for t in (hass.get_states("device_tracker").get("entities") or []):
+        if t["entity_id"].startswith("device_tracker.life360_"):
+            full = re.sub(r"^life360\s+", "", t.get("friendly_name") or "", flags=re.I).strip()
+            if full:
+                terms.add(full)
+                terms.update(w for w in full.split() if len(w) >= 3)
+    _boost_terms_cache.update(at=time.time(), terms=frozenset(terms))
+    return _boost_terms_cache["terms"]
+
+
+def setup_boost() -> None:
+    """Boost (free extra inference, backend/boost). Home terms are looked up per call (_boost_home_terms)."""
+    import boost
+    boost.configure(load_config, _stonesage_data_dir(), home_terms=_boost_home_terms,
+                    on_call=lambda rec: get_trace_log().write(rec))   # every Boost call, metadata only
+
+
+def _boost_router():
+    import boost
+    return boost.get_router()
+
+
+def _courage_think_harder(question: str, kind: str = "general") -> Dict[str, Any]:
+    """Courage's think_harder tool: a free bigger model through Boost. Never falls back to :8001 (that's Courage)."""
+    r = _boost_router()
+    if r is None or not r.enabled("courage"):
+        return {"ok": False, "error": "Boost is off for Computer"}
+    res = r.complete([{"role": "system", "content": "Answer accurately and concisely, in under 200 words. Say so if you are unsure."},
+                      {"role": "user", "content": question}], "courage", declared=kind, max_tokens=900,
+                     temperature=0.3, allow_local=False)
+    if not res.get("ok"):
+        return {"ok": False, "error": "no bigger brain free right now: " + "; ".join((res.get("skipped") or []) + (res.get("tried") or []))[:300]}
+    msg = ((res["data"].get("choices") or [{}])[0].get("message") or {})
+    answer = (msg.get("content") or msg.get("reasoning_content") or "").strip()
+    return {"ok": bool(answer), "answer": answer, "source": f"{res['label']} ({res['model']})"}
+
+
+def _courage_boost_available() -> bool:
+    r = _boost_router()
+    return bool(r and r.enabled("courage"))
 
 
 def get_courage_agent():
@@ -2610,11 +3337,14 @@ def get_courage_agent():
                 ha_states=lambda domain: hass.get_states(domain),
                 ha_call=lambda domain, service, data: hass.call_service(domain, service, data),
                 presence=_courage_presence,
-                camera_look=lambda eid, name: _analyze_single_frame(eid, name),
+                camera_look=_courage_camera_look,
                 camera_scan=scan_camera_presets,
                 memory_search=_courage_memory_search,
+                correct_sighting=_courage_correct_sighting,
                 notify=_courage_notify,
                 speak=_courage_speak,
+                think_harder=_courage_think_harder,
+                think_harder_available=_courage_boost_available,
             )
             url = config.get("cluster", {}).get("coordinator_url", "http://192.168.1.105:8001/v1")
             _courage_agent = CourageAgent(CourageTools(deps), url, presence_fn=_courage_presence,
@@ -2622,6 +3352,8 @@ def get_courage_agent():
             from courage.reflex import LearnedReflexes
             data_dir = os.environ.get("STONESAGE_DATA_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
             _courage_agent.learned = LearnedReflexes(os.path.join(data_dir, "courage_reflexes.json"))
+            _courage_agent.trace_log = get_trace_log()  # one line per turn, shared with Boost and the patrol
+            _courage_agent.memory = _courage_memory(data_dir, url)
             # approvals by actionable phone notification (Yes / No buttons), for Home Assistant conversations by default
             ha_cfg = config.get("homeassistant", {})
             phone = COURAGE_PHONES.get("austin")
@@ -2633,7 +3365,72 @@ def get_courage_agent():
                 _courage_agent.on_approval = push.offer
                 _courage_agent.push = push
                 push.start()
+            # approvals also on the wrist (Garmin Instinct 2, stonesage-watch/) -- same
+            # PendingActions, same execute(); either channel can answer, whichever taps first.
+            watch_cfg = config.get("watch_bridge", {})
+            if watch_cfg.get("url") and watch_cfg.get("token"):
+                from courage.tools import ALWAYS_CONFIRM
+                from courage.watch_client import WatchBridge
+                watch = WatchBridge(watch_cfg["url"], watch_cfg["token"])
+                project = watch_cfg.get("project", "stonesage")
+                _courage_agent.watch = watch
+                if _courage_agent.push:
+                    _courage_agent.push.watch = watch
+                existing_on_approval = _courage_agent.on_approval
+
+                def _on_approval(session_id, action, _existing=existing_on_approval, _watch=watch, _project=project):
+                    pushed = bool(_existing(session_id, action)) if _existing else False
+                    args = action.get("args") or {}
+                    destructive = action.get("name") == "ha_call" and (args.get("domain"), args.get("service")) in ALWAYS_CONFIRM
+                    watch_id = _watch.ask(f"Shall I {action['summary']}?", ["Yes", "No"],
+                                          project=_project, destructive=destructive)
+                    if watch_id:
+                        action["watch_id"] = watch_id
+                    return pushed
+
+                _courage_agent.on_approval = _on_approval
+
+                def _on_resolved(action_id, _watch=watch):
+                    _watch.resolve(action_id)
+
+                _courage_agent.on_resolved = _on_resolved
+
+                # roster status (coordinator/worker/boost/frontier) -- see watch_status.py
+                from courage.watch_status import start as start_watch_status
+                cluster_cfg = config.get("cluster", {})
+                start_watch_status(watch, _courage_agent.trace_log,
+                                   cluster_cfg.get("coordinator_url", ""), cluster_cfg.get("worker_url", ""))
+            # the escalation ladder a failed turn climbs (courage/escalation.py): Boost -> frontier -> human
+            from courage.escalation import Escalation
+            watch_obj, project = getattr(_courage_agent, "watch", None), (config.get("watch_bridge") or {}).get("project", "stonesage")
+            _courage_agent.brain = lambda: _engine_lease.brain("coordinator") if _engine_lease else None   # lite / on loan
+            if _courage_agent.push and _engine_lease and _engine_lease.handle_action not in _courage_agent.push.extra_handlers:
+                _courage_agent.push.extra_handlers.append(_engine_lease.handle_action)   # Another hour / Stop
+            _courage_agent.escalation = Escalation(
+                load_config, boost=_escalation_boost, boost_available=_courage_boost_available,
+                frontier_available=None,   # frontier_worker.py is not installed (STATE.md, Boost section)
+                push=_escalation_push,
+                watch=(lambda text, _w=watch_obj, _p=project: _w.notify(text, kind="err", project=_p)) if watch_obj else None,
+                trace=_courage_agent.trace_log.write)
         return _courage_agent
+
+
+def _escalation_boost(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The ladder's Boost rung: declared home content, so the router only uses sources that don't train on it."""
+    r = _boost_router()
+    res = r.complete(messages, "courage", declared="home", max_tokens=400, temperature=0.2, allow_local=False)
+    if not res.get("ok"):
+        return {"ok": False, "error": "; ".join((res.get("skipped") or []) + (res.get("tried") or []))[:300] or "no source"}
+    msg = ((res["data"].get("choices") or [{}])[0].get("message") or {})
+    return {"ok": True, "answer": (msg.get("content") or "").strip(), "source": f"{res['label']} ({res['model']})"}
+
+
+def _escalation_push(title: str, message: str) -> Dict[str, Any]:
+    service = COURAGE_PHONES.get("austin")
+    if not service:
+        return {"ok": False, "error": "no phone registered"}
+    return hass.call_service("notify", service, {"title": title, "message": message,
+                                                 "data": {"tag": "computer-stuck", "group": "courage"}})
 
 
 def ground_hardware_context(agent_id: str, user_query: str) -> str:
@@ -3087,6 +3884,9 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     delta = (ev.get("choices") or [{}])[0].get("delta") or {}
                     if delta.get("content"):
                         content.append(delta["content"])
+                        # the reply also goes to the live session state, which the page reads to recover a stream
+                        # broken by a phone lock (/api/harness/active-session); it used to stay empty for Computer
+                        active_session_state.ingest_token(delta["content"])
                     if ev.get("usage"):
                         usage = ev["usage"]
                         with active_session_state.lock:
@@ -3115,33 +3915,199 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
         """Courage for Home Assistant's Ollama conversation agent (model "courage"): HA voice satellites, the HA app
         and the Echos reach the same tool loop as the web chat. HA's own prompt and tools are ignored; Courage uses
         hers. One approval slot per calling host, so "yes" works across turns of a voice conversation."""
-        from courage.agent import spoken
+        from courage.agent import spoken, streamed
         history = [{"role": m.get("role"), "content": m.get("content") if isinstance(m.get("content"), str) else ""}
                    for m in body.get("messages", []) if m.get("role") in ("user", "assistant")]
         model = body.get("model", "courage:latest")
-        answer = "My brain on :8001 isn't answering. Try again in a moment."
-        try:
-            for ev in get_courage_agent().run(history, f"ha:{self.client_address[0]}"):
-                if ev["type"] == "final":
-                    answer = ev["content"]
-                elif ev["type"] == "tool_call":
-                    logger.info(f"Courage (HA) tool: {ev.get('name')} {ev.get('arguments')}")
-        except Exception as e:
-            logger.warning(f"Courage (HA) loop failed: {e}")
-        message = {"role": "assistant", "content": spoken(answer)}
-        now = datetime.now(timezone.utc).isoformat()
-        if body.get("stream", True):  # Ollama streams unless told otherwise
+        stream = body.get("stream", True)  # Ollama streams unless told otherwise
+
+        gone = []
+
+        def line(text: str, done: bool = False) -> None:
+            if gone:
+                return          # HA hung up: the turn still finishes, so approvals and the trace stay consistent
+            out = {"model": model, "created_at": datetime.now(timezone.utc).isoformat(),
+                   "message": {"role": "assistant", "content": text}, "done": done}
+            if done:
+                out["done_reason"] = "stop"
+            try:
+                self.wfile.write((json.dumps(out) + "\n").encode("utf-8"))
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                gone.append(True)
+
+        def say(text: str) -> str:
+            # spoken() trims; keep the space between two streamed sentences
+            s = spoken(text)
+            return (" " + s) if s and text[:1].isspace() else s
+
+        if stream:
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
             self.send_header("Connection", "close")
             self.end_headers()
-            for out in ({"model": model, "created_at": now, "message": message, "done": False},
-                        {"model": model, "created_at": now, "message": {"role": "assistant", "content": ""},
-                         "done": True, "done_reason": "stop"}):
-                self.wfile.write((json.dumps(out) + "\n").encode("utf-8"))
-            self.wfile.flush()
+        # A long reply goes out sentence by sentence as it is written, so HA's voice pipeline starts speaking sooner
+        answer, got_final = "", False
+        try:
+            for ev in streamed(get_courage_agent().run(history, f"ha:{self.client_address[0]}")):
+                if ev["type"] in ("partial", "final"):
+                    got_final = got_final or ev["type"] == "final"
+                    piece = say(ev["content"])
+                    answer += piece
+                    if stream and piece:
+                        line(piece)
+                elif ev["type"] == "tool_call":
+                    logger.info(f"Courage (HA) tool: {ev.get('name')} {ev.get('arguments')}")
+        except Exception as e:
+            logger.warning(f"Courage (HA) loop failed: {e}")
+        if not got_final:
+            piece = say(("\n\n" if answer else "") + "My brain on :8001 isn't answering. Try again in a moment.")
+            answer += piece
+            if stream:
+                line(piece)
+        if stream:
+            line("", done=True)
         else:
-            self.send_json({"model": model, "created_at": now, "message": message, "done": True, "done_reason": "stop"})
+            self.send_json({"model": model, "created_at": datetime.now(timezone.utc).isoformat(),
+                            "message": {"role": "assistant", "content": answer}, "done": True, "done_reason": "stop"})
+
+    # ---- Boost: free extra inference (backend/boost) -------------------------------------
+    def _from_lan(self) -> bool:
+        ip = self.client_address[0]
+        return ip.startswith("192.168.1.") or ip in ("127.0.0.1", "::1")
+
+    def _frontier_client(self):
+        from boost.frontier import FrontierClient
+        fcfg = (load_config().get("boost") or {}).get("frontier") or {}
+        return FrontierClient(fcfg.get("url", "http://192.168.1.105:8770")), fcfg
+
+    def _handle_boost_get(self, path: str, query: Dict[str, List[str]]) -> None:
+        r = _boost_router()
+        if r is None:
+            self.send_json({"ok": False, "error": "Boost is not configured"}, 503)
+            return
+        if path == "/api/boost/status":
+            self.send_json({"ok": True, **r.status()})
+        elif path == "/api/boost/models":
+            pid = (query.get("provider") or [""])[0]
+            p = r.providers().get(pid)
+            if not p:
+                self.send_json({"ok": False, "error": f"unknown provider '{pid}'"}, 404)
+                return
+            self.send_json({"ok": True, "provider": pid, "configured": p.models,
+                            "live": r.live_models(p, refresh=bool(query.get("refresh")))})
+        elif path == "/api/boost/v1/models":
+            # first entry = what LlamaClient picks when it polls /models: the harness is a background loop
+            data = [{"id": f"boost:{sfc}", "object": "model", "owned_by": "stonesage"} for sfc in ("loops", "workspaces", "chat")]
+            for pid, p in r.providers().items():
+                for mid in p.models:
+                    data.append({"id": f"boost:{pid}/{mid}", "object": "model", "owned_by": pid})
+            self.send_json({"object": "list", "data": data})
+        elif path == "/api/boost/frontier/health":
+            client, fcfg = self._frontier_client()
+            self.send_json({"enabled": bool(fcfg.get("enabled")), **client.health()})
+        elif path == "/api/boost/frontier/jobs":
+            client, _ = self._frontier_client()
+            self.send_json(client.jobs())
+        elif path.startswith("/api/boost/frontier/jobs/"):
+            client, _ = self._frontier_client()
+            self.send_json(client.job(path.rsplit("/", 1)[-1]))
+        else:
+            self.send_json({"ok": False, "error": "not found"}, 404)
+
+    def _handle_boost_post(self, path: str, body: Dict[str, Any]) -> None:
+        r = _boost_router()
+        if r is None:
+            self.send_json({"ok": False, "error": "Boost is not configured"}, 503)
+            return
+        if path == "/api/boost/settings":
+            allowed = {"enabled", "surfaces", "priority", "loop_share", "home_terms", "providers", "frontier", "timeout_s"}
+            upd = {k: v for k, v in body.items() if k in allowed}
+            for pid, spec in list((upd.get("providers") or {}).items()):
+                if isinstance(spec, dict) and not str(spec.get("api_key") or "").strip():
+                    spec.pop("api_key", None)   # empty = keep the stored key; keys are never sent back
+            import config_mask
+            cfg = load_config()
+            cfg.setdefault("boost", {})
+            deep_update(cfg["boost"], config_mask.drop_masked(upd))
+            save_config(cfg)
+            self.send_json({"ok": True, **r.status()})
+        elif path == "/api/boost/test":
+            pid = body.get("provider", "")
+            res = r.complete([{"role": "user", "content": "Reply with the single word: ready"}], "chat",
+                             max_tokens=400, temperature=0, pinned=pid or None, allow_local=False)
+            t0 = res.get("data") or {}
+            text = (((t0.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()[:200]
+            self.send_json({"ok": res.get("ok", False), "provider": res.get("provider"), "model": res.get("model"),
+                            "reply": text, "tried": res.get("tried"), "skipped": res.get("skipped")})
+        elif path == "/api/boost/v1/chat/completions":
+            self._boost_proxy(r, body)
+        elif path == "/api/boost/frontier/jobs":
+            client, fcfg = self._frontier_client()
+            if not fcfg.get("enabled"):
+                self.send_json({"ok": False, "error": "frontier worker is off (boost.frontier.enabled)"}, 403)
+                return
+            self.send_json(client.submit(body.get("engine", "claude"), body.get("task", ""), body.get("repo"),
+                                         body.get("ref"), home_terms=r.home_terms()))
+        else:
+            self.send_json({"ok": False, "error": "not found"}, 404)
+
+    def _boost_proxy(self, r, body: Dict[str, Any]) -> None:
+        """OpenAI-compatible endpoint for the harness and other LAN clients. Keys stay on this host.
+
+        model: "boost" | "boost:<surface>" | "boost:<provider>[/<model>]". Class: X-Boost-Class header or body
+        "boost_class" (default: code for loops/workspaces, general otherwise). Falls back to the local coordinator."""
+        if not self._from_lan():
+            self.send_json({"error": {"message": "LAN only"}}, 403)
+            return
+        model = str(body.get("model") or "boost")
+        spec = model.split(":", 1)[1] if model.startswith("boost:") else ""
+        surface, pinned = ("chat", None)
+        if spec in ("chat", "courage", "loops", "workspaces"):
+            surface = spec
+        elif spec:
+            pinned = spec
+        if not r.enabled(surface):
+            self.send_json({"error": {"message": f"Boost is off for {surface}", "type": "boost_disabled"}}, 403)
+            return
+        declared = self.headers.get("X-Boost-Class") or body.get("boost_class") or \
+            ("code" if surface in ("loops", "workspaces") else "general")
+        kw = dict(tools=body.get("tools"), max_tokens=min(int(body.get("max_tokens") or 1024), 8192),
+                  temperature=float(body.get("temperature", 0.5)), pinned=pinned, allow_local=True,
+                  extra={k: body[k] for k in ("top_p", "stop", "tool_choice", "response_format") if k in body})
+        if not body.get("stream"):
+            res = r.complete(body.get("messages") or [], surface, declared, **kw)
+            if not res.get("ok"):
+                self.send_json({"error": {"message": res.get("error"), "tried": res.get("tried"), "skipped": res.get("skipped")}}, 503)
+                return
+            payload = json.dumps(res["data"]).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("X-Boost-Provider", res["provider"])
+            self.send_header("X-Boost-Model", res["model"])
+            self.send_header("X-Boost-Tier", res["tier"])
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        res = r.open_stream(body.get("messages") or [], surface, declared, **kw)
+        if not res.get("ok"):
+            self.send_json({"error": {"message": res.get("error"), "tried": res.get("tried"), "skipped": res.get("skipped")}}, 503)
+            return
+        import boost
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Boost-Provider", res["provider"])
+        self.send_header("X-Boost-Model", res["model"])
+        self.send_header("X-Boost-Tier", res["tier"])
+        self.end_headers()
+        try:
+            for line in boost.iter_sse(res["response"]):
+                self.wfile.write((line.rstrip("\n") + "\n\n").encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def send_json(self, data: Any, status: int = 200):
         body = json.dumps(data).encode("utf-8")
@@ -3461,9 +4427,65 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
             return
 
+        elif path.startswith("/api/engine-profiles"):
+            # Engine Profiles (backend/engine_profiles.py): named bundles applied via the Model Loader.
+            # Own prefix: /api/profiles and /api/profiles/list already belong to entity and sampling profiles.
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                if path == "/api/engine-profiles":
+                    self.send_json(engine_profiles.list_profiles())
+                elif path == "/api/engine-profiles/job":
+                    self.send_json(engine_profiles.get_profile_job(q.get("id", [""])[0]))
+                else:
+                    self.send_json({"ok": False, "error": "unknown profiles route"}, 404)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+            return
+
         elif path == "/api/courage/reflexes":
             learned = getattr(get_courage_agent(), "learned", None)
             self.send_json({"ok": True, "reflexes": learned.items if learned else {}})
+            return
+
+        elif path == "/api/courage/memories":
+            # What Courage remembers from conversations (courage/memory.py), newest first
+            mem = getattr(get_courage_agent(), "memory", None)
+            self.send_json({"ok": True, "memories": mem.items() if mem else []})
+            return
+
+        elif path == "/metrics":
+            # Prometheus (LXC 129 scrapes this): counters from the trace since StoneSage started (courage/trace.py),
+            # and the idle gate per GPU (idle_gate.py; cached 20 s, so the 15 s scrape doesn't hammer HA)
+            text = get_trace_log().metrics.text()
+            try:
+                text = text.rstrip("\n") + "\n" + "\n".join(get_idle_gate().metrics()) + "\n"
+            except Exception as e:
+                logger.warning(f"idle gate metrics: {e}")
+            body = text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        elif path in ("/api/courage/trace", "/api/courage/trace/summary"):
+            # The trace (courage/trace.py): Courage turns, Boost calls, patrol sweeps; newest first, or counts.
+            # ?kind=courage|boost|patrol|memory|commentary|escalation|lease narrows both.
+            log = get_trace_log()
+            q = urllib.parse.parse_qs(parsed.query or "")
+            kind = q.get("kind", [""])[0] or None
+            try:
+                if kind not in (None, "courage", "boost", "patrol", "memory", "commentary", "escalation", "lease"):
+                    raise ValueError(kind)
+                if path.endswith("/summary"):
+                    hours = min(24 * 30, max(0.1, float(q.get("hours", ["24"])[0])))
+                    self.send_json({"ok": True, "summary": log.summary(hours, kind=kind)})
+                else:
+                    limit = min(500, max(1, int(q.get("limit", ["50"])[0])))
+                    self.send_json({"ok": True, "turns": log.recent(limit, kind)})
+            except ValueError:
+                self.send_json({"ok": False, "error": "bad limit/hours/kind"}, 400)
             return
 
         elif path == "/api/system/profile":
@@ -3526,29 +4548,183 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(trainer_client.get_dossier(sample_id=sample_id))
             return
 
+        elif path == "/api/frigate/presence":
+            fp = get_frigate_presence()
+            self.send_json({"ok": bool(fp), **(fp.status() if fp else {"error": "config.json has no frigate.url"})})
+            return
+
+        elif path == "/api/patrol/status":
+            self.send_json({"ok": True, **get_patrol().status()})
+            return
+
+        elif path == "/api/engines/lease":
+            self.send_json({"ok": True, **get_engine_lease().status()})
+            return
+
+        elif path == "/api/provenance":
+            self.send_json({"ok": True, **get_provenance().summary()})
+            return
+
+        elif path == "/api/idle-gate":
+            q = urllib.parse.parse_qs(parsed.query or "")
+            self.send_json({"ok": True, **get_idle_gate().check(fresh=q.get("fresh", ["0"])[0] == "1")})
+            return
+
+        elif path == "/api/ha-presence/status":
+            self.send_json({"ok": True, **get_ha_presence().status()})
+            return
+
+        elif path == "/api/alexa-relay/status":
+            relay = get_alexa_relay()
+            self.send_json({"ok": True, **(relay.status() if relay else {"enabled": False})})
+            return
+
+        elif path == "/api/commentary/status":
+            self.send_json({"ok": True, **get_commentary().status()})
+            return
+
+        elif path == "/api/patrol/frame":
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                img = get_patrol().frame(q.get("entity", [""])[0], int(q.get("i", ["-1"])[0]))
+            except ValueError:
+                img = None
+            if not img:
+                self.send_json({"ok": False, "error": "no such patrol frame"}, 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(img)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(img)
+            return
+
+        elif path == "/api/presence/profiles":
+            try:
+                self.send_json(_presence_corrections().profiles())
+            except Exception as e:
+                self.send_json({"ok": False, "error": str(e)}, 502)
+            return
+
         elif path == "/api/presence/status":
             try:
-                from harness.core.home_presence_hub import home_presence_hub
-                self.send_json({"ok": True, "data": home_presence_hub.get_full_presence_state()})
+                self.send_json({"ok": True, "data": _courage_presence()})  # hub + Frigate, same view Courage has
             except Exception as e:
                 self.send_json({"ok": False, "error": str(e)}, 500)
             return
 
+        elif path == "/api/cameras/live":
+            # Tiles for the LIVE tab (camera_ui.py): WebRTC/MP4 via go2rtc, or snapshot; PTZ presets
+            import camera_ui
+            cfg = load_config()
+            self.send_json({"ok": True, "cameras": camera_ui.list_cameras(cfg, hass.get_state, _webrtc_streams(cfg),
+                                                                           _go2rtc_stream_names(cfg))})
+            return
+
+        elif path == "/api/cameras/snapshot":
+            import camera_ui
+            q = urllib.parse.parse_qs(parsed.query or "")
+            entity, force = q.get("entity", [""])[0], q.get("force", ["0"])[0] == "1"
+            try:
+                img, age = camera_ui.snapshot(entity, load_config(), hass.get_camera_snapshot, force=force)
+            except KeyError:
+                self.send_json({"ok": False, "error": "unknown camera"}, 404)
+                return
+            if not img:
+                self.send_json({"ok": False, "error": "camera did not answer"}, 504)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(img)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Snapshot-Age", str(int(age)))
+            self.end_headers()
+            self.wfile.write(img)
+            return
+
+        elif path == "/api/cameras/mp4":
+            # Fallback when a browser cannot do WebRTC to the go2rtc host (Firefox on Android 16 without the
+            # local-network permission sends no ICE checks at all): go2rtc's fragmented MP4, H.264 copied (no
+            # transcoding, video only), relayed over this same HTTP(S) connection. One thread per viewer.
+            # audio=1: go2rtc's mp4=flac turns the cameras' A-law audio into FLAC, which browsers play in MP4.
+            import camera_ui
+            q = urllib.parse.parse_qs(parsed.query or "")
+            stream, audio = q.get("stream", [""])[0], q.get("audio", ["0"])[0] == "1"
+            cfg = load_config()
+            allowed = set(_webrtc_streams(cfg).values()) | {s for v in camera_ui.variant_streams(cfg).values() for s in v.values()}
+            if stream not in allowed:
+                self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
+                return
+            go2rtc = (cfg.get("frigate") or {}).get("go2rtc_url", "").rstrip("/")
+            try:
+                upstream = urllib.request.urlopen(f"{go2rtc}/api/stream.mp4?src={urllib.parse.quote(stream)}"
+                                                  + ("&mp4=flac" if audio else ""), timeout=15)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"go2rtc: {e}"}, 502)
+                return
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "video/mp4")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                while True:
+                    chunk = upstream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, OSError):
+                pass  # viewer closed the tile or left the page
+            finally:
+                upstream.close()
+                self.close_connection = True
+            return
+
+        elif path.startswith("/api/frigate/snapshot/"):
+            # Frigate event snapshot through StoneSage (same origin, so HTTPS pages can show it)
+            from frigate_presence import EVENT_ID
+            eid = path[len("/api/frigate/snapshot/"):]
+            fcfg = load_config().get("frigate") or {}
+            if not EVENT_ID.match(eid) or not fcfg.get("url"):
+                self.send_json({"ok": False, "error": "bad event id"}, 400)
+                return
+            try:
+                with urllib.request.urlopen(f"{fcfg['url'].rstrip('/')}/api/events/{eid}/snapshot.jpg?h=270", timeout=5) as r:
+                    img = r.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(img)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"snapshot unavailable: {e}"}, 404)
+            return
+
         elif path.startswith("/api/presence/snapshot/"):
-            raw_fn = path[len("/api/presence/snapshot/"):].strip()
-            safe_fn = re.sub(r"[^a-zA-Z0-9_.-]", "", raw_fn)
-            if safe_fn and safe_fn.endswith(".jpg"):
-                cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "austin@192.168.1.105", f"cat /opt/cluster-bridge/wildlife/snapshots/{safe_fn}"]
-                sub = subprocess.run(cmd, capture_output=True, timeout=5)
-                if sub.returncode == 0 and len(sub.stdout) > 0:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/jpeg")
-                    self.send_header("Content-Length", str(len(sub.stdout)))
-                    self.send_header("Cache-Control", "public, max-age=3600")
-                    self.end_headers()
-                    self.wfile.write(sub.stdout)
-                    return
+            img = _sentry_snapshot_bytes(path[len("/api/presence/snapshot/"):].strip())
+            if img:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img)))
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.end_headers()
+                self.wfile.write(img)
+                return
             self.send_json({"ok": False, "error": "Snapshot not found"}, 404)
+            return
+
+        elif path == "/api/presence/box":
+            # Where a card's subject is in its picture, for the 2px box (sighting_boxes.py)
+            q = urllib.parse.parse_qs(parsed.query or "")
+            try:
+                box = _sighting_box(q.get("source", [""])[0], q.get("ref", [""])[0], q.get("name", [""])[0])
+                self.send_json({"ok": True, "box": box})
+            except ValueError as e:
+                self.send_json({"ok": False, "error": str(e)}, 400)
+            except Exception as e:
+                self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 502)
             return
 
         elif path == "/api/garden/status":
@@ -3631,7 +4807,12 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif path == "/api/config":
-            self.send_json(load_config())
+            import config_mask
+            self.send_json(config_mask.mask(load_config()))
+            return
+
+        elif path.startswith("/api/boost"):
+            self._handle_boost_get(path, urllib.parse.parse_qs(parsed.query))
             return
 
         elif path == "/api/services/status":
@@ -4387,6 +5568,27 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": False, "error": str(ex), "sessions": []}, 500)
             return
 
+        elif path == "/api/voice/cache":
+            import tts_cache
+            d = _tts_cache_dir()
+            files = [f for f in (os.listdir(d) if os.path.isdir(d) else []) if f.endswith(".wav")]
+            self.send_json({"ok": True, "clips": len(files), **tts_cache.stats()})
+            return
+
+        elif path == "/api/voice/bench/phrases":
+            import voice_bench
+            done = {r["phrase"]["id"] for r in voice_bench.load_records(_stonesage_data_dir())}
+            self.send_json({"ok": True, "phrases": [dict(p, done=p["id"] in done) for p in voice_bench.PHRASES]})
+            return
+
+        elif path == "/api/voice/bench/results":
+            import voice_bench
+            self.send_json({"ok": True, **voice_bench.summary(_stonesage_data_dir()),
+                            "records": [{"phrase": r["phrase"]["text"], "cond": r["phrase"]["cond"],
+                                         "results": {x["engine"]: x.get("text", x.get("error")) for x in r["results"]}}
+                                        for r in voice_bench.load_records(_stonesage_data_dir())]})
+            return
+
         elif path == "/api/chat/sessions/messages":
             try:
                 from harness.data_fabric.pg_storage import relational_storage
@@ -4998,7 +6200,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             engines = prof.get("engines") or {}
             models = []
             if engines.get("coordinator"):
-                models.append(tag("courage", engines["coordinator"]))  # Courage's tool loop runs on the coordinator
+                # Computer's tool loop runs on the coordinator. "computer" is the name since 2026-09-27; "courage" stays
+                # listed because Home Assistant's Ollama agent is configured with it (renaming there is John's call).
+                models.append(tag("computer", engines["coordinator"]))
+                models.append(tag("courage", engines["coordinator"]))
             models += [tag(role, engines[role]) for role in ("coordinator", "worker") if engines.get(role)]
             self.send_json({"models": models})
             return
@@ -5037,6 +6242,35 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
             if path == "/api/harness/session/stop":
                 active_session_state.abort()
                 self.send_json({"ok": True, "status": "aborted"})
+                return
+
+            elif path == "/api/watch/reply":
+                import secrets as _secrets
+                from courage.tools import ALWAYS_CONFIRM
+                token = (config.get("watch_bridge", {}) or {}).get("token", "")
+                auth = self.headers.get("Authorization", "")
+                if not token or not _secrets.compare_digest(auth, f"Bearer {token}"):
+                    self.send_json({"ok": False, "error": "unauthorized"}, 401)
+                    return
+                agent = get_courage_agent()
+                action = agent.pending.pop_by_watch_id(body.get("id", ""))
+                if action and body.get("state") == "answered":
+                    args = action.get("args") or {}
+                    # re-derived from our own stored action, never trusted from the request:
+                    # destructive actions are never approvable from the watch, no matter what it claims.
+                    destructive = action.get("name") == "ha_call" and (args.get("domain"), args.get("service")) in ALWAYS_CONFIRM
+                    if not destructive and body.get("r") == 0:
+                        try:
+                            result = agent.tools.execute(action["name"], action["args"])
+                            ok = json.loads(result or "{}").get("ok", True)
+                        except Exception as e:
+                            ok, result = False, str(e)
+                        outcome = f"Done: {action['summary']}." if ok else f"Could not {action['summary']}."
+                    else:
+                        outcome = f"Left alone: {action['summary']}."
+                    if getattr(agent, "push", None):
+                        agent.push.clear(action["id"], outcome)
+                self.send_json({"ok": True})
                 return
 
             # ── Engine Console POST API ───────────────────────────────────
@@ -5703,10 +6937,13 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     speed = float(body.get("speed", 1.06))
                     from harness.connectors.voice_connector import voice_connector
                     import base64
-                    audio = voice_connector.synthesize_speech(text, voice=voice, speed=speed)
+                    import tts_cache
+                    # short lines Computer says over and over come from disk (tts_cache.py); the rest is synthesised
+                    audio, cached = tts_cache.get_or_make(_tts_cache_dir(), text, voice, speed,
+                                                          lambda t, v, sp: voice_connector.synthesize_speech(t, voice=v, speed=sp))
                     if audio:
                         b64 = base64.b64encode(audio).decode("ascii")
-                        self.send_json({"ok": True, "audio_base64": b64})
+                        self.send_json({"ok": True, "audio_base64": b64, "cached": cached})
                     else:
                         self.send_json({"ok": False, "error": "TTS synthesis failed"}, 500)
                 except Exception as e:
@@ -5714,56 +6951,44 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             elif path == "/api/voice/transcribe":
-                # Proxy audio to local Faster Whisper STT (LXC 121 :8200)
+                # Speech-to-text: the voice server on VM 102 first, the old voice LXC as the fallback (voice_client.py).
                 # Frontend sends: { "audio_base64": "...", "mime_type": "audio/webm" }
                 try:
                     import base64 as b64mod
-                    import http.client
-                    import uuid
-
                     audio_b64 = body.get("audio_base64", "")
                     mime_type = body.get("mime_type", "audio/webm")
-
                     if not audio_b64:
                         self.send_json({"ok": False, "error": "No audio_base64 provided"}, 400)
                         return
-
                     audio_data = b64mod.b64decode(audio_b64)
                     if len(audio_data) < 100:
                         self.send_json({"ok": False, "error": "Audio too short"}, 400)
                         return
-
-                    # Determine file extension from mime type
-                    ext = "webm" if "webm" in mime_type else "mp4" if "mp4" in mime_type else "wav"
-
-                    boundary = uuid.uuid4().hex
-                    parts = []
-                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="recording.{ext}"\r\nContent-Type: {mime_type}\r\n\r\n'.encode())
-                    parts.append(audio_data)
-                    parts.append(b'\r\n')
-                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\nbase.en\r\n'.encode())
-                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="response_format"\r\n\r\njson\r\n'.encode())
-                    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nen\r\n'.encode())
-                    parts.append(f'--{boundary}--\r\n'.encode())
-
-                    multipart_body = b''.join(parts)
-
-                    conn = http.client.HTTPConnection("192.168.1.121", 8200, timeout=15)
-                    conn.request("POST", "/v1/audio/transcriptions", body=multipart_body,
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
-                                          "Content-Length": str(len(multipart_body))})
-                    resp = conn.getresponse()
-                    resp_body = resp.read().decode("utf-8", errors="replace")
-                    conn.close()
-
-                    if resp.status == 200:
-                        result = json.loads(resp_body)
-                        text = result.get("text", "").strip()
-                        self.send_json({"ok": True, "text": text})
-                    else:
-                        self.send_json({"ok": False, "error": f"Whisper returned {resp.status}: {resp_body[:200]}"}, 502)
+                    import voice_client
+                    res = voice_client.transcribe(load_config(), audio_data, mime_type)
+                    self.send_json({"ok": True, "text": (res.get("text") or "").strip(),
+                                    "engine": res.get("engine"), "ms": res.get("ms"), "via": res.get("via")})
                 except Exception as e:
                     logger.error("Voice transcribe error: %s", e)
+                    self.send_json({"ok": False, "error": str(e)}, 502)
+                return
+
+            elif path == "/api/voice/bench/sample":
+                # One recorded phrase: saved, then every engine transcribes it (voice_bench.py)
+                try:
+                    import base64 as b64mod
+                    import voice_bench
+                    audio_data = b64mod.b64decode(body.get("audio_base64", ""))
+                    if len(audio_data) < 100:
+                        self.send_json({"ok": False, "error": "Audio too short"}, 400)
+                        return
+                    rec = voice_bench.save_and_score(load_config(), _stonesage_data_dir(), body.get("phrase_id", ""),
+                                                     audio_data, body.get("mime_type", "audio/webm"))
+                    self.send_json({"ok": True, **rec})
+                except ValueError as e:
+                    self.send_json({"ok": False, "error": str(e)}, 400)
+                except Exception as e:
+                    logger.error("Voice bench error: %s", e)
                     self.send_json({"ok": False, "error": str(e)}, 500)
                 return
 
@@ -5976,7 +7201,13 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(trainer_client.feed_passdown())
                 return
 
+            elif path.startswith("/api/boost"):
+                self._handle_boost_post(path, body)
+                return
+
             elif path == "/api/config":
+                import config_mask
+                body = config_mask.drop_masked(body)
                 cfg = load_config()
                 deep_update(cfg, body)
                 # Auto-parse proxmox token_value if provided
@@ -6353,53 +7584,61 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                         messages.insert(0, {"role": "system", "content": agent_system_prompt})
 
                 memory_badges = []
-                try:
-                    has_sys = any(m.get("role") == "system" for m in messages)
+                # Boost (free cloud sources): no A-MEM, workspace or hardware grounding is injected here. Home context
+                # may only reach some tiers, and stream_chat's router decides the tier after the final egress scan.
+                boost_target = str(target).lower().startswith("boost")
+                if boost_target:
+                    params = dict(params, boost_surface="workspaces" if ws_path else "chat")
+                    if not any(m.get("role") == "system" for m in messages):
+                        messages.insert(0, {"role": "system", "content": "You are StoneSage AI, a homelab and coding copilot. Be concise and accurate."})
+                if not boost_target:
                     try:
-                        from harness.core.context_fabric import context_fabric
-                        if ws_path:
-                            from harness.core.openclaw_engine import openclaw_engine
-                            project_agent = openclaw_engine.load_project_agent(ws_path)
-                            if project_agent:
-                                agent_id = project_agent.get("agent_id", agent_id)
-                                compiled_sp = openclaw_engine.compile_agent_system_prompt(ws_path, user_query=user_query)
-                                if has_sys:
-                                    for m in messages:
-                                        if m.get("role") == "system":
-                                            m["content"] = compiled_sp + "\n\n" + m.get("content", "")
-                                            break
-                                else:
-                                    messages.insert(0, {"role": "system", "content": compiled_sp})
-                                    has_sys = True
+                        has_sys = any(m.get("role") == "system" for m in messages)
+                        try:
+                            from harness.core.context_fabric import context_fabric
+                            if ws_path:
+                                from harness.core.openclaw_engine import openclaw_engine
+                                project_agent = openclaw_engine.load_project_agent(ws_path)
+                                if project_agent:
+                                    agent_id = project_agent.get("agent_id", agent_id)
+                                    compiled_sp = openclaw_engine.compile_agent_system_prompt(ws_path, user_query=user_query)
+                                    if has_sys:
+                                        for m in messages:
+                                            if m.get("role") == "system":
+                                                m["content"] = compiled_sp + "\n\n" + m.get("content", "")
+                                                break
+                                    else:
+                                        messages.insert(0, {"role": "system", "content": compiled_sp})
+                                        has_sys = True
 
-                        if not has_sys:
-                            dyn_sp = context_fabric.compile_dynamic_turn(user_query=user_query, agent_id=agent_id if agent_id != "coordinator" else None)
-                            messages.insert(0, {"role": "system", "content": dyn_sp})
-                            has_sys = True
-                        else:
-                            try:
-                                from harness.data_fabric.valkey_amem import valkey_amem
-                                amem_atom = valkey_amem.format_injection_header(user_query)
-                                if amem_atom:
-                                    memory_badges.append("A-MEM: In-RAM Working Memory")
-                                    for m in messages:
-                                        if m.get("role") == "system":
-                                            m["content"] = m.get("content", "") + f"\n\n{amem_atom}"
-                                            break
-                            except Exception:
-                                pass
-                    except (ImportError, ModuleNotFoundError):
-                        if not has_sys:
-                            messages.insert(0, {
-                                "role": "system",
-                                "content": "You are StoneSage AI, an uncensored, high-precision homelab cognitive assistant and expert coder."
-                            })
-                except Exception as ex:
-                    logger.debug(f"Dynamic prompt injection error: {ex}")
+                            if not has_sys:
+                                dyn_sp = context_fabric.compile_dynamic_turn(user_query=user_query, agent_id=agent_id if agent_id != "coordinator" else None)
+                                messages.insert(0, {"role": "system", "content": dyn_sp})
+                                has_sys = True
+                            else:
+                                try:
+                                    from harness.data_fabric.valkey_amem import valkey_amem
+                                    amem_atom = valkey_amem.format_injection_header(user_query)
+                                    if amem_atom:
+                                        memory_badges.append("A-MEM: In-RAM Working Memory")
+                                        for m in messages:
+                                            if m.get("role") == "system":
+                                                m["content"] = m.get("content", "") + f"\n\n{amem_atom}"
+                                                break
+                                except Exception:
+                                    pass
+                        except (ImportError, ModuleNotFoundError):
+                            if not has_sys:
+                                messages.insert(0, {
+                                    "role": "system",
+                                    "content": "You are StoneSage AI, an uncensored, high-precision homelab cognitive assistant and expert coder."
+                                })
+                    except Exception as ex:
+                        logger.debug(f"Dynamic prompt injection error: {ex}")
 
                 # Real-time hardware sensory, wildlife ledger and Home Assistant grounding
                 try:
-                    hw_context = ground_hardware_context(agent_id, user_query)
+                    hw_context = "" if boost_target else ground_hardware_context(agent_id, user_query)
                     if hw_context:
                         if "Thermostat" in hw_context:
                             memory_badges.append("Hardware: Nest Thermostat Live Telemetry")
@@ -7010,6 +8249,11 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json({"ok": True, "synthesis": synthesis})
                 return
 
+            elif path == "/api/courage/memories/forget":
+                mem = getattr(get_courage_agent(), "memory", None)
+                self.send_json({"ok": bool(mem and mem.forget(str(body.get("id", ""))))})
+                return
+
             elif path == "/api/courage/reflexes/forget":
                 learned = getattr(get_courage_agent(), "learned", None)
                 self.send_json({"ok": bool(learned and learned.forget(body.get("key", "")))})
@@ -7020,6 +8264,109 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                     fn = {"/api/loader/plan": model_loader.plan, "/api/loader/preview": model_loader.preview,
                           "/api/loader/apply": model_loader.apply}[path]
                     self.send_json(fn(body))
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
+                return
+
+            elif path in ("/api/presence/correct", "/api/presence/profiles"):
+                # Residents & Pets: "✗ Wrong" / "Correct as" on a sighting, and "+ New profile" (presence_corrections.py)
+                try:
+                    if path == "/api/presence/profiles":
+                        res = _presence_corrections().add_profile(body)
+                    else:
+                        res = _apply_presence_correction(body.get("source", ""), body.get("ref", ""), body.get("shown", ""),
+                                                         body.get("action", ""), body.get("name", ""))
+                    if res.get("ok"):
+                        _invalidate_presence()
+                    self.send_json(res, 200 if res.get("ok") else 400)
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 502)
+                return
+
+            elif path == "/api/patrol/run":
+                self.send_json(get_patrol().run_now(body.get("entity", "")))
+                return
+
+            elif path == "/api/engines/lease":
+                # {layout, ttl_s, reason, approver, force}: waits until the layout answers (or reverted), up to ~5 min
+                self.send_json(get_engine_lease().acquire(str(body.get("layout") or ""), body.get("ttl_s") or 3600,
+                                                          str(body.get("reason") or ""), str(body.get("approver") or ""),
+                                                          bool(body.get("force"))))
+                return
+
+            elif re.fullmatch(r"/api/engines/lease/[0-9a-f]{8}/(renew|release)", path):
+                # Only a person renews (DESIGN.md: "a renew call without a human tap is refused"): the phone check-in's
+                # Another hour button, through push_approvals. This LAN API can't tell a person from Claude Code or
+                # the loop worker, so renew here is refused; release (giving the GPU back early) is always allowed.
+                lease_id, verb = path.split("/")[4], path.split("/")[5]
+                if verb == "renew":
+                    self.send_json({"ok": False, "error": "Renew by tapping Another hour on the phone check-in."}, 403)
+                    return
+                self.send_json(get_engine_lease().release(lease_id, why="released", approver=str(body.get("approver") or "")))
+                return
+
+            elif path == "/api/provenance/scan":
+                # {"hash": true} also hashes new/changed files (minutes for a big new GGUF); runs in the background
+                prov = get_provenance()
+                threading.Thread(target=lambda: prov.scan(hash_files=bool(body.get("hash"))), daemon=True,
+                                 name="provenance-scan").start()
+                self.send_json({"ok": True, "started": True, "hash": bool(body.get("hash"))})
+                return
+
+            elif path == "/api/commentary/test":
+                # What Computer would say for a made-up event, never spoken: {trigger, facts, who?: [names], room?}
+                c = get_commentary()
+                from commentary import _cfg
+                facts = str(body.get("facts") or "")[:400]
+                if not facts:
+                    self.send_json({"ok": False, "error": "facts required"}, 400)
+                    return
+                rec = c.remark(_cfg(load_config().get("commentary")), str(body.get("trigger") or "test")[:20],
+                               str(body.get("room") or "kitchen")[:20],
+                               [str(w)[:30].lower() for w in (body.get("who") or [])][:3], facts, dry=True)
+                self.send_json({"ok": rec.get("outcome") == "dry_run", **rec})
+                return
+
+            elif path == "/api/cameras/webrtc-report":
+                # Browser-side ICE diagnostics after a failed WebRTC stream (presence_garden.js reportIceFailure)
+                r = body or {}
+                logger.warning("WebRTC failed from %s (%s) on %s: ua=%s | local=%s | remote=%s | pairs=%s",
+                               self.client_address[0], str(r.get("page"))[:60], str(r.get("stream"))[:60],
+                               str(r.get("ua"))[:160], r.get("local"), r.get("remote"), r.get("pairs"))
+                self.send_json({"ok": True})
+                return
+
+            elif path == "/api/cameras/ptz":
+                # PTZ is free for Courage and John (CLAUDE.md); names and presets are checked against HA
+                import camera_ui
+                try:
+                    kind, eid, option = camera_ui.ptz_command(body.get("entity", ""), load_config(), body.get("action", ""),
+                                                              body.get("preset", ""), hass.get_state)
+                    get_patrol().note_manual(body.get("entity", ""))  # John is steering: the patrol keeps out of the way
+                    res = hass.press_button(eid) if kind == "button" else hass.select_option(eid, option)
+                    self.send_json({"ok": bool(res.get("ok", True)), "done": eid, "error": res.get("error")})
+                except ValueError as e:
+                    self.send_json({"ok": False, "error": str(e)}, 400)
+                return
+
+            elif path == "/api/cameras/webrtc":
+                # WebRTC signalling relay to go2rtc; only streams the LIVE tab lists are allowed
+                fcfg = load_config().get("frigate") or {}
+                stream = body.get("stream", "")
+                try:
+                    from frigate_presence import webrtc_answer
+                    allowed = set(_webrtc_streams(load_config()).values())
+                    if stream not in allowed:
+                        self.send_json({"ok": False, "error": f"unknown stream '{stream}'"}, 400)
+                        return
+                    self.send_json({"ok": True, "answer": webrtc_answer(fcfg["go2rtc_url"], stream, body.get("offer") or {})})
+                except Exception as e:
+                    self.send_json({"ok": False, "error": f"go2rtc: {e}"}, 502)
+                return
+
+            elif path == "/api/engine-profiles/apply":
+                try:
+                    self.send_json(engine_profiles.apply_profile(body.get("name", "")))
                 except Exception as e:
                     self.send_json({"ok": False, "error": f"{type(e).__name__}: {e}"}, 500)
                 return
@@ -7888,7 +9235,10 @@ class StoneSageHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(res)
                 return
 
-            elif path in ("/api/chat", "/api/ai/chat_ollama") and "courage" in str(body.get("model", "")).lower():
+            elif path in ("/api/chat", "/api/ai/chat_ollama") and \
+                    str(body.get("model", "")).lower().split(":")[0] in ("computer", "courage"):
+                # Computer's tool loop. "computer" since 2026-09-27; "courage" is what HA's Ollama agent is set up with.
+                # Exact names: a substring test sent "computer:latest" to the bare coordinator (no persona or tools).
                 self._handle_courage_ollama(body)
                 return
 
@@ -8348,7 +9698,26 @@ if __name__ == "__main__":
     http.server.ThreadingHTTPServer.allow_reuse_address = True
     # Warm Courage's presence cache so the first question doesn't pay the ~1.4 s presence read
     threading.Thread(target=_courage_refresh_presence, daemon=True, name="courage-presence-warmup").start()
+    try:
+        setup_boost()
+    except Exception as e:
+        logger.warning(f"Boost setup failed: {e}")
     threading.Thread(target=get_courage_agent, daemon=True, name="courage-agent-warmup").start()  # starts the phone-approval listener
+    threading.Timer(45.0, _tts_warm).start()  # a little after start: the voice server is shared with live turns
+    if get_frigate_presence():
+        threading.Thread(target=_frigate_presence.start, daemon=True, name="frigate-presence-start").start()
+    if (config.get("patrol") or {}).get("enabled"):
+        get_patrol().start()  # PTZ sweeps (backend/patrol.py); checks every minute which camera is due
+    if config.get("engine_layouts"):
+        get_engine_lease().start()  # reverts a lease a previous run left behind, then watches the clock
+    if config.get("provenance"):
+        get_provenance().start()  # model provenance: header scan now, hashing rescans (backend/provenance.py)
+    if (config.get("ha_presence") or {}).get("enabled"):
+        get_ha_presence().start()  # who-was-seen-where sensors in HA (backend/ha_presence.py)
+    if get_alexa_relay():
+        get_alexa_relay().start()  # Echo requests via the Alexa skill and a relay, outbound only (backend/alexa_relay.py)
+    if config.get("commentary"):
+        get_commentary().start()  # unprompted remarks (backend/commentary.py); enabled/mode are read every tick
     try:
         server = http.server.ThreadingHTTPServer((host, port), StoneSageHandler)
     except OSError as e:
@@ -8436,7 +9805,7 @@ if __name__ == "__main__":
         https_banner = "  LAN Cockpit HTTPS: (no cert found — run openssl to generate)"
         logger.info("No SSL cert at %s — HTTPS listener skipped", cert_file)
 
-    lan_ip = config.get("server", {}).get("lan_ip", "192.168.1.132")
+    lan_ip = config.get("server", {}).get("lan_ip", "192.168.1.110")
     print("=" * 68)
     print("  [ STONESAGE COGNITIVE TERMINAL WORKSTATION v4.0 - ENTERPRISE ]")
     print(f"  Local Browser:     http://localhost:{port} (or http://127.0.0.1:{port})")

@@ -58,7 +58,8 @@ class TestHealth(unittest.TestCase):
             n = len(calls)
             again = health.check_all(cfg, use_cache=True)
         self.assertFalse(r["ok"])
-        self.assertEqual(r["summary"], "12/13 up; down: Vision")
+        total = len(health.build_probes(cfg))                      # not a literal: every new service used to break this test
+        self.assertEqual(r["summary"], f"{total - 1}/{total} up; down: Vision")
         self.assertIs(again, r)
         self.assertEqual(len(calls), n, "cached call must not probe again")
 

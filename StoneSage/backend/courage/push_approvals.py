@@ -33,6 +33,8 @@ class PushApprovals:
         self._post = post or self._ha_post
         self._thread: Optional[threading.Thread] = None
         self.last_event: Optional[Dict[str, Any]] = None
+        self.watch = None  # set from server.py when the watch bridge is configured
+        self.extra_handlers: list = []  # (action string) -> outcome text | None, for buttons that aren't approvals
 
     # -------------------------------------------------------------- sending ----
     def _ha_post(self, path: str, body: Dict[str, Any]) -> Any:
@@ -45,14 +47,14 @@ class PushApprovals:
         data: Dict[str, Any] = {"tag": f"courage-{action_id}", "group": "courage"}
         if buttons:
             data["actions"] = [{"action": f"{YES}{action_id}", "title": "Yes"}, {"action": f"{NO}{action_id}", "title": "No"}]
-        self._post(f"/api/services/notify/{self.service}", {"title": "Courage", "message": message, "data": data})
+        self._post(f"/api/services/notify/{self.service}", {"title": "Computer", "message": message, "data": data})
 
     def wants_push(self, session_id: str) -> bool:
         if self.policy == "always":
             return True
         if self.policy == "never":
             return False
-        return session_id.startswith("ha:")
+        return session_id.startswith(("ha:", "alexa:"))     # spoken conversations; an Echo session can end before the yes
 
     def offer(self, session_id: str, action: Dict[str, Any]) -> bool:
         """Push the approval request if the policy says so. Returns True when a push was sent."""
@@ -65,10 +67,25 @@ class PushApprovals:
             logger.warning(f"approval push failed: {e}")
             return False
 
+    def clear(self, action_id: str, outcome: str) -> None:
+        """Update the phone notification with an outcome -- used when another channel (the watch) answered first."""
+        try:
+            self._notify(outcome, action_id, buttons=False)
+        except Exception as e:
+            logger.warning(f"outcome push failed: {e}")
+
     # ------------------------------------------------------------- receiving ----
     def handle_action(self, action_str: str) -> Optional[str]:
-        """Apply a tapped button ('COURAGE_YES_<id>' / 'COURAGE_NO_<id>'). Returns the outcome text, or None if not ours."""
+        """Apply a tapped button ('COURAGE_YES_<id>' / 'COURAGE_NO_<id>'). Returns the outcome text, or None if not ours.
+        Other buttons go to `extra_handlers` (e.g. the engine lease's Another hour / Stop check-in)."""
         if not action_str.startswith((YES, NO)):
+            for handler in self.extra_handlers:
+                try:
+                    out = handler(action_str)
+                except Exception as e:
+                    out = f"failed: {e}"
+                if out is not None:
+                    return out
             return None
         approve = action_str.startswith(YES)
         action_id = action_str[len(YES if approve else NO):]
@@ -88,6 +105,8 @@ class PushApprovals:
             self._notify(outcome, action_id, buttons=False)
         except Exception as e:
             logger.warning(f"outcome push failed: {e}")
+        if self.watch and found and found.get("watch_id"):
+            self.watch.resolve(found["watch_id"])  # clears the watch's card too -- different id space than ours
         return outcome
 
     async def _listen(self) -> None:

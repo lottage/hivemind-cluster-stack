@@ -37,7 +37,7 @@ VALID_HOSTS = {
     "192.168.1.112": "LXC 117 Qdrant Vector Brain (:6333)",
     "192.168.1.167": "LXC 120 StoneSage Cockpit (:8080)",
     "192.168.1.230": "LXC 116 CouchDB Obsidian Sync (:5984)",
-    "192.168.1.132": "Windows Workstation LAN IP",
+    "192.168.1.110": "Windows Workstation LAN IP",
     "192.168.1.178": "Austin S25 Ultra Mobile Cockpit",
     "192.168.1.124": "LXC 100 Kavita Book Reader (:5000)",
     "192.168.1.212": "LXC 108 FreshRSS (:80)",
@@ -245,7 +245,7 @@ class DatasetCompiler:
         # Scrub known hallucinated IPs
         for bad_ip in HALLUCINATED_IPS:
             if bad_ip in cleaned:
-                cleaned = cleaned.replace(bad_ip, "192.168.1.132")
+                cleaned = cleaned.replace(bad_ip, "192.168.1.110")
 
         # Audit embedded Python code blocks with AST parser
         py_blocks = re.findall(r"```python\s*(.*?)\s*```", cleaned, re.DOTALL)

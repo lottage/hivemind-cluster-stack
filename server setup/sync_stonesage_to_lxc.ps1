@@ -20,10 +20,10 @@ ssh -n "$LxcUser@$LxcHost" "mkdir -p /opt/stonesage/frontend/js /opt/stonesage/f
 
 scp "$LocalFrontend\index.html" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/index.html"
 scp "$LocalFrontend\style.css" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/style.css"
-scp "$LocalFrontend\app.js" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/app.js"
 scp "$LocalFrontend\sw.js" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/sw.js"
 scp "$LocalFrontend\manifest.webmanifest" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/manifest.webmanifest"
 scp "$LocalFrontend\icon.svg" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/icon.svg"
+scp "$LocalFrontend\voice-bench.html" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/voice-bench.html"
 
 # Copy modular js directory and vendor assets
 scp -r "$LocalFrontend\js" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/"
@@ -33,6 +33,15 @@ scp -r "$LocalFrontend\vendor" "$LxcUser@$LxcHost`:/opt/stonesage/frontend/"
 Write-Host "`n[2/3] Uploading Backend Python modules to LXC 120..." -ForegroundColor Yellow
 Get-ChildItem -Path "$LocalBackend" -Filter "*.py" | ForEach-Object {
     scp $_.FullName "$LxcUser@$LxcHost`:/opt/stonesage/backend/$($_.Name)"
+}
+# Python packages inside backend/ (courage/, boost/, ...): .py files only, no Windows __pycache__.
+# Until 2026-09-25 this script skipped them, so backend/courage/ changes only went live when copied by hand.
+Get-ChildItem -Path "$LocalBackend" -Directory | Where-Object { Test-Path (Join-Path $_.FullName "__init__.py") } | ForEach-Object {
+    $pkg = $_.Name
+    ssh -n "$LxcUser@$LxcHost" "mkdir -p /opt/stonesage/backend/$pkg"
+    Get-ChildItem -Path $_.FullName -Filter "*.py" | ForEach-Object {
+        scp $_.FullName "$LxcUser@$LxcHost`:/opt/stonesage/backend/$pkg/$($_.Name)"
+    }
 }
 # Remove any legacy builtin_overrides.json on LXC 120
 ssh -n "$LxcUser@$LxcHost" "rm -f /opt/stonesage/backend/builtin_overrides.json"

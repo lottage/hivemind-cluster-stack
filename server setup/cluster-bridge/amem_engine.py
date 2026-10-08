@@ -256,8 +256,8 @@ class AMEMEngine:
             ),
             (
                 "cluster.hardware.gpu_coordinator",
-                "Coordinator / Courage (:8001) runs Qwen3-14B Q4_K_M with a Qwen3-0.6B draft model on the RX 6750 XT 12GB: 2 slots of 6144 tokens, about 41 tokens/sec.",
-                ["coordinator", "courage", "gpu", "rx6750xt", "6750", "8001", "qwen3", "14b", "12gb"],
+                "Coordinator / Computer (:8001) runs Qwen3-14B Q4_K_M with a Qwen3-0.6B draft model on the RX 6750 XT 12GB: 2 slots of 6144 tokens, about 41 tokens/sec.",
+                ["coordinator", "computer", "gpu", "rx6750xt", "6750", "8001", "qwen3", "14b", "12gb"],
                 "hardware"
             ),
             (
@@ -328,8 +328,8 @@ class AMEMEngine:
             ),
             (
                 "operator.workstation.ip",
-                "Windows development host is assigned local LAN IP 192.168.1.132, hosting StoneSage frontend and mobile harness.",
-                ["workstation", "windows", "host", "132", "lan", "ip"],
+                "Windows development host is assigned local LAN IP 192.168.1.110, hosting StoneSage frontend and mobile harness.",
+                ["workstation", "windows", "host", "110", "lan", "ip"],
                 "cluster"
             )
         ]

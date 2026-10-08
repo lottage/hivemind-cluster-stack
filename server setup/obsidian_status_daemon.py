@@ -202,7 +202,7 @@ def collect_stack_telemetry(vault_dir: str):
     telemetry["stonesage"] = {
         "online": ss_ok,
         "latency_ms": ss_lat,
-        "lan_url": "http://192.168.1.132:8080",
+        "lan_url": "http://192.168.1.110:8080",
         "local_url": "http://localhost:8080",
         "rag_mode": "Hybrid BM25 + Dense BGE Dual-Query"
     }

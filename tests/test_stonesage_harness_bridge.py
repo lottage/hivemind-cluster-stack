@@ -28,7 +28,32 @@ sys.path.insert(0, str(BASE_DIR / "StoneSage" / "backend"))
 import server as ss_server
 
 
+FIXTURE_CONFIG = {
+    "harness_instances": [
+        {"id": "workstation_primary", "name": "Workstation", "url": "http://127.0.0.1:8088"},
+        {"id": "vm102_compute", "name": "Compute host", "url": "http://127.0.0.1:8001"},
+        {"id": "rog_ally_x", "name": "ROG Ally (LM Studio)", "url": "http://192.168.1.213:1234", "engine": True},
+    ]
+}
+
+
 class TestStoneSageHarnessBridge(unittest.TestCase):
+    # These tests save the config (select / add an instance). They get a throwaway copy, so they never rewrite the
+    # operator's real config.json and they run anywhere, including CI where no config.json exists.
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+        cls._tmp = tempfile.mkdtemp(prefix="harness-bridge-")
+        cls._real_config_file = ss_server.CONFIG_FILE
+        ss_server.CONFIG_FILE = os.path.join(cls._tmp, "config.json")
+        with open(ss_server.CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(FIXTURE_CONFIG, f)
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        ss_server.CONFIG_FILE = cls._real_config_file
+        shutil.rmtree(cls._tmp, ignore_errors=True)
 
     def test_01_get_instances(self):
         """Verify default instances and structure."""

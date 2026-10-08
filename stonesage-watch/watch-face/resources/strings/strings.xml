@@ -1,0 +1,30 @@
+<strings>
+    <string id="AppName">Sage Face</string>
+    <string id="M0">None</string>
+    <string id="M1">Time</string>
+    <string id="M2">Date</string>
+    <string id="M3">Battery</string>
+    <string id="M4">Steps</string>
+    <string id="M5">Heart rate</string>
+    <string id="M6">Claude tokens today</string>
+    <string id="M7">Claude $ today</string>
+    <string id="M8">Budget % (month)</string>
+    <string id="M9">Local tokens today</string>
+    <string id="M10">Local share %</string>
+    <string id="M11">Pending asks</string>
+    <string id="M12">Phone notifications</string>
+    <string id="M13">Data age</string>
+    <string id="M14">Claude $ month</string>
+    <string id="M15">Pending (asks + notifications)</string>
+    <string id="M16">Calories today</string>
+    <string id="M17">Tokens/sec (live)</string>
+    <string id="S2">Ring (subscreen)</string>
+    <string id="S4">Slot: Row 1 left</string>
+    <string id="S5">Slot: Row 1 right</string>
+    <string id="S6">Slot: Row 2 left</string>
+    <string id="S7">Slot: Row 2 right</string>
+    <string id="Remote">Let StoneSage set layout</string>
+    <string id="Rotate">Rotate agents each minute</string>
+    <string id="Url">Bridge URL (fallback poll)</string>
+    <string id="Tok">Read token</string>
+</strings>

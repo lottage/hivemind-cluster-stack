@@ -1,0 +1,20 @@
+[Unit]
+Description=Wake-word detection for Wyoming satellites (openWakeWord, "computer")
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Same unprivileged user as voice-server; the venv and models are world-readable under /opt/wakeword-server.
+User=voiceserver
+Group=voiceserver
+# Satellites stream 16 kHz audio here and are told when "computer" is heard. Models in --custom-model-dir are offered by file name
+# (computer_v2 = reacts to "Computer" and "Hey Computer"; computer_v1 kept for A/B). Threshold and trigger level are the service
+# defaults (0.5 / 1) until they are tuned on the real microphone.
+ExecStart=/opt/wakeword-server/venv/bin/wyoming-openwakeword --uri tcp://0.0.0.0:10400 --custom-model-dir /opt/wakeword-server/models
+Restart=on-failure
+RestartSec=5
+MemoryMax=512M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

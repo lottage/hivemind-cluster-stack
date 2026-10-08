@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Test Suite (Python ${{ matrix.python-version }} on ${{ matrix.os }})
+    name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,8 +19,7 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      # no submodules: no test needs server setup/obsidian-vault-cli, and its pinned commit is a local fork
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -28,15 +27,21 @@ jobs:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
 
+    - name: Set up Node.js (the voice-mode and Alexa-skill tests run real JavaScript)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Core Harness & StoneSage Unit Tests
-      run: |
-        python -m unittest discover -s tests -p "test_*.py"
+    # The runner blocks every non-localhost connection, so no test can reach (or depend on) the homelab
+    - name: Unit tests (network blocked)
+      run: python tests/run_tests.py
 
-    - name: Run GGUF Pipeline Trainer Unit Tests
+    - name: GGUF pipeline trainer tests
       run: |
+        pip install pyyaml
         python -m unittest discover -s pipeline-gguf-trainer/tests -p "test_*.py"

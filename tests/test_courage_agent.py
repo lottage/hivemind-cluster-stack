@@ -58,7 +58,7 @@ def make_agent(llm, ha=None, pending=None, looks=None):
     looks = looks if looks is not None else []
     deps = CourageDeps(
         ha_states=ha.states, ha_call=ha.call, presence=lambda: PRESENCE,
-        camera_look=lambda eid, name: looks.append(eid) or f"{name}: a black and white cat on the couch.",
+        camera_look=lambda eid, name, **kw: looks.append(eid) or f"{name}: a black and white cat on the couch.",
         camera_scan=lambda eid, name: f"{name}: scanned 3 presets, nobody there.")
     return CourageAgent(CourageTools(deps), "http://fake:8001/v1", presence_fn=lambda: PRESENCE,
                         pending=pending or PendingActions(), post=llm), ha
@@ -81,16 +81,22 @@ class TestCourageAgent(unittest.TestCase):
         self.assertEqual((tool_msg["role"], tool_msg["tool_call_id"]), ("tool", "c1"))
         # thinking off, native tools on
         self.assertEqual(llm.requests[0]["chat_template_kwargs"], {"enable_thinking": False})
-        self.assertEqual(len(llm.requests[0]["tools"]), 8)
+        self.assertEqual(len(llm.requests[0]["tools"]), 9)                  # + correct_sighting (2026-09-27)
 
-    def test_presence_card_in_system_prompt(self):
+    def test_presence_card_right_after_the_persona(self):
+        """2026-09-28: the clocked card moved out of the first system message into the second, so the persona + tool
+        schemas stay a cacheable prefix (a one-minute clock change used to re-process ~1,260 tokens, ~2.5 s)."""
         llm = ScriptedLLM(reply("Hello."))
         agent, _ = make_agent(llm)
         run(agent, "hi")
-        system = llm.requests[0]["messages"][0]["content"]
-        self.assertIn("Camera sightings", system)
-        self.assertIn("Luna: seen 12 min ago on Kitchen/Living Room", system)
-        self.assertIn("Savannah: no recent sighting", system)
+        msgs = llm.requests[0]["messages"]
+        self.assertNotIn("[Who is where", msgs[0]["content"])          # the cached prefix never changes
+        self.assertEqual(msgs[1]["role"], "system")
+        card = msgs[1]["content"]
+        self.assertIn("[Who is where", card)
+        self.assertIn("Luna: seen 12 min ago on Kitchen/Living Room", card)
+        self.assertIn("Savannah: no recent sighting", card)
+        self.assertEqual(msgs[2], {"role": "user", "content": "hi"})
 
     def test_camera_look_runs_freely(self):
         looks = []
@@ -143,7 +149,7 @@ class TestCourageAgent(unittest.TestCase):
         agent, _ = make_agent(llm, ha=ha)
         events = run(agent, "delete the kitchen light")
         self.assertEqual(events[0]["type"], "tool_result")
-        self.assertIn("not on Courage's allowlist", events[0]["result"])
+        self.assertIn("not on Computer's allowlist", events[0]["result"])
         self.assertEqual(ha.calls, [])
 
     def test_made_up_entity_is_refused_with_candidates(self):
@@ -156,6 +162,15 @@ class TestCourageAgent(unittest.TestCase):
         self.assertIn("no entity 'light.kitchen_light'", events[0]["result"])
         self.assertIn("light.kitchen", events[0]["result"])
         self.assertEqual(ha.calls, [])
+
+    def test_only_presence_looks_are_people_only(self):
+        """camera_look questions can be about anything, so only presence_now's stale-sighting look may skip vision."""
+        calls = []
+        look = lambda eid, name, **kw: calls.append(kw) or "ok"
+        tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=lambda: {}, camera_look=look, camera_scan=None))
+        tools._camera_look("kitchen_living_room")
+        tools._presence_now("luna")
+        self.assertEqual(calls, [{}, {"people_only": True}])
 
     def test_entity_domain_mismatch_refused(self):
         tools = CourageTools(CourageDeps(ha_states=None, ha_call=None, presence=None, camera_look=None, camera_scan=None))
@@ -191,7 +206,7 @@ class TestCourageAgent(unittest.TestCase):
                 {"role": "assistant", "content": "<think>hmm</think>:::TOOL_CALL:::x:::{}:::END_TOOL_CALL:::Luna is in."}]
         run(agent, "and now?", history=hist)
         sent = llm.requests[0]["messages"]
-        self.assertEqual(sent[2], {"role": "assistant", "content": "Luna is in."})
+        self.assertEqual(sent[3], {"role": "assistant", "content": "Luna is in."})   # persona, card, "earlier", this
 
     def test_sse_format(self):
         agent, _ = make_agent(ScriptedLLM(reply("Morning.")))
@@ -332,6 +347,92 @@ class TestCourageReflex(unittest.TestCase):
         self.assertEqual(events[-1]["content"], "The Bedroom Lamp is already off.")
 
 
+class LaggingHA(FakeHA):
+    """Home Assistant reports a change about a second AFTER the service call returns (measured 2026-09-29)."""
+
+    def __init__(self, lag_applied=False):
+        super().__init__()
+        self.lag_applied = lag_applied
+        self.pending = {}                      # entity_id -> state it will report once the lag is over
+
+    def call(self, domain, service, data):
+        self.calls.append((domain, service, data))
+        self.pending[data["entity_id"]] = "on" if service == "turn_on" else "off"
+        return {"ok": True}
+
+    def settle(self):
+        """The lag is over: HA now reports what the commands left behind."""
+        self.settled = dict(self.pending)
+
+    def states(self, domain):
+        res = super().states(domain)
+        for e in res["entities"]:
+            if getattr(self, "settled", {}).get(e["entity_id"]):
+                e["state"] = self.settled[e["entity_id"]]
+        return res
+
+
+class TestStaleStateAfterOurOwnCommand(unittest.TestCase):
+    """2026-09-29: "turn on the TV lights", then "turn off the TV lights" a second later answered "already off",
+    because HA still reported the old state. The reflex stays model-free, but never trusts an "already" that our own
+    last command contradicts."""
+
+    def agent(self, ha):
+        agent, _ = make_agent(ScriptedLLM(), ha=ha)    # any LLM call would raise: these are reflex turns
+        self.now = 1000.0
+        agent.tools.clock = lambda: self.now
+        return agent
+
+    def test_the_opposite_order_right_after_a_command_is_sent_not_dismissed(self):
+        ha = LaggingHA()
+        agent = self.agent(ha)
+        run(agent, "turn on the bedroom lamp")             # HA (lagging) still says off
+        self.now += 1.0
+        events = run(agent, "turn off the bedroom lamp")   # HA still says off: "already off" would be stale
+        self.assertEqual([c[1] for c in ha.calls], ["turn_on", "turn_off"])
+        self.assertEqual(events[-1]["content"], "Bedroom Lamp off.")
+
+    def test_a_genuine_already_is_still_answered(self):
+        ha = LaggingHA()
+        agent = self.agent(ha)
+        events = run(agent, "turn off the bedroom lamp")   # nothing sent by us: HA's state is the truth
+        self.assertEqual(ha.calls, [])
+        self.assertEqual(events[-1]["content"], "The Bedroom Lamp is already off.")
+
+    def test_after_the_window_a_reading_is_trusted_again(self):
+        ha = LaggingHA()
+        agent = self.agent(ha)
+        run(agent, "turn on the bedroom lamp")
+        self.now += 11.0                                   # past RECENT_COMMAND_S; the command evidently did not stick
+        events = run(agent, "turn off the bedroom lamp")
+        self.assertEqual([c[1] for c in ha.calls], ["turn_on"])
+        self.assertIn("already off", events[-1]["content"])
+
+    def test_repeating_the_same_order_is_answered_once_home_assistant_has_caught_up(self):
+        ha = LaggingHA()
+        agent = self.agent(ha)
+        run(agent, "turn on the bedroom lamp")
+        ha.settle()
+        self.now += 1.0
+        events = run(agent, "turn on the bedroom lamp")
+        self.assertEqual([c[1] for c in ha.calls], ["turn_on"])
+        self.assertIn("already on", events[-1]["content"])
+
+    def test_a_failed_command_is_not_remembered(self):
+        ha = LaggingHA()
+        ha.call = lambda d, s, data: ha.calls.append((d, s, data)) or {"ok": False, "error": "offline"}
+        agent = self.agent(ha)
+        run(agent, "turn on the bedroom lamp")
+        self.assertFalse(agent.tools.changed_just_now("light.bedroom", "off"))
+
+    def test_a_toggle_leaves_the_state_unknown(self):
+        ha = LaggingHA()
+        agent = self.agent(ha)
+        agent.tools.execute("ha_call", {"domain": "light", "service": "toggle", "entity_id": "light.bedroom"})
+        self.assertTrue(agent.tools.changed_just_now("light.bedroom", "off"))
+        self.assertTrue(agent.tools.changed_just_now("light.bedroom", "on"))
+
+
 class TestPushApprovals(unittest.TestCase):
     """Approve from the phone: Yes/No buttons on an HA notification (fake HA, no network)."""
 
@@ -349,6 +450,7 @@ class TestPushApprovals(unittest.TestCase):
 
     def test_policy(self):
         self.assertTrue(self.push.wants_push("ha:192.168.1.82"))
+        self.assertTrue(self.push.wants_push("alexa:3f9a1c0b7d22"))      # an Echo session can end before the yes
         self.assertFalse(self.push.wants_push("web-session-1"))
         self.push.policy = "always"
         self.assertTrue(self.push.wants_push("web-session-1"))
@@ -444,3 +546,116 @@ class TestLearnedReflexes(unittest.TestCase):
         from courage.reflex import LearnedReflexes
         self.store.learn("lamp off now", {"domain": "light", "service": "turn_off", "entity_id": "light.bedroom"}, "Bedroom Lamp")
         self.assertIn("lamp off", LearnedReflexes(self.path).items)
+
+class TestCorrectSighting(unittest.TestCase):
+    """correct_sighting: John saying the name is wrong runs at once; Computer spotting it himself asks first."""
+
+    def make(self, llm):
+        agent, _ = make_agent(llm)
+        calls = []
+        agent.tools.deps.correct_sighting = lambda who, action, name: calls.append((who, action, name)) or {
+            "ok": True, "corrected": "Kylo on the Kitchen/Living Room, 12 min ago", "now": "filed under Luna",
+            "Kylo_latest_now": "40 min ago on Driveway"}
+        return agent, calls
+
+    def test_johns_correction_runs_at_once(self):
+        llm = ScriptedLLM(tool_call("correct_sighting", {"who": "kylo", "action": "is_really", "name": "luna"}),
+                          reply("Filed under Luna. Kylo's latest is now 40 minutes ago on the driveway."))
+        agent, calls = self.make(llm)
+        events = run(agent, "That wasn't Kylo on the kitchen camera, it was Luna")
+        self.assertEqual(calls, [("kylo", "is_really", "luna")])
+        self.assertEqual([e["type"] for e in events], ["tool_call", "tool_result", "final"])
+        self.assertIn("40 min ago", llm.requests[1]["messages"][-1]["content"])   # the result reached the model
+
+    def test_an_inferred_correction_asks_first(self):
+        llm = ScriptedLLM(tool_call("correct_sighting", {"who": "kylo", "action": "wrong"}))
+        agent, calls = self.make(llm)
+        events = run(agent, "Are you sure the dog in the kitchen is Kylo?")
+        self.assertEqual(calls, [])
+        self.assertEqual(events[0]["type"], "approval_required")
+        self.assertIn("hide Kylo's latest camera sighting", events[-1]["content"])
+
+    def test_is_really_needs_a_name(self):
+        agent, calls = self.make(ScriptedLLM())
+        self.assertIn("name", agent.tools.validate("correct_sighting", {"who": "kylo", "action": "is_really"}))
+        self.assertIsNone(agent.tools.validate("correct_sighting", {"who": "kylo", "action": "wrong"}))
+
+
+class TestQuestionsAreAnswered(unittest.TestCase):
+    """2026-09-28: "Is the kitchen light on?" read the state and then offered to turn something on. A question gets an
+    answer, never an action or an offer (tests/live/test_courage_real_states.py runs this against the real house)."""
+
+    LIGHT_ON = {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}
+
+    def test_is_question(self):
+        from courage.tools import is_question
+        for text in ("Is the kitchen light on?", "is the kitchen light on", "What's the thermostat set to?",
+                     "Are any lights on right now?", "Should I turn on the heat?", "Any packages today?", "Who is home",
+                     "Do you know where Kylo is?"):
+            self.assertTrue(is_question(text), text)
+        for text in ("Turn off the lamp", "Can you turn off the lamp?", "It's cold in here", "Hello?",
+                     "Do you mind turning off the light?", "turn on the lights please", "Yes"):
+            self.assertFalse(is_question(text), text)
+
+    def test_a_question_is_never_a_direct_order(self):
+        agent, _ = make_agent(ScriptedLLM())
+        # no question mark (a voice transcript): "...light on" used to match the turn_on order pattern
+        self.assertFalse(agent.tools.is_direct_command("ha_call", self.LIGHT_ON, "is the kitchen light on"))
+        self.assertTrue(agent.tools.is_direct_command("ha_call", self.LIGHT_ON, "turn the kitchen light on"))
+
+    def test_an_action_after_a_question_is_refused_and_the_loop_answers(self):
+        llm = ScriptedLLM(tool_call("ha_get_states", {"domain": "light"}),
+                          tool_call("ha_call", self.LIGHT_ON, cid="c2"),
+                          reply("The kitchen light is on."))
+        agent, ha = make_agent(llm)
+        events = run(agent, "Is the kitchen light on?")
+        self.assertEqual(ha.calls, [])
+        self.assertNotIn("approval_required", [e["type"] for e in events])
+        self.assertEqual(events[-1]["content"], "The kitchen light is on.")
+        self.assertIn("asked a question", llm.requests[2]["messages"][-1]["content"])   # the model was told why
+        self.assertIsNone(agent.pending.get("s1"))
+
+    def test_a_question_without_a_question_mark_does_not_run_an_action_either(self):
+        llm = ScriptedLLM(tool_call("ha_call", self.LIGHT_ON), reply("It is off."))
+        agent, ha = make_agent(llm)
+        events = run(agent, "is the kitchen light on")
+        self.assertEqual(ha.calls, [])
+        self.assertNotIn("approval_required", [e["type"] for e in events])
+
+    def test_a_statement_still_asks_first_and_an_order_still_runs(self):
+        agent, ha = make_agent(ScriptedLLM(tool_call("ha_call", self.LIGHT_ON)))
+        events = run(agent, "It's dark in the kitchen")
+        self.assertEqual(events[0]["type"], "approval_required")
+        self.assertEqual(ha.calls, [])
+        agent, ha = make_agent(ScriptedLLM(tool_call("ha_call", dict(self.LIGHT_ON, entity_id="light.bedroom")),
+                                           reply("Done.")))
+        events = run(agent, "Can you turn the bedroom lamp on?")     # a request, not a question (kitchen is already on)
+        self.assertEqual([c[:2] for c in ha.calls], [("light", "turn_on")])
+        self.assertNotIn("approval_required", [e["type"] for e in events])
+
+    def test_a_closing_offer_to_act_is_cut_from_an_answer(self):
+        llm = ScriptedLLM(tool_call("ha_get_states", {"domain": "light"}),
+                          reply("The kitchen light is off. Would you like me to turn it on for you?"))
+        agent, _ = make_agent(llm)
+        self.assertEqual(run(agent, "Is the kitchen light on?")[-1]["content"], "The kitchen light is off.")
+
+    def test_the_offer_is_not_a_promise_that_gets_nudged(self):
+        # "Shall I ..." used to match PROMISE, so the loop demanded a tool call: that is how the light got offered
+        llm = ScriptedLLM(reply("The light is off. Shall I turn it on?"))
+        agent, _ = make_agent(llm)
+        events = run(agent, "Is the light on?")
+        self.assertEqual(events[-1]["content"], "The light is off.")
+        self.assertEqual(len(llm.requests), 1)
+
+    def test_other_turns_keep_their_offers(self):
+        agent, _ = make_agent(ScriptedLLM(reply("It's cold out there. Want me to raise the heat?")))
+        self.assertIn("Want me to raise the heat?", run(agent, "It's freezing in here")[-1]["content"])
+
+    def test_a_reply_that_is_only_an_offer_is_not_emptied(self):
+        from courage.agent import _without_action_offer
+        self.assertEqual(_without_action_offer("Shall I turn on the floodlight?"), "Shall I turn on the floodlight?")
+        self.assertEqual(_without_action_offer("It's 72. Want me to raise it?"), "It's 72.")
+
+
+if __name__ == "__main__":
+    unittest.main()

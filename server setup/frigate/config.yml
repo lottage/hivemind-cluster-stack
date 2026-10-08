@@ -1,0 +1,101 @@
+# Frigate config (canonical copy; live at /opt/frigate/config/config.yml on LXC 128).
+# No secrets here: {FRIGATE_*} are filled from /etc/stonesage/secrets.env at start.
+# Cameras: only ones with RTSP. The TC82 battery cams (side .214, back .130) and the solar TCW90
+# driveway (.228, no RTSP server) stay in wildlife_sentry: push alerts, plus timer snapshots for the solar one.
+
+mqtt:
+  enabled: true
+  host: 192.168.1.82           # Mosquitto add-on on HA OS
+  port: 1883
+  user: "{FRIGATE_MQTT_USER}"
+  password: "{FRIGATE_MQTT_PASSWORD}"
+  topic_prefix: frigate
+  client_id: frigate
+
+detectors:
+  ov:
+    type: openvino
+    device: GPU                # UHD 770 via /dev/dri/renderD128
+
+model:                         # SSDLite MobileNet v2 ships inside the Frigate image for OpenVINO
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+go2rtc:                        # one connection per camera; Frigate, HA and StoneSage all read the restream
+  streams:
+    kitchen_living_room:
+      - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream1"
+    kitchen_living_room_sub:
+      - "rtsp://{FRIGATE_TAPO_USER}:{FRIGATE_TAPO_PASSWORD}@192.168.1.146:554/stream2"
+    # Solar TCW90: no RTSP, so Tapo's own protocol (port 8800) with the TP-Link cloud password.
+    # Not a Frigate camera: go2rtc only connects while the StoneSage LIVE tab is watching (saves the battery).
+    driveway_front_door:
+      - "tapo://{FRIGATE_TAPO_CLOUD_PASSWORD}@192.168.1.228"
+    # On-demand variants for the StoneSage LIVE tab's quality menu; ffmpeg runs only while someone watches.
+    # CPU encode (libx264, go2rtc's zerolatency preset). The GPU routes all failed here (2026-09-25): go2rtc's
+    # "#hardware=vaapi" = hwupload without a device; scale_vaapi runs out of surfaces on the tapo stream; and a
+    # working explicit VAAPI pipeline needs an exec: source, which Frigate 0.18 blocks unless
+    # GO2RTC_ALLOW_ARBITRARY_EXEC=true (go2rtc's :1984 API has no auth, so that would allow command execution).
+    driveway_front_door_720:   # low data: 1296p -> 720p, capped ~600 kbit/s
+      - "ffmpeg:driveway_front_door#video=h264#width=1280#raw=-b:v 600k -maxrate 800k -bufsize 1600k"
+    kitchen_living_room_1080:  # HD: 4K HEVC main stream -> 1080p H.264 that every browser plays, ~2 Mbit/s
+      - "ffmpeg:kitchen_living_room#video=h264#width=1920#raw=-b:v 2000k -maxrate 2500k -bufsize 5M"
+  webrtc:
+    candidates:
+      - 192.168.1.150:8555     # LXC 128 static address
+      - stun:8555
+
+detect:
+  enabled: true
+  fps: 5
+
+face_recognition:              # trained from StoneSage corrections (Residents & Pets "Correct as"), 2026-09-25
+  enabled: true
+  model_size: small            # CPU-friendly; "large" wants a GPU
+
+objects:
+  track: [person, dog, cat]
+  filters:                     # threshold = median score a tracked object needs to count (Frigate default 0.7)
+    person:
+      threshold: 0.75          # 2026-09-27 John: the blanket/pillow pile on the couch scored 0.77 top / 0.64 as a "person"
+    dog:
+      threshold: 0.7           # animals stay lower (Kylo curled up / Luna in the blankets score low)
+    cat:
+      threshold: 0.7
+
+record:                        # alerts/detections only (0.18: no continuous recording unless record.continuous is set)
+  enabled: true
+  alerts:
+    retain:
+      days: 7
+  detections:
+    retain:
+      days: 3
+
+snapshots:
+  enabled: true
+  bounding_box: true
+  retain:
+    default: 14
+
+cameras:
+  kitchen_living_room:         # Tapo C260, indoor
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/kitchen_living_room_sub
+          input_args: preset-rtsp-restream
+          roles: [detect]
+        - path: rtsp://127.0.0.1:8554/kitchen_living_room
+          input_args: preset-rtsp-restream
+          roles: [record]
+    objects:
+      track: [person, dog, cat]
+
+version: 0.18-0                # config schema version; without it Frigate migrates and rewrites this file

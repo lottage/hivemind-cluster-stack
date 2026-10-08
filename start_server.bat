@@ -4,7 +4,7 @@ color 0b
 
 echo =====================================================================
 echo   StoneSage Homelab Command Center + AI Cognitive Cockpit (v0.02)
-echo   Web Cockpit: http://localhost:8080 (or http://192.168.1.132:8080)
+echo   Web Cockpit: http://localhost:8080 (or http://192.168.1.110:8080)
 echo   Harness PTY WebSocket Daemon: ws://localhost:8088/ws
 echo   Coordinator: http://192.168.1.105:8001 ^| Worker: :8002
 echo =====================================================================

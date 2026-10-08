@@ -230,8 +230,9 @@ class EdgeFleetModelManager:
         else:  # 7B - 9B default
             layers, kv_heads = 32, 8
 
-        # KV cache footprint per token with native F16 precision (2 bytes per element, 4 bytes for K+V)
-        kv_bytes_per_token = 2 * layers * kv_heads * 128 * 2.0 * 2
+        # KV cache footprint per token at F16: K and V (x2), per layer, per KV head, head dim 128, 2 bytes per element.
+        # (K+V used to be counted twice here, which halved every context estimate.)
+        kv_bytes_per_token = 2 * layers * kv_heads * 128 * 2
         max_possible_tokens = int((kv_budget_gb * (1024 ** 3)) / max(kv_bytes_per_token, 1))
 
         # Respect agent context floor (4096) and map to standard stable context boundaries

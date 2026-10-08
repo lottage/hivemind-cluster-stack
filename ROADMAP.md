@@ -1,3 +1,5 @@
+> **Superseded 2026-09-29:** the current plan is [docs/ROADMAP.md](docs/ROADMAP.md) with one roadmap per division in [docs/roadmaps/](docs/roadmaps/).
+
 # StoneSage & Sovereign AI Stack: Architecture Roadmap & GitHub Project Board
 
 > **Not operational truth (Phase 0, 2026-09-23).** What is actually deployed lives in [`STATE.md`](STATE.md), updated from live `/props` and the VM 102 report. Hardware, models, ports and service lists below may be stale; check `STATE.md` first.

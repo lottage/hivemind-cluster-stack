@@ -1,0 +1,14 @@
+<properties>
+    <!-- Time (big, top-left) and date (under it) are fixed, not configurable.
+         Remaining configurable slots; values are metric IDs (see PROTOCOL.md) -->
+    <property id="slot2" type="number">12</property>  <!-- subscreen ring: Phone notifications -->
+    <property id="slot4" type="number">6</property>   <!-- row left: Claude tokens -->
+    <property id="slot5" type="number">9</property>   <!-- row right: Local tokens -->
+    <property id="slot6" type="number">11</property>  <!-- row 2 left: Pending asks -->
+    <property id="slot7" type="number">17</property>  <!-- row 2 right: Tokens/sec -->
+    <property id="remoteLayout" type="boolean">true</property>
+    <property id="rotateAgents" type="boolean">true</property>
+    <!-- Fallback polling. Leave the token empty in git; set it at build time or in phone settings. -->
+    <property id="bridgeUrl" type="string">http://127.0.0.1:8890</property>
+    <property id="readToken" type="string">simread</property>
+</properties>

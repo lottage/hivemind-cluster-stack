@@ -23,6 +23,7 @@ const STATIC_ASSETS = [
   '/js/state.js',
   '/js/state.js?v=4.0.4',
   '/js/chat.js',
+  '/js/convo_audio.js',
   '/js/chat.js?v=4.0.4',
   '/js/terminal.js',
   '/js/terminal.js?v=4.0.4',

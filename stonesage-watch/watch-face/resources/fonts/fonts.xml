@@ -1,0 +1,5 @@
+<fonts>
+    <font id="MicroFive" filename="micro5.fnt" antialias="true" />
+    <font id="Icons" filename="icons.fnt" antialias="true" />
+    <font id="IconBig" filename="icon_big.fnt" antialias="true" />
+</fonts>

@@ -128,3 +128,15 @@ pipeline-gguf-trainer/data/
 config.json.bak*
 *.json.bak-*
 data/courage_reflexes.json
+
+# voice recordings (a person's voice) and bench results
+StoneSage/data/voice_samples/
+data/voice_samples/
+StoneSage/data/tts_cache/
+data/tts_cache/
+
+# Home LAN map (MACs, IPs, topology): private, never push to the public remote
+docs/network/
+
+# Alexa skill build output: index.js contains the shared relay key
+server setup/alexa-skill/out/

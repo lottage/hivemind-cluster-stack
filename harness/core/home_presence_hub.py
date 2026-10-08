@@ -130,12 +130,21 @@ class HomePresenceHub:
                 "      if ln.startswith('- **Snapshot**: '): info['file'] = ln.split('snapshots/')[-1].strip(chr(96) + ' ')\n"
                 "    if info.get('file'): where[info['file']] = info\n"
                 "except Exception: pass\n"
+                # a corrected snapshot (austin_<ts>.jpg -> savannah_<ts>.jpg) keeps its log entry: wildlife_admin logs
+                # every rename, so follow the chain back to the name the sentry wrote (exact, even when two
+                # snapshots share a second)
+                "orig = {}\n"
+                "try:\n"
+                "  for ln in open('/opt/cluster-bridge/wildlife/corrections.jsonl', encoding='utf-8'):\n"
+                "    c = json.loads(ln)\n"
+                "    if c.get('action') == 'relabel': orig[c['new_file']] = orig.get(c['file'], c['file'])\n"
+                "except Exception: pass\n"
                 "res = []\n"
                 "for f in files:\n"
                 "  b = os.path.basename(f)\n"
                 "  mtime = os.path.getmtime(f)\n"
                 "  size = os.path.getsize(f)\n"
-                "  w = where.get(b, {})\n"
+                "  w = where.get(orig.get(b, b), {})\n"
                 "  res.append({'filename': b, 'mtime': mtime, 'size_bytes': size, 'camera': w.get('camera'), 'doing': w.get('doing')})\n"
                 "print(json.dumps(res))\n"
                 "\""
@@ -243,6 +252,11 @@ class HomePresenceHub:
 
         return result
 
+    def invalidate(self) -> None:
+        """Drop the cached state (after a presence correction or a new profile)."""
+        self._cached_presence = {}
+        self._last_presence_poll = 0.0
+
     def get_full_presence_state(self) -> Dict[str, Any]:
         """Fuses all presence signals into a unified dictionary."""
         now = time.time()
@@ -250,7 +264,7 @@ class HomePresenceHub:
             return self._cached_presence
 
         known = self.get_known_entities()
-        sightings = self.get_recent_sightings(limit=12)
+        sightings = self.get_recent_sightings(limit=40)  # deep enough that a rejected or relabelled sighting falls back to the one before
         appliances = self.get_appliance_status()
 
         # HA States

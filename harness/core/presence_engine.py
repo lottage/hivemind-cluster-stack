@@ -1,7 +1,7 @@
 """
 Multi-Signal Dynamic Presence & Activity Engine.
 Fuses Home Assistant phone presence (device_tracker.austin_s_phone),
-developer workstation heartbeats (CLI/web turns from 192.168.1.132),
+developer workstation heartbeats (CLI/web turns from 192.168.1.110),
 and smart plug telemetry to dynamically govern background GPU duty cycles.
 """
 

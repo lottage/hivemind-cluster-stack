@@ -161,7 +161,7 @@ python server.py
 
 Once running:
 - **Local Access**: Open [http://localhost:8080](http://localhost:8080)
-- **LAN Access**: Open `http://192.168.1.132:8080` (or your host's local LAN IP)
+- **LAN Access**: Open `http://192.168.1.110:8080` (or your host's local LAN IP)
 - **Install as PWA**: Click the browser install icon in Chrome or Edge to run StoneSage as a standalone window.
 
 ---

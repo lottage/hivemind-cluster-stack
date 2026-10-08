@@ -7,6 +7,7 @@ local branch `github-publish`: its tree is `main`'s tree minus EXCLUDE, its only
 Nothing in the working tree or index is touched. Every blob is secret-scanned first; any hit aborts.
 
     python "server setup/publish_github.py"            # build/refresh the snapshot, print the push command
+    python "server setup/publish_github.py" <branch>   # snapshot another branch instead of main
     git push github github-publish:main                 # then push (first time: add --force, it replaces old history)
 """
 import os
@@ -16,7 +17,7 @@ import sys
 import tempfile
 from datetime import datetime
 
-SOURCE = "main"
+SOURCE = sys.argv[1] if len(sys.argv) > 1 else "main"   # any local branch, e.g. one prepared in a worktree
 PUBLISH_BRANCH = "github-publish"
 
 # Paths (git pathspecs, relative to the repo root) that stay private and never reach the public repo.

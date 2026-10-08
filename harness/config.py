@@ -116,7 +116,9 @@ class FleetConfig:
         self.freshrss_url = os.environ.get("FRESHRSS_URL", "http://192.168.1.212:80")
         self.kavita_url = os.environ.get("KAVITA_URL", "http://192.168.1.124:5000")
         self.voice_whisper_url = os.environ.get("VOICE_WHISPER_URL", "http://192.168.1.121:8200")
-        self.voice_kokoro_url = os.environ.get("VOICE_KOKORO_URL", "http://192.168.1.121:8300")
+        # TTS: the voice server on VM 102 first (docs/evals/voice-bench-2026-09-29.md), the old voice LXC as the fallback
+        self.voice_kokoro_url = os.environ.get("VOICE_KOKORO_URL", "http://192.168.1.105:8210")
+        self.voice_kokoro_fallback_url = os.environ.get("VOICE_KOKORO_FALLBACK_URL", "http://192.168.1.121:8300")
         
         # Frontier Model Designation
         self.frontier_provider = "antigravity"
@@ -174,6 +176,13 @@ class FleetConfig:
                 node_id="local_workstation", name=ws.get("name", "Workstation"),
                 base_url=os.environ.get("WORKSTATION_URL", ws.get("url", "").rstrip("/") + "/v1"),
                 role="workstation", slots=1, device_name=(ws.get("hardware") or {}).get("device", ""))
+        # Boost: free cloud sources behind StoneSage's OpenAI-compatible proxy (keys stay on StoneSage).
+        # `/node use boost` in the CLI; model id boost:loops so it counts against the background share.
+        boost_cfg = self.stonesage_cfg.get("boost") or {}
+        if boost_cfg.get("enabled") and (boost_cfg.get("surfaces") or {}).get("loops"):
+            ss_url = os.environ.get("STONESAGE_URL", boost_cfg.get("stonesage_url", "http://192.168.1.167:8888")).rstrip("/")
+            self.nodes["boost"] = NodeEndpoint(node_id="boost", name="Boost (free cloud pool)", base_url=ss_url + "/api/boost/v1",
+                                               role="boost", slots=1, device_name="free cloud pool", active_model="boost:loops")
         self.active_node_id: str = "node1_primary"
 
     def stonesage_profile(self) -> Dict[str, Any]:

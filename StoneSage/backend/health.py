@@ -114,6 +114,8 @@ def build_probes(cfg: Dict[str, Any]) -> List:
     couch_auth = base64.b64encode(f"{couch.get('username', 'austin')}:{couch_pw}".encode()).decode("ascii")
     qdrant_url = cl.get("qdrant_url", "http://192.168.1.112:6333").rstrip("/")
     mcp_url = cl.get("mcp_url", "http://192.168.1.105:8765").rstrip("/")
+    voice_server_url = ((cfg.get("voice") or {}).get("stt_url") or "http://192.168.1.105:8210").rstrip("/")   # voice_client.py
+    voice_server_host = voice_server_url.split("//", 1)[-1].split(":", 1)[0]
 
     probes = [
         (probe_llama, "Coordinator (Courage)", cl.get("coordinator_url", "http://192.168.1.105:8001/v1")),
@@ -124,6 +126,10 @@ def build_probes(cfg: Dict[str, Any]) -> List:
         (probe_http, "Qdrant", "services", f"{qdrant_url}/readyz"),
         (probe_http, "CouchDB", "services", f"{couch_url}/_up", {"Authorization": f"Basic {couch_auth}"}),
         (probe_tcp, "Proxmox API", "infra", pve_host, 8006),
+        (probe_http, "Voice server (VM 102)", "voice", f"{voice_server_url}/health"),
+        (probe_tcp, "Wyoming STT (VM 102)", "voice", voice_server_host, 10301),
+        (probe_tcp, "Wyoming TTS (VM 102)", "voice", voice_server_host, 10201),
+        (probe_tcp, "Wake word (VM 102)", "voice", voice_server_host, 10400),
         (probe_tcp, "Whisper STT", "voice", voice_host, 8200),
         (probe_tcp, "Kokoro TTS", "voice", voice_host, 8300),
         (probe_tcp, "Wyoming Whisper", "voice", voice_host, 10300),

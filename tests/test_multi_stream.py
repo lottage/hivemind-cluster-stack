@@ -88,7 +88,13 @@ class TestMultiStreamView(unittest.TestCase):
             "y"
         ]
 
-        plan = interactive_stream_wizard(prompt_arg="Verify thread safety in SQLite WAL")
+        # the fleet's edge node comes from the operator's private config.json; give the test its own so it runs anywhere (CI)
+        from harness.cli.multi_stream_view import fleet_config
+        from harness.config import NodeEndpoint
+        edge = NodeEndpoint(node_id="node2_edge", name="Edge node", base_url="http://127.0.0.1:1234/v1",
+                            api_type="lm-studio", role="edge_pool", is_roaming=True)
+        with patch.dict(fleet_config.nodes, {"node2_edge": edge}):
+            plan = interactive_stream_wizard(prompt_arg="Verify thread safety in SQLite WAL")
         self.assertIsNotNone(plan)
         self.assertEqual(plan["prompt"], "Verify thread safety in SQLite WAL")
         self.assertEqual(len(plan["configs"]), 2)

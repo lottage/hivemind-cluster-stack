@@ -351,7 +351,8 @@ function updateModelSelectors(cluster, topbarModelSelect, mobileModelText, model
     { id: 'antigravity', name: '🌌 Antigravity Frontier Director (Tier-1 Hybrid)', short: 'AGY Director', desc: 'Tier-1 Meta-Verifier directing cluster to minimize cloud tokens', online: true, latency: null },
     { id: 'coordinator', name: coordName, short: coordShort, desc: coordDesc, online: coordOnline, latency: coordData.latency_ms },
     { id: 'worker', name: workerName, short: workerShort, desc: workerDesc, online: workerOnline, latency: workerData.latency_ms },
-    { id: 'gemini', name: 'Gemini Tier-1 (Frontier Cloud)', short: 'Gemini', desc: 'Supreme Arbiter & Meta-Verifier', online: true, latency: null }
+    { id: 'gemini', name: 'Gemini Tier-1 (Frontier Cloud)', short: 'Gemini', desc: 'Supreme Arbiter & Meta-Verifier', online: true, latency: null },
+    ...(window.boostModelEntries || [])  // js/boost.js: free pool entries while Boost chat is on
   ];
 
   if (!State.activeModel) State.activeModel = 'coordinator';

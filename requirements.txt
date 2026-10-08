@@ -18,3 +18,6 @@ requests>=2.31.0
 # Optional: Valkey / Redis client for sub-ms in-RAM A-MEM knowledge cards
 # (Note: An automatic in-memory fallback store is utilized if redis is absent)
 redis>=5.0.0
+
+# Camera frames: resizing before vision, patrol frame comparison, sighting crops
+Pillow>=10.0.0

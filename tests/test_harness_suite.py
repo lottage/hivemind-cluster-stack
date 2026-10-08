@@ -35,8 +35,12 @@ from harness.core.offload_calc import HardwareCapacityEngine, MIN_AGENT_CONTEXT_
 from harness.data_fabric.obsidian_gateway import ObsidianGateway
 from harness.edge_fleet.roaming_handover import RoamingHandoverManager
 from harness.edge_fleet.ota_reload import OTAModelDistributor
-from agent_nudge.core import NudgeEngine
-from agent_nudge.watchdog import WatchdogDetector
+try:  # agent-nudge is a separate repo checked out beside this one; CI and fresh clones do not have it
+    from agent_nudge.core import NudgeEngine
+    from agent_nudge.watchdog import WatchdogDetector
+    HAVE_AGENT_NUDGE = True
+except ImportError:
+    HAVE_AGENT_NUDGE = False
 
 
 class TestHarnessInvariants(unittest.TestCase):
@@ -181,6 +185,7 @@ class TestHarnessInvariants(unittest.TestCase):
         self.assertIn("ultra_256k", presets)
         self.assertIn("needle_1m", presets)
 
+    @unittest.skipUnless(HAVE_AGENT_NUDGE, "agent-nudge repo is not checked out beside this one")
     def test_04_agent_nudge_watchdog_and_interrupt(self):
         """Invariant 4: Standalone agent-nudge detects stuck loops and unblocks agents."""
         nudge_engine = NudgeEngine()

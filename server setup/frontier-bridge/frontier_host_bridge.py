@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tier-1 Frontier Host Bridge (Windows Node: 192.168.1.132:8085)
+Tier-1 Frontier Host Bridge (Windows Node: 192.168.1.110:8085)
 Exposes zero-cost prepaid Tier-1 Frontier AI (Gemini 3.8 Flash High / Claude Sonnet)
 via local Antigravity CLI (agy) to the entire homelab cluster (VM 102, LXC 120, Bigserv).
 
@@ -109,7 +109,7 @@ class FrontierHandler(BaseHTTPRequestHandler):
                 "status": "online",
                 "service": "frontier-host-bridge",
                 "host": "windows-workstation",
-                "lan_ip": "192.168.1.132:8085",
+                "lan_ip": "192.168.1.110:8085",
                 "provider": "agy_prepaid",
                 "default_model": MODEL_DEFAULT,
                 "supported_models": [

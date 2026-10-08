@@ -5,10 +5,12 @@
 
 import { State, saveChatHistory, safeStorage } from './state.js';
 import { engineLabel } from './profile.js';
+import { wavEnvelope, envelopeAt, attachMic, createListenerCore, looksLikeEcho } from './convo_audio.js';
 
 let autoScrollChat = true;
 
 export function initChat() {
+  refreshBargeButton();
   const promptInput = document.getElementById('chat-prompt-input');
   const sendBtn = document.getElementById('chat-send-btn');
   const stopBtn = document.getElementById('chat-stop-btn');
@@ -142,7 +144,15 @@ export function initChat() {
 
   // Visibility change handler: re-acquire wake lock when phone wakes up during generation
   document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'hidden' && State.chat.isGenerating) State.chat.hiddenDuringStream = true;
     if (document.visibilityState === 'visible' && State.chat.isGenerating) {
+      // A phone lock often leaves the fetch hanging with no error at all, so the reply never arrives. If nothing came
+      // in for a few seconds, drop the dead stream and poll the server's copy of the turn instead (it kept going).
+      if (State.chat.hiddenDuringStream && performance.now() - (State.chat.lastChunkAt || 0) > 3000
+          && State.chat.abortController) {
+        State.chat.resumeOnAbort = true;
+        State.chat.abortController.abort();
+      }
       // Stream may have been broken by phone lock — try to re-acquire wake lock
       try {
         if ('wakeLock' in navigator) {
@@ -230,8 +240,20 @@ export function removeStagedImage(imgId) {
 async function recoverBackgroundSession(assistantMsg, msgElement) {
   const syncInd = document.getElementById('chat-sync-indicator');
   if (syncInd) syncInd.textContent = '🔄 RECONNECTING...';
+  const done = async () => {
+    // The turn finished on the server while the stream was gone. If the live state didn't carry the text, take the
+    // reply the server saved to this chat session (it always does, even when the client went away).
+    if (!(assistantMsg.content || '').trim()) {
+      const saved = await savedReply(assistantMsg.timestamp || Date.now());
+      if (saved) assistantMsg.content = saved;
+    }
+    assistantMsg.streamError = null;
+    updateAssistantDom(msgElement, assistantMsg, false);
+    saveChatHistory();
+    return !!(assistantMsg.content || '').trim();
+  };
 
-  for (let attempt = 0; attempt < 30; attempt++) {
+  for (let attempt = 0; attempt < 120; attempt++) {           // up to 2 min: a long story, or a slow phone wake
     await new Promise(r => setTimeout(r, 1000));
     try {
       const res = await fetch('/api/harness/active-session');
@@ -255,10 +277,7 @@ async function recoverBackgroundSession(assistantMsg, msgElement) {
       saveChatHistory();
 
       if (data.status === 'completed' || data.status === 'idle') {
-        assistantMsg.streamError = null;
-        updateAssistantDom(msgElement, assistantMsg, false);
-        saveChatHistory();
-        return true;
+        return await done();
       } else if (data.status === 'error') {
         assistantMsg.streamError = data.error || 'Server error';
         updateAssistantDom(msgElement, assistantMsg, false);
@@ -267,7 +286,28 @@ async function recoverBackgroundSession(assistantMsg, msgElement) {
       }
     } catch (_) {}
   }
-  return false;
+  return await done();                                         // gave up polling: the saved reply is the last resort
+}
+
+/** The reply the server saved for this turn in the active chat session, or ''. Only a message saved after the turn
+ *  began counts: the server marks the turn finished a moment before it saves it, and in that gap the newest saved
+ *  reply is the PREVIOUS turn's. So it retries a few times rather than show the wrong answer. */
+async function savedReply(sinceMs) {
+  const sessionId = State.activeSessionId;
+  if (!sessionId) return '';
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await fetch(`/api/chat/sessions/messages?session_id=${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const last = (data.messages || []).filter((m) => m.role === 'assistant').pop();
+        // timestamps are server seconds; allow 5 s of clock skew between phone and server
+        if (last && last.content && (!last.timestamp || last.timestamp * 1000 >= sinceMs - 5000)) return last.content;
+      }
+    } catch (_) {}
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return '';
 }
 
 /**
@@ -343,6 +383,10 @@ export async function submitPrompt() {
   }
 
   State.chat.abortController = new AbortController();
+  const speech = window._convoMode ? createConvoSpeech() : null;   // speaks sentences as they stream in
+  window._convoSpeech = speech;                                    // barge-in stops it through this
+  State.chat.lastChunkAt = performance.now();
+  State.chat.hiddenDuringStream = document.visibilityState === 'hidden';
   const startTime = performance.now();
   let firstTokenTime = null;
   let tokenCount = 0;
@@ -400,6 +444,7 @@ export async function submitPrompt() {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      State.chat.lastChunkAt = performance.now();
 
       if (!firstTokenTime) {
         firstTokenTime = performance.now();
@@ -426,6 +471,8 @@ export async function submitPrompt() {
           // Universal tool call event from cluster harness
           if (parsed.type === 'tool_call') {
             assistantMsg.executingTool = parsed.name || 'tool';
+            // a camera look takes 3-14 s: say so instead of going quiet (both lines are in the server's audio cache)
+            if (speech && SLOW_TOOL_FILLER[parsed.name]) speech.filler(SLOW_TOOL_FILLER[parsed.name]);
             assistantMsg.toolStatus = parsed.status || '';  // e.g. "Looking at the driveway front door camera…"
             const argsStr = typeof parsed.arguments === 'object' ? JSON.stringify(parsed.arguments, null, 2) : (parsed.arguments || '{}');
             contentBuffer += `\n\n:::TOOL_CALL:::${parsed.name}:::${argsStr}:::END_TOOL_CALL:::\n\n`;
@@ -479,6 +526,7 @@ export async function submitPrompt() {
                 const parts = txt.split('</think>');
                 reasoningBuffer += parts[0].replace('<think>', '');
                 contentBuffer += parts[1] || '';
+                if (speech) speech.push(parts[1] || '');
                 reasoningTokens += parts[0].length ? 1 : 0;
                 contentTokens += parts[1] ? 1 : 0;
               } else {
@@ -487,6 +535,7 @@ export async function submitPrompt() {
               }
             } else {
               contentBuffer += txt;
+              if (speech) speech.push(txt);
               contentTokens++;
             }
           }
@@ -517,7 +566,10 @@ export async function submitPrompt() {
       }
     }
 
-    if (!contentBuffer.trim() && !reasoningBuffer.trim()) {
+    if (!contentBuffer.trim() && !reasoningBuffer.trim() && State.chat.hiddenDuringStream
+        && await recoverBackgroundSession(assistantMsg, msgElement)) {
+      // the stream closed empty while the screen was off; the server's copy of the turn filled it in
+    } else if (!contentBuffer.trim() && !reasoningBuffer.trim()) {
       assistantMsg.content = '> [!WARNING]\n> **[NO RESPONSE RECEIVED]**: The inference engine did not emit tokens. Check endpoint status in Fleet.';
     }
 
@@ -526,7 +578,15 @@ export async function submitPrompt() {
     saveChatHistory();
 
   } catch (err) {
-    if (err.name === 'AbortError') {
+    if (err.name === 'AbortError' && State.chat.resumeOnAbort) {
+      // we dropped a stream the phone lock had killed (not the Stop button): take the reply from the server
+      const ok = await recoverBackgroundSession(assistantMsg, msgElement);
+      if (!ok) {
+        assistantMsg.streamError = 'Stream lost while the screen was off';
+        updateAssistantDom(msgElement, assistantMsg, false);
+        saveChatHistory();
+      }
+    } else if (err.name === 'AbortError') {
       assistantMsg.interrupted = true;
       updateAssistantDom(msgElement, assistantMsg, false);
       saveChatHistory();
@@ -542,6 +602,8 @@ export async function submitPrompt() {
   } finally {
     State.chat.isGenerating = false;
     State.chat.abortController = null;
+    State.chat.resumeOnAbort = false;
+    State.chat.hiddenDuringStream = false;
     toggleGeneratingUi(false);
     const syncInd = document.getElementById('chat-sync-indicator');
     if (syncInd) syncInd.textContent = '✔ SYNCED';
@@ -552,9 +614,11 @@ export async function submitPrompt() {
       console.log('[Chat] Screen wake lock released');
     }
 
-    // Conversation mode: TTS the response, then auto-record again
+    // Conversation mode: finish speaking the response (most of a long one is already playing), then auto-record again
     if (window._convoMode && assistantMsg.content && !assistantMsg.interrupted && !assistantMsg.streamError) {
-      convoTtsAndContinue(assistantMsg.content);
+      if (!(speech && speech.end())) convoTtsAndContinue(assistantMsg.content);
+    } else if (speech) {
+      speech.cancel();
     }
   }
 }
@@ -749,7 +813,7 @@ function appendMessageToDom(msg, isStreaming = false) {
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-green, #16a34a);" onclick="storeMessageToObsidian('${msg.id}')" title="Store message to AI Obsidian Brain">[📥 STORE]</button>
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-gold);" onclick="pinMessageAsInvariant('${msg.id}')" title="Pin finding to project INVARIANTS.md">[📌 INVARIANT]</button>
     <button class="term-cmd-btn" style="padding: 1px 6px; font-size: 0.7rem; color: var(--term-accent-blue);" onclick="addMessageToHandover('${msg.id}')" title="Add milestone to project HANDOVER.md">[📋 HANDOVER]</button>
-    <button class="term-cmd-btn chat-tts-btn" style="padding: 1px 6px; font-size: 0.7rem; color: #e879f9;" onclick="readMessageAloud('${msg.id}')" title="Read aloud with Courage Computer voice (Kokoro TTS)">[🔊 READ]</button>
+    <button class="term-cmd-btn chat-tts-btn" style="padding: 1px 6px; font-size: 0.7rem; color: #e879f9;" onclick="readMessageAloud('${msg.id}')" title="Read aloud with the Computer voice (Kokoro TTS)">[🔊 READ]</button>
     ${branchBtn}
     ${reasoningBtn}
   ` : `
@@ -1750,7 +1814,9 @@ function toggleConvoMode() {
     }
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
 
-    // Stop any playing TTS
+    // Stop any playing TTS, and release the always-open barge-in microphone
+    if (window._convoSpeech) window._convoSpeech.stop();
+    closeConvoListener();
     const audio = getConvoAudioPlayer();
     audio.pause();
     audio.src = '';
@@ -1795,8 +1861,248 @@ function toggleConvoMode() {
   convoStartRecording();
 }
 
+/**
+ * A finished utterance (either capture path) -> words -> the chat. `info.barge` marks a take that began while Computer was
+ * talking: if it turns out to be Computer's own words coming back through the mic it is thrown away, and after two of those
+ * barge-in switches itself off for the session (the phone cannot tell its speaker from you).
+ */
+async function convoSubmitAudio(audioBase64, mimeType, info) {
+  try {
+    const res = await fetch('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio_base64: audioBase64, mime_type: mimeType })
+    });
+    const data = await res.json();
+    if (data.ok && data.text && data.text.trim()) {
+      if (info && info.barge && looksLikeEcho(window._convoLastSpoken, data.text)) {
+        window._convoEchoStrikes = (window._convoEchoStrikes || 0) + 1;
+        console.warn('[Convo] that was Computer hearing itself, ignored:', data.text);
+        if (window._convoEchoStrikes >= 2) {
+          window._bargeDisabled = true;
+          updateConvoStatus('✋ interrupt off: hearing itself');
+          refreshBargeButton();
+        }
+        setTimeout(() => convoStartRecording(), 500);
+        return;
+      }
+      const promptInput = document.getElementById('chat-prompt-input');
+      if (promptInput) {
+        promptInput.value = data.text;
+        promptInput.style.height = 'auto';
+        promptInput.style.height = promptInput.scrollHeight + 'px';
+      }
+      console.log('[Convo] Transcribed:', data.text, data.engine ? `(${data.engine}, ${data.ms} ms)` : '');
+      if (window._convoT) window._convoT.text = performance.now();
+      updateConvoStatus('💬 Sending...');
+      setTimeout(() => submitPrompt(), 150);
+    } else {
+      console.warn('[Convo] Empty or failed transcription');
+      updateConvoStatus('🎙️ Listening...');
+      setTimeout(() => convoStartRecording(), 1000);
+    }
+  } catch (e) {
+    console.warn('[Convo] Transcription error:', e);
+    updateConvoStatus('⚠ Retrying...');
+    setTimeout(() => convoStartRecording(), 2000);
+  }
+}
+
+// ─── Barge-in: talk over Computer to stop it (opt-in, see convo_audio.js) ─────────────────────────────────────────────
+// Raw 16 kHz capture with a pre-roll replaces MediaRecorder while it is on, and the mic stays open for the whole conversation.
+const BARGE_KEY = 'stonesage.convo.bargein';
+let convoListener = null;      // createListenerCore(...)
+let convoMic = null;           // attachMic(...) handle
+let convoPcmStream = null;     // the open MediaStream
+let busyTimer = null;
+
+function bargeInWanted() {
+  try { return localStorage.getItem(BARGE_KEY) === '1' && !window._bargeDisabled; } catch (_) { return false; }
+}
+
+function refreshBargeButton() {
+  const b = document.getElementById('chat-barge-btn');
+  if (!b) return;
+  const on = bargeInWanted();
+  b.style.background = on ? '#7c3aed' : 'transparent';
+  b.style.color = on ? '#fff' : '#7c3aed';
+  b.title = window._bargeDisabled ? 'Interrupt switched off: Computer kept hearing itself. Tap to try again.'
+    : on ? 'Interrupt is ON: talk over Computer to stop it. Tap to turn off.'
+    : 'Interrupt is OFF. Tap to let you talk over Computer (experimental).';
+}
+
+function toggleBargeIn() {
+  const turningOn = !(bargeInWanted());
+  try { localStorage.setItem(BARGE_KEY, turningOn ? '1' : '0'); } catch (_) {}
+  window._bargeDisabled = false;
+  window._convoEchoStrikes = 0;
+  if (!turningOn) closeConvoListener();
+  refreshBargeButton();
+  if (window._convoMode) updateConvoStatus(turningOn ? '✋ interrupt on from the next turn' : '✋ interrupt off');
+}
+
+/** How loud Computer is at this instant, from the loudness envelope of the clip that is playing. */
+function convoPlaybackLevel() {
+  const env = window._convoClipEnv;
+  const a = getConvoAudioPlayer();
+  if (!env || a.paused || a.ended) return 0;
+  return envelopeAt(env, a.currentTime * 1000);
+}
+
+function bytesToBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function closeConvoListener() {
+  clearTimeout(busyTimer);
+  if (convoMic) { convoMic.close(); convoMic = null; }
+  if (convoPcmStream) { convoPcmStream.getTracks().forEach((t) => t.stop()); convoPcmStream = null; }
+  convoListener = null;
+}
+
+async function ensureConvoListener() {
+  if (convoListener) return true;
+  try {
+    convoPcmStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    convoListener = createListenerCore({
+      makeEndpointer: () => createEndpointer(),
+      getReference: () => convoPlaybackLevel(),
+      onUtterance: (wavBytes, info) => {
+        window._convoT = { end: performance.now(), barge: !!info.barge };
+        updateConvoStatus('🔄 Transcribing...');
+        convoSubmitAudio(bytesToBase64(wavBytes), 'audio/wav', info);
+      },
+      onBarge: () => {
+        console.log('[Convo] interrupted by voice');
+        const sp = window._convoSpeech;
+        window._convoLastSpoken = sp ? sp.text() : '';
+        if (sp) sp.stop();
+        try { stopGeneration(); } catch (_) {}
+        updateConvoStatus('🗣️ Hearing you...');
+      },
+      onState: (m) => {
+        clearTimeout(busyTimer);
+        if (m === 'busy') {                       // never stay deaf: a turn that produced no speech must not end listening
+          busyTimer = setTimeout(() => { if (convoListener && window._convoMode && convoListener.mode === 'busy') convoListener.listen(); }, 45000);
+        }
+      },
+    });
+    convoMic = attachMic(convoPcmStream, convoListener);
+    if (!convoMic) throw new Error('no WebAudio');
+    return true;
+  } catch (e) {
+    console.warn('[Convo] barge-in capture unavailable, using the plain recorder:', e);
+    closeConvoListener();
+    if (convoPcmStream) { convoPcmStream.getTracks().forEach((t) => t.stop()); convoPcmStream = null; }
+    return false;
+  }
+}
+
+/** Speech state from the audio player: Computer starts talking (the gate watches for you) / is done. */
+function convoSpeakingHook(on) {
+  if (convoListener && window._convoMode) convoListener.speaking(on);
+}
+
+/**
+ * End-of-speech detection for conversation mode: energy with an adaptive noise floor (no server VAD, no model to load).
+ * push(rms, tMs) is fed one level reading every ~40 ms and answers:
+ *   'waiting'  nobody has spoken yet         'speech'  someone is speaking
+ *   'end'      spoke, then ~0.8 s of quiet: stop and transcribe
+ *   'noise'    a blip shorter than minSpeechMs (a cough, a door): ignored, keeps listening
+ *   'noSpeech' nothing but silence for noSpeechMs: drop the take and listen again
+ * The floor is measured in the first 300 ms and clamped, so starting to talk at once cannot raise the bar out of reach;
+ * it then drifts slowly with the room (a TV, a fan) while nobody speaks.
+ */
+function createEndpointer(opts) {
+  const cfg = Object.assign({ calibrateMs: 300, onMs: 100, hangMs: 800, minSpeechMs: 250, noSpeechMs: 12000,
+                              minOn: 0.02, minOff: 0.012, onFactor: 3.5, offFactor: 2, maxFloor: 0.02 }, opts || {});
+  let floor = null, calib = [], t0 = null, state = 'waiting', aboveSince = null, belowSince = null, speechStart = null;
+  return {
+    push(rms, t) {
+      if (t0 === null) t0 = t;
+      if (floor === null) {
+        calib.push(rms);
+        if (t - t0 < cfg.calibrateMs) return 'waiting';
+        calib.sort((a, b) => a - b);
+        floor = Math.min(calib[Math.floor(calib.length * 0.25)], cfg.maxFloor);    // the quiet quarter: speech may start mid-window
+      }
+      const on = Math.max(cfg.minOn, floor * cfg.onFactor);
+      const off = Math.max(cfg.minOff, floor * cfg.offFactor);
+      if (state === 'waiting') {
+        if (rms > on) {
+          if (aboveSince === null) aboveSince = t;
+          if (t - aboveSince >= cfg.onMs) { state = 'speech'; speechStart = aboveSince; belowSince = null; return 'speech'; }
+          return 'waiting';
+        }
+        aboveSince = null;
+        floor = Math.min(floor * 0.98 + rms * 0.02, cfg.maxFloor);
+        return t - t0 >= cfg.noSpeechMs ? 'noSpeech' : 'waiting';
+      }
+      if (rms < off) {
+        if (belowSince === null) belowSince = t;
+        if (t - belowSince >= cfg.hangMs) {
+          const spoke = belowSince - speechStart;
+          state = 'waiting'; aboveSince = null; belowSince = null;
+          return spoke >= cfg.minSpeechMs ? 'end' : 'noise';
+        }
+      } else {
+        belowSince = null;                       // between the two thresholds still counts as speech: a pause, not the end
+      }
+      return 'speech';
+    }
+  };
+}
+
+/** Watches the microphone level and reports speech start / end / silence through the callbacks. Returns a stop function. */
+function startEndpointing(stream, onSpeech, onFinish) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return { stop() {}, active: false };
+  const ctx = new AC();
+  try { ctx.resume(); } catch (_) {}
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 1024;
+  const src = ctx.createMediaStreamSource(stream);
+  src.connect(analyser);
+  const buf = new Float32Array(analyser.fftSize);
+  const ep = createEndpointer();
+  let done = false;
+  const stop = () => {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
+    try { src.disconnect(); ctx.close(); } catch (_) {}
+  };
+  const timer = setInterval(() => {
+    analyser.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    const r = ep.push(Math.sqrt(sum / buf.length), performance.now());
+    if (r === 'speech') onSpeech();
+    else if (r === 'end') { stop(); onFinish(true); }
+    else if (r === 'noSpeech') { stop(); onFinish(false); }
+  }, 40);
+  return { stop, active: true };
+}
+
 async function convoStartRecording() {
   if (!window._convoMode) return;
+  window._convoT = null;                                   // latency timing is per turn
+  if (bargeInWanted() && await ensureConvoListener()) {    // interrupt on: the always-open capture path (else the plain recorder)
+    if (!window._convoMode) return;
+    convoListener.listen();
+    updateConvoStatus('🎙️ Listening... (talk over me any time)');
+    return;
+  }
 
   const micBtn = document.getElementById('chat-mic-btn');
   updateConvoStatus('🎙️ Listening...');
@@ -1830,13 +2136,35 @@ async function convoStartRecording() {
     if (e.data && e.data.size > 0) audioChunks.push(e.data);
   };
 
+  // Hands-free: stop by itself after ~0.8 s of quiet (see createEndpointer). A tap on the mic still stops it, and a take in
+  // which nobody spoke is dropped instead of sent to the transcriber (which invents words from silence).
+  let heard = false;
+  let dropTake = false;
+  const endpointing = startEndpointing(micStream, () => {
+    heard = true;
+    updateConvoStatus('🗣️ Hearing you...');
+  }, (spoke) => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      dropTake = !spoke;
+      window._convoT = { end: performance.now() };
+      mediaRecorder.stop();
+    }
+  });
+
   // Reuse the same onstop handler — it checks window._convoMode
   mediaRecorder.onstop = async () => {
+    endpointing.stop();
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (window._convoMode && endpointing.active && !heard && dropTake) {      // silence only: listen again, send nothing
+      audioChunks = [];
+      setTimeout(() => convoStartRecording(), 300);
+      return;
+    }
     if (audioChunks.length === 0) {
       if (window._convoMode) { setTimeout(() => convoStartRecording(), 500); }
       return;
     }
+    if (!window._convoT) window._convoT = { end: performance.now() };            // stopped by a tap
 
     const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
     audioChunks = [];
@@ -1854,33 +2182,7 @@ async function convoStartRecording() {
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
     const audioBase64 = btoa(binary);
 
-    try {
-      const res = await fetch('/api/voice/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio_base64: audioBase64, mime_type: blob.type || 'audio/webm' })
-      });
-      const data = await res.json();
-      if (data.ok && data.text && data.text.trim()) {
-        const promptInput = document.getElementById('chat-prompt-input');
-        if (promptInput) {
-          promptInput.value = data.text;
-          promptInput.style.height = 'auto';
-          promptInput.style.height = promptInput.scrollHeight + 'px';
-        }
-        console.log('[Convo] Transcribed:', data.text);
-        updateConvoStatus('💬 Sending...');
-        setTimeout(() => submitPrompt(), 150);
-      } else {
-        console.warn('[Convo] Empty or failed transcription');
-        updateConvoStatus('🎙️ Listening...');
-        setTimeout(() => convoStartRecording(), 1000);
-      }
-    } catch (e) {
-      console.warn('[Convo] Transcription error:', e);
-      updateConvoStatus('⚠ Retrying...');
-      setTimeout(() => convoStartRecording(), 2000);
-    }
+    await convoSubmitAudio(audioBase64, blob.type || 'audio/webm', null);
   };
 
   mediaRecorder.start(250);
@@ -1893,20 +2195,25 @@ async function convoStartRecording() {
   }
 
   // Auto-stop after 30 seconds of continuous recording to prevent huge uploads
+  // (bound to THIS recorder: with hands-free takes a stale timer used to stop a newer recording in mid-sentence)
+  const thisRecorder = mediaRecorder;
   setTimeout(() => {
-    if (window._convoMode && mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
+    if (window._convoMode && thisRecorder.state === 'recording') {
+      dropTake = !heard;
+      thisRecorder.stop();
     }
   }, 30000);
 }
 
-async function convoTtsAndContinue(responseText) {
-  if (!window._convoMode) return;
+// Tools that make the reply wait seconds. The lines must stay in courage/agent.py CANNED_LINES (that is what gets pre-made).
+const FILLER_DELAY_MS = 1200;     // a wait shorter than this is not worth a filler
+const SLOW_TOOL_FILLER = { camera_look: 'Let me have a look.', camera_scan: 'Let me have a look.', presence_now: 'One moment.',
+                           think_harder: 'One moment.' };
 
-  updateConvoStatus('🔊 Speaking...');
-
-  // Strip markdown for cleaner speech
-  let text = responseText
+/** Text fit for the speaker: no tool-call markers (their JSON used to be read out), no markdown. */
+function speechText(s) {
+  return (s || '')
+    .replace(/:::(TOOL_CALL|TOOL_RESULT|APPROVAL):::[\s\S]*?:::END_(TOOL_CALL|TOOL_RESULT|APPROVAL):::/g, ' ')
     .replace(/```[\s\S]*?```/g, ' [code block omitted] ')
     .replace(/`[^`]+`/g, match => match.slice(1, -1))
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -1915,56 +2222,155 @@ async function convoTtsAndContinue(responseText) {
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/>\s?\[![A-Z]+\]\n?/g, '')
     .replace(/>\s/g, '')
-    .replace(/\n{2,}/g, '. ')
+    .trim()
+    .replace(/([.!?…:;])?[ \t]*\n{2,}\s*/g, (m, p) => (p || '.') + ' ')   // a paragraph break is a pause, not ".."
     .replace(/\n/g, ' ')
     .trim();
+}
 
-  if (text.length > 800) text = text.substring(0, 797) + '...';
+/**
+ * Conversation mode: speak a reply while it is still arriving (Computer streams a long reply sentence by sentence).
+ * push() takes text as it comes; finished sentences go to the TTS, fetched ahead and played in order. end() speaks the
+ * rest and listens again once the last clip ends; it returns false when nothing came through push() (e.g. a reply
+ * recovered after a phone lock), so the caller can speak the whole reply the old way.
+ */
+function createConvoSpeech() {
+  let buffer = '';
+  let queued = 0;
+  let playing = false;
+  let ended = false;
+  let cancelled = false;
+  let resumed = false;
+  let fillerSaid = false;
+  let spoken = '';                                        // everything pushed so far (barge-in compares what it hears with this)
+  const clips = [];                                       // promises of {src, env} (null = TTS failed), in order
 
-  if (!text) {
-    // Skip TTS, go straight to recording
-    setTimeout(() => convoStartRecording(), 500);
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/presence/speak', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: 'bm_george', speed: 1.06 })
-    });
-    const data = await res.json();
-
-    if (data.ok && data.audio_base64 && window._convoMode) {
-      const audio = getConvoAudioPlayer();
-      audio.src = `data:audio/wav;base64,${data.audio_base64}`;
-
-      audio.onended = () => {
-        if (window._convoMode) {
-          console.log('[Convo] TTS finished, resuming recording...');
-          setTimeout(() => convoStartRecording(), 400);
-        }
-      };
-
-      audio.onerror = () => {
-        if (window._convoMode) setTimeout(() => convoStartRecording(), 500);
-      };
-
-      audio.play().catch(e => {
-        console.warn('[Convo] TTS autoplay prevented:', e);
-        if (window._convoMode) setTimeout(() => convoStartRecording(), 500);
+  const fetchClip = async (text) => {
+    try {
+      const res = await fetch('/api/presence/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: 'bm_george', speed: 1.06 })
       });
-    } else {
-      // TTS failed, continue recording anyway
-      if (window._convoMode) setTimeout(() => convoStartRecording(), 500);
+      const data = await res.json();
+      if (!(data.ok && data.audio_base64)) return null;
+      let env = null;                                     // how loud the clip is over time: barge-in tells it from you
+      try { env = wavEnvelope(base64ToBytes(data.audio_base64)); } catch (_) {}
+      return { src: `data:audio/wav;base64,${data.audio_base64}`, env };
+    } catch (_) {
+      return null;
     }
-  } catch (e) {
-    console.warn('[Convo] TTS error:', e);
-    if (window._convoMode) setTimeout(() => convoStartRecording(), 500);
-  }
+  };
+
+  const resume = () => {
+    if (resumed || cancelled || !window._convoMode) return;
+    resumed = true;
+    setTimeout(() => convoStartRecording(), 400);
+  };
+
+  const playNext = async () => {
+    if (cancelled || !window._convoMode) { playing = false; return; }
+    if (!clips.length) {
+      playing = false;
+      if (ended) resume();
+      return;
+    }
+    playing = true;
+    const clip = await clips.shift();
+    if (cancelled || !window._convoMode) { playing = false; return; }
+    if (!clip) { playNext(); return; }
+    const audio = getConvoAudioPlayer();
+    audio.onended = () => playNext();
+    audio.onerror = () => playNext();
+    audio.src = clip.src;
+    window._convoClipEnv = clip.env;
+    audio.play().then(() => {
+      convoSpeakingHook(true);
+      const t = window._convoT;
+      if (t && t.end && !t.audio) {
+        t.audio = performance.now();
+        console.log(`[Convo] you stopped talking -> words ${Math.round((t.text || t.end) - t.end)} ms -> first sound ${Math.round(t.audio - t.end)} ms`);
+      }
+    }).catch((e) => { console.warn('[Convo] TTS autoplay prevented:', e); playNext(); });
+  };
+
+  const enqueue = (text) => {
+    const clean = speechText(text);
+    if (!clean) return;
+    queued++;
+    updateConvoStatus('🔊 Speaking...');
+    clips.push(fetchClip(clean));
+    if (!playing) playNext();
+  };
+
+  // Clips cut at sentence ends: the first is the first sentence alone (talking starts sooner), later ones gather
+  // >= 120 chars. Kokoro on CPU needs ~40 ms per character, so a whole reply in one clip took 13 s before a sound.
+  const takeClips = (final) => {
+    const re = /[.!?…]["')\]*_]*\s+/g;
+    let start = 0;
+    let m;
+    while ((m = re.exec(buffer))) {
+      const cut = m.index + m[0].length;
+      if (cut - start >= (queued ? 120 : 1)) {
+        enqueue(buffer.slice(start, cut));
+        start = cut;
+      }
+    }
+    buffer = buffer.slice(start);
+    if (final && buffer.trim()) enqueue(buffer);
+    if (final) buffer = '';
+  };
+
+  return {
+    /** A short cached line ("One moment.") over a slow tool call, so the wait is not silence. Once per turn, never after the
+     *  real reply has started, and it does not count as the reply (the first real sentence still goes out on its own). */
+    filler(text) {
+      if (cancelled || ended || fillerSaid || queued) return;
+      fillerSaid = true;
+      const pending = fetchClip(text);                    // fetched now (cached: instant), spoken only if the wait is real
+      setTimeout(() => {
+        if (cancelled || ended || queued) return;         // the reply arrived in time: stay quiet
+        clips.push(pending);
+        if (!playing) playNext();
+      }, FILLER_DELAY_MS);
+    },
+    push(text) {
+      if (cancelled || ended || !text) return;
+      buffer += text;
+      spoken += text;
+      takeClips(false);
+    },
+    /** What Computer was saying (for the echo check after a barge-in). */
+    text() { return spoken; },
+    /** Barge-in: cut Computer off now. Nothing queued is spoken, and listening is started by the caller, not by this queue. */
+    stop() {
+      cancelled = true;
+      clips.length = 0;
+      playing = false;
+      try { const a = getConvoAudioPlayer(); a.pause(); a.removeAttribute('src'); } catch (_) {}
+      window._convoClipEnv = null;
+    },
+    end() {
+      ended = true;
+      takeClips(true);
+      if (!queued) return false;
+      if (!playing && !clips.length) resume();
+      return true;
+    },
+    cancel() { cancelled = true; }
+  };
+}
+
+/** Speak a whole reply that did not arrive as a stream (e.g. recovered after a phone lock), clip by clip. */
+function convoTtsAndContinue(responseText) {
+  if (!window._convoMode) return;
+  const speech = createConvoSpeech();
+  speech.push(speechText(responseText));        // tool markers out first: a clip cut must never split one
+  if (!speech.end()) setTimeout(() => convoStartRecording(), 500);   // nothing to say: straight back to listening
 }
 
 window.toggleConvoMode = toggleConvoMode;
+window.toggleBargeIn = toggleBargeIn;
 window.convoStartRecording = convoStartRecording;
 window.convoTtsAndContinue = convoTtsAndContinue;
 window.updateConvoStatus = updateConvoStatus;

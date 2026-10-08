@@ -299,6 +299,10 @@ class ClusterClient:
         target_lower = target.lower()
         notice = None
 
+        if target_lower.startswith("boost"):
+            yield from self._stream_boost(target, messages, params)
+            return
+
         if target_lower in ["worker", "fast", "draft"]:
             # Auto-failover check: probe worker endpoint connectivity
             w_stat = self.ping_endpoint(self.worker_url, timeout=0.8)
@@ -688,6 +692,53 @@ class ClusterClient:
                 pass
             if not has_done:
                 yield "data: [DONE]\n\n"
+
+    def _stream_boost(self, target: str, messages: List[Dict[str, Any]], params: Dict[str, Any]) -> Generator[str, None, None]:
+        yield from self._stream_boost_with(self.stream_chat, target, messages, params)
+
+    def _stream_boost_with(self, local_stream, target: str, messages: List[Dict[str, Any]],
+                           params: Dict[str, Any]) -> Generator[str, None, None]:
+        """Free cloud sources via backend/boost. `target` = "boost", "boost:<provider>" or "boost:<provider>/<model>".
+
+        No RAG and no tool registry here: Obsidian/Qdrant recall can carry home data (and, until it is cleaned,
+        a token), and tool results would leave the house. Anything the router refuses runs on the coordinator."""
+        def note(text: str) -> str:
+            return "data: " + json.dumps({"choices": [{"delta": {"content": text}}]}) + "\n\n"
+
+        surface = params.get("boost_surface", "chat")
+        pinned = target.split(":", 1)[1] if ":" in target else None
+        try:
+            import boost
+            router = boost.get_router()
+        except Exception:
+            router = None
+        if router is None or not router.enabled(surface):
+            yield note(f"> [!NOTE]\n> **Boost** is off for {surface} (⚡ Boost window). Answering on the local coordinator.\n\n")
+            yield from local_stream("coordinator", messages, params)
+            return
+        if any(m.get("images") for m in messages):
+            yield note("> [!NOTE]\n> **Boost**: pictures never leave the house. Answering on the local coordinator.\n\n")
+            yield from local_stream("coordinator", messages, params)
+            return
+        keep = ("role", "content", "name", "tool_calls", "tool_call_id")
+        msgs = [{k: v for k, v in m.items() if k in keep} for m in messages]
+        res = router.open_stream(msgs, surface, declared="code" if surface == "workspaces" else "general",
+                                 max_tokens=min(int(params.get("max_tokens", 1024)), 8192),
+                                 temperature=float(params.get("temperature", 0.5)), pinned=pinned, allow_local=False)
+        if not res.get("ok"):
+            why = "; ".join((res.get("skipped") or []) + (res.get("tried") or []))[:600]
+            yield note(f"> [!NOTE]\n> **Boost**: no free source could take this ({res.get('class')} content): {why}. "
+                       "Answering on the local coordinator.\n\n")
+            yield from local_stream("coordinator", messages, params)
+            return
+        yield note(f"> ⚡ **Boost**: {res['label']} · `{res['model']}`\n\n")
+        done = False
+        for line in boost.iter_sse(res["response"]):
+            if line.strip() == "data: [DONE]":
+                done = True
+            yield line.rstrip("\n") + "\n\n"
+        if not done:
+            yield "data: [DONE]\n\n"
 
     def multi_model_arena_query(self, models: List[str], prompt: str) -> Dict[str, str]:
         """Execute concurrent generation across multiple models for side-by-side evaluation."""

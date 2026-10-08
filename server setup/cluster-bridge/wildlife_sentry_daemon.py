@@ -98,8 +98,9 @@ CAMERAS = [
         "keywords": ["driveway", "front door", "front"],
         "is_wildlife_primary": False,
         "is_battery": True,
+        "power": "solar",      # TCW90: battery + solar panel, no RTSP; timer polls allowed (see solar_poll_interval)
         "battery_sensor": "sensor.driveway_front_door_battery",
-        "poll_interval": 1800  # 30 minutes baseline safety check
+        "poll_interval": 300   # base interval at a healthy charge
     },
     {
         "id": "camera.kitchen_living_room_hd_stream",
@@ -113,6 +114,19 @@ CAMERAS = [
     }
 ]
 
+def solar_poll_interval(level: Optional[int], base: float) -> Optional[float]:
+    """How often a solar-charged camera may be woken for a timer snapshot.
+
+    level: battery percent from HA (None if the sensor could not be read).
+    base:  the camera's poll_interval, meant for a healthy charge (driveway: 300 s).
+    Returns seconds between snapshots, or None to stop timer polling (push alerts still work).
+    Each wake costs the camera a few seconds of Wi-Fi and encoder power; the panel refills it by day.
+    """
+    # TODO: battery-dependent policy (John, later). Until then no timer polls, same as before the solar class
+    # existed: this file is now deployed for the profile reload, and base polling was never agreed.
+    return None
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [WildlifeSentry] %(message)s"
@@ -125,6 +139,7 @@ class WildlifeSentryDaemon:
         self.last_frames: Dict[str, Image.Image] = {}
         self.last_sightings: Dict[str, float] = {}             # Cooldown tracker
         self.last_polled: Dict[str, float] = {}                # Per-camera schedule tracker
+        self.battery_cache: Dict[str, Tuple[float, Optional[int]]] = {}  # sensor -> (read at, level)
         self.camera_backoffs: Dict[str, float] = {}            # Per-camera error backoff tracker
         self.last_notification_triggers: Dict[str, float] = {} # Debounce tracker
         self.last_notification_post_times: Dict[str, int] = {}  # Timestamp tracker for active notifications
@@ -165,6 +180,7 @@ class WildlifeSentryDaemon:
         """Loads known residents, vehicles, and pets from known_entities.json."""
         if os.path.exists(KNOWN_ENTITIES_FILE):
             try:
+                self._known_entities_mtime = os.path.getmtime(KNOWN_ENTITIES_FILE)
                 with open(KNOWN_ENTITIES_FILE, "r", encoding="utf-8") as f:
                     self.known_entities = json.load(f)
                 p_cnt = len(self.known_entities.get("people", []))
@@ -174,6 +190,14 @@ class WildlifeSentryDaemon:
                 logger.error(f"Failed to load known entities: {e}")
         else:
             logger.warning(f"No known_entities.json found at {KNOWN_ENTITIES_FILE}")
+
+    def _reload_known_entities_if_changed(self):
+        """StoneSage adds recognition profiles to known_entities.json (wildlife_admin.py); pick them up without a restart."""
+        try:
+            if os.path.getmtime(KNOWN_ENTITIES_FILE) != getattr(self, "_known_entities_mtime", None):
+                self._load_known_entities()
+        except OSError:
+            pass
 
     def _save_registry(self):
         try:
@@ -219,6 +243,24 @@ class WildlifeSentryDaemon:
         except Exception:
             pass
         return None
+
+    def _battery_cached(self, battery_sensor: Optional[str], max_age: float = 600) -> Optional[int]:
+        """get_battery_level() at most once per max_age seconds per sensor (the main loop ticks every few seconds)."""
+        if not battery_sensor:
+            return None
+        read_at, level = self.battery_cache.get(battery_sensor, (0.0, None))
+        if time.time() - read_at > max_age:
+            level = self.get_battery_level(battery_sensor)
+            self.battery_cache[battery_sensor] = (time.time(), level)
+        return level
+
+    def periodic_interval(self, cam: Dict[str, Any]) -> Optional[float]:
+        """Seconds between timer snapshots for this camera, or None to never wake it on a timer."""
+        if not cam.get("is_battery"):
+            return cam.get("poll_interval", 1800)
+        if cam.get("power") != "solar":
+            return None  # ZERO-DRAIN rule: plain battery cams wake only on a hardware push
+        return solar_poll_interval(self._battery_cached(cam.get("battery_sensor")), cam.get("poll_interval", 300))
 
     def fetch_camera_snapshot(self, entity_id: str) -> Optional[bytes]:
         backoff_until = getattr(self, "camera_backoffs", {}).get(entity_id, 0)
@@ -1147,45 +1189,11 @@ class WildlifeSentryDaemon:
 
         if is_trusted:
             logger.info(f"👤 RECOGNIZED RESIDENT: {name} on {cam}! ({person.get('clothing', '')})")
-            try:
-                ha_url = f"{HASS_URL}/api/states/sensor.last_person_sighting"
-                ha_headers = {"Authorization": f"Bearer {HASS_TOKEN}", "Content-Type": "application/json"}
-                payload = {
-                    "state": f"{name} ({person['role']})",
-                    "attributes": {
-                        "friendly_name": "Last Person Sighting",
-                        "camera": cam,
-                        "person": name,
-                        "role": person["role"],
-                        "confidence": person["confidence"],
-                        "clothing": person.get("clothing", ""),
-                        "is_resident": True,
-                        "timestamp": datetime.now(EASTERN_TZ).isoformat()
-                    }
-                }
-                requests.post(ha_url, headers=ha_headers, json=payload, timeout=3)
-            except Exception:
-                pass
+            # sensor.last_person_sighting / last_pet_sighting: StoneSage publishes them now, from the merged view
+            # (Frigate + sentry + patrol, John's corrections applied: StoneSage/backend/ha_presence.py, 2026-09-27).
+            # Posting here too let a sighting John had rejected overwrite the corrected answer.
         else:
             logger.warning(f"🚨 UNRECOGNIZED VISITOR on {cam}: {summary}")
-            try:
-                ha_url = f"{HASS_URL}/api/states/sensor.last_person_sighting"
-                ha_headers = {"Authorization": f"Bearer {HASS_TOKEN}", "Content-Type": "application/json"}
-                payload = {
-                    "state": "Unrecognized Visitor",
-                    "attributes": {
-                        "friendly_name": "Last Person Sighting",
-                        "camera": cam,
-                        "person": "Unknown",
-                        "role": "Visitor",
-                        "is_resident": False,
-                        "summary": summary,
-                        "timestamp": datetime.now(EASTERN_TZ).isoformat()
-                    }
-                }
-                requests.post(ha_url, headers=ha_headers, json=payload, timeout=3)
-            except Exception:
-                pass
             try:
                 alert_payload = {
                     "sender_name": "PerimeterSentinel",
@@ -1207,25 +1215,9 @@ class WildlifeSentryDaemon:
         name = pet["name"]
         cam = pet["camera"]
         logger.info(f"🐾 RESIDENT PET DETECTED: {name} ({pet['species']}) on {cam}!")
-        try:
-            ha_url = f"{HASS_URL}/api/states/sensor.last_pet_sighting"
-            ha_headers = {"Authorization": f"Bearer {HASS_TOKEN}", "Content-Type": "application/json"}
-            payload = {
-                "state": f"{name} ({pet['species']})",
-                "attributes": {
-                    "friendly_name": "Last Pet Sighting",
-                    "camera": cam,
-                    "name": name,
-                    "species": pet["species"],
-                    "breed": pet.get("breed", ""),
-                    "is_resident": pet["is_resident"],
-                    "timestamp": datetime.now(EASTERN_TZ).isoformat()
-                }
-            }
-            requests.post(ha_url, headers=ha_headers, json=payload, timeout=3)
-        except Exception:
-            pass
-
+        # sensor.last_person_sighting / last_pet_sighting: StoneSage publishes them now, from the merged view
+        # (Frigate + sentry + patrol, John's corrections applied: StoneSage/backend/ha_presence.py, 2026-09-27).
+        # Posting here too let a sighting John had rejected overwrite the corrected answer.
         try:
             subj_url = f"{HASS_URL}/api/states/sensor.last_subject_detected"
             requests.post(subj_url, headers={"Authorization": f"Bearer {HASS_TOKEN}", "Content-Type": "application/json"},
@@ -1561,6 +1553,8 @@ class WildlifeSentryDaemon:
                     logger.info(f"🏁 High-frequency wildlife burst completed for {burst['animal_name']} on {burst['cam']['name']}.")
                     self.active_bursts.pop(cam_id, None)
 
+        self._reload_known_entities_if_changed()
+
         # 2. Check scheduled periodic cameras
         for cam in CAMERAS:
             if not self.running:
@@ -1569,12 +1563,11 @@ class WildlifeSentryDaemon:
             entity_id = cam["id"]
             cam_name = cam["name"]
             
-            # ZERO-DRAIN BATTERY RULE: Battery cameras NEVER wake up on periodic timers.
-            # They stay in ultra-low-power Wi-Fi deep sleep until an actual hardware push notification arrives.
-            if cam.get("is_battery"):
+            # ZERO-DRAIN BATTERY RULE: plain battery cameras NEVER wake up on periodic timers; they stay in
+            # deep sleep until a hardware push arrives. Solar cameras get a battery-dependent interval.
+            interval = self.periodic_interval(cam)
+            if interval is None:
                 continue
-
-            interval = cam.get("poll_interval", 1800)
             last_time = self.last_polled.get(entity_id, 0)
             if now - last_time < interval:
                 continue

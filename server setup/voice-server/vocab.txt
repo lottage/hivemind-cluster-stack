@@ -1,0 +1,13 @@
+# Words the speech recognizers get wrong. Names below are CORRECTED TO (a near miss like "Kyla" becomes "Kylo");
+# a leading + means "only hint it to Whisper" (common words, device words). Add family and pet names here.
+Kylo
+Luna
+Savannah
+Austin
++Computer
++thermostat
++floodlight
++TV lights
++porch light
++driveway camera
++back yard camera
